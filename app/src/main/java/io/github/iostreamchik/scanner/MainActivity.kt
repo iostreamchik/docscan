@@ -28,7 +28,7 @@ class MainActivity : ComponentActivity() {
             DocumentScannerTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     innerPadding
-                    CameraPreviewWithContours(
+                    CameraScreen(
                         modifier = Modifier
                             .fillMaxSize()
                     )

@@ -1,6 +1,6 @@
 # DocumentScanner – Quad-Finder Document Detector
 
-A robust Android document scanner using OpenCV contour-based quadrilateral detection.
+An educational Android document scanner implementing OpenCV contour-based quadrilateral detection. Built as a learning resource for computer vision and image processing techniques.
 
 ## Features
 
@@ -12,63 +12,6 @@ A robust Android document scanner using OpenCV contour-based quadrilateral detec
 - **Stability tracking** – Confirms document across multiple frames before triggering capture.
 - **Memory safety** – Explicit Mat.release() via extension helpers.
 - **Configurable** – All tunable parameters in one `DetectorConfig` data class.
-
-## How to Use
-
-### 1. Basic detection (no stability tracking)
-
-```kotlin
-val detector = DocumentDetector()
-
-val result = detector.detect(previewMat)
-if (result is DetectionResult.Found) {
-    val quad = result.quad          // [TL, TR, BR, BL] in preview coordinates
-    val warp = result.warped        // perspective-corrected image
-
-    // Save/warp/capture your document here
-}
-```
-
-### 2. Stability-aware detection (recommended for camera preview)
-
-```kotlin
-val detector = DocumentDetector()
-
-// Call on every preview frame
-val state = detector.detectWithStability(
-    src = previewMat,
-    frameWidth = previewSize.width,
-    frameHeight = previewSize.height,
-)
-
-if (state.isDetected && state.confidence > 0.8f) {
-    // Document is stable – capture the frame!
-    val corners = state.quad        // ordered TL→TR→BR→BL
-}
-
-// After a successful capture, reset stability tracking
-detector.reset()
-```
-
-### 3. Using a custom config
-
-```kotlin
-val config = DocumentDetectorConfig(
-    stableFramesRequired = 5,          // require 5 matching frames
-    similarityThreshold = 10f,         // allow ±10px drift between frames
-    workingScale = 0.75,               // process at 75% resolution
-    binarise = true,                   // output classic B&W scan
-)
-
-val detector = DocumentDetector(config)
-```
-
-### 4. Lightweight config for low-memory devices
-
-```kotlin
-val config = DocumentDetectorLiteConfig() // smaller candidates, lower resolution
-val detector = DocumentDetector(config)
-```
 
 ## Architecture
 
