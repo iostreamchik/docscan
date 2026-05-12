@@ -10,6 +10,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,14 +34,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import org.opencv.android.OpenCVLoader
 import org.opencv.core.MatOfPoint
 import java.util.concurrent.Executors
 import kotlin.math.max
@@ -75,44 +82,59 @@ fun CameraScreen(
             Box(modifier = Modifier.fillMaxSize())
         }
         val cornerRadius = rememberDeviceCornerRadiusDp()
-        Row(
-            Modifier
-                .align(Alignment.BottomStart)
+        Column(
+            modifier = Modifier
                 .padding(horizontal = 16.dp)
-                .navigationBarsPadding(), horizontalArrangement = Arrangement.SpaceBetween
+                .align(Alignment.BottomStart)
         ) {
-            val bmp by viewModel.filteredBitmap.collectAsStateWithLifecycle()
-            bmp?.let {
-                Card(
-                    shape = RoundedCornerShape(cornerRadius),
-                    elevation = CardDefaults.cardElevation(8.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color.Transparent,
-                    ),
-                ) {
-                    Image(
-                        bitmap = it.asImageBitmap(),
-                        contentDescription = null,
-                    )
+//            val exposure by viewModel.exposureStateFlow.collectAsStateWithLifecycle()
+//            Text(
+//                text = exposure, fontWeight = FontWeight.Bold, style = TextStyle(
+//                    fontSize = 30.sp,
+//                    shadow = Shadow(
+//                        color = Color.Black.copy(alpha = 0.5f),
+//                        offset = Offset(5f, 5f),
+//                        blurRadius = 8f
+//                    )
+//                )
+//            )
+            Row(
+                Modifier
+                    .navigationBarsPadding(), horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                val bmp by viewModel.filteredBitmap.collectAsStateWithLifecycle()
+                bmp?.let {
+                    Card(
+                        shape = RoundedCornerShape(cornerRadius),
+                        elevation = CardDefaults.cardElevation(8.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color.Transparent,
+                        ),
+                    ) {
+                        Image(
+                            bitmap = it.asImageBitmap(),
+                            contentDescription = null,
+                        )
+                    }
                 }
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            val resultBmp by viewModel.resultBitmap.collectAsStateWithLifecycle()
-            resultBmp?.let {
-                Card(
-                    shape = RoundedCornerShape(4.dp),
-                    elevation = CardDefaults.cardElevation(8.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color.Transparent,
-                    ),
-                ) {
-                    Image(
-                        bitmap = it.asImageBitmap(),
-                        contentDescription = null,
-                    )
+                Spacer(modifier = Modifier.width(16.dp))
+                val resultBmp by viewModel.resultBitmap.collectAsStateWithLifecycle()
+                resultBmp?.let {
+                    Card(
+                        shape = RoundedCornerShape(4.dp),
+                        elevation = CardDefaults.cardElevation(8.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color.Transparent,
+                        ),
+                    ) {
+                        Image(
+                            bitmap = it.asImageBitmap(),
+                            contentDescription = null,
+                        )
+                    }
                 }
-            }
 
+            }
         }
         Canvas(modifier = Modifier.matchParentSize()) {
 
@@ -163,7 +185,7 @@ fun CameraScreen(
                     )
 
                     drawLine(
-                        color = Color.Green.copy(alpha = 0.5f),
+                        color = Color.Red.copy(alpha = 0.5f),
                         start = Offset(
                             p1.x * scale + dx,
                             p1.y * scale + dy
@@ -225,6 +247,8 @@ fun CameraScreen(
 @Composable
 private fun CameraScreenPreview() {
     Surface() {
-        CameraScreen()
+        CameraScreen(
+            viewModel = viewModel() { CameraViewModel() }
+        )
     }
 }

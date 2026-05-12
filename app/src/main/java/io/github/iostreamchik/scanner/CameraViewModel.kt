@@ -1,3 +1,4 @@
+// This one is the best
 package io.github.iostreamchik.scanner
 
 import android.graphics.Bitmap
@@ -34,8 +35,14 @@ class CameraViewModel : ViewModel() {
     private val _resultBitmap = MutableStateFlow<Bitmap?>(null)
     val resultBitmap = _resultBitmap.asStateFlow()
 
-    private val _originalResultBitmap = MutableStateFlow<Bitmap?>(null)
-    val originalResultBitmap = _originalResultBitmap.asStateFlow()
+    val gray = Mat()
+    val blurred = Mat()
+    val enhanced = Mat()
+    val morph = Mat()
+    val temp = Mat()
+    val edges = Mat()
+    val morphAdd = Mat()
+    val hierarchy = Mat()
 
     fun processFrame(imageProxy: ImageProxy): List<MatOfPoint> {
         lastFrameSize = Size(
@@ -44,28 +51,22 @@ class CameraViewModel : ViewModel() {
         )
         val mat = imageProxy.toMatRGBA()
 
-        val gray = Mat()
-        val blurred = Mat()
-        val enhanced = Mat()
-        val morph = Mat()
-        val temp = Mat()
-        val edges = Mat()
-        val morphAdd = Mat()
-        val hierarchy = Mat()
-
         try {
             // 1️⃣ Grayscale
             Imgproc.cvtColor(mat, gray, Imgproc.COLOR_RGBA2GRAY)
 
             // 2️⃣ Blur
-            Imgproc.GaussianBlur(gray, blurred, Size(3.0, 3.0), 0.0)
+            val scale = imageProxy.width / 640.0
+            // Determine kernel size: must be at least 3, must be odd
+            var ksize = (3.0 * scale).toInt()
+            if (ksize % 2 == 0) ksize += 1
+            Imgproc.medianBlur(gray, blurred, ksize)
 
             // Add CLAHE for contrast enhancement
             val clahe = Imgproc.createCLAHE(1.0, Size(1.0, 1.0))
             clahe.apply(blurred, enhanced)
 
             // 3️⃣ Adaptive Morph Close (scale-aware)
-            val scale = imageProxy.width / 640.0
             val kernelSize = (5 * scale).toInt().coerceAtLeast(5)
             val kernel = Imgproc.getStructuringElement(
                 Imgproc.MORPH_RECT,
@@ -98,7 +99,7 @@ class CameraViewModel : ViewModel() {
             Imgproc.morphologyEx(edges, morphAdd, Imgproc.MORPH_DILATE, kernel2)
 
 
-            _filteredBitmap.value = morph.fixRotation(imageProxy).toBitmap()
+            _filteredBitmap.value = morphAdd.fixRotation(imageProxy).toBitmap()
 
             // 7️⃣ Find contours
             val contours = mutableListOf<MatOfPoint>()
@@ -153,7 +154,6 @@ class CameraViewModel : ViewModel() {
                 if (solidity < 0.3) continue
 
                 documentCandidates.add(quad)
-                hull.release()
             }
 
             if (documentCandidates.isEmpty()) return emptyList()
@@ -170,9 +170,7 @@ class CameraViewModel : ViewModel() {
                 val fusedQuad = getFusedQuad()
                 return if (fusedQuad != null) {
                     val warped = warpDocument(mat, fusedQuad, imageProxy)
-                    val original = warpDocument(mat, fusedQuad, imageProxy, enhance = false)
                     _resultBitmap.value = warped
-                    _originalResultBitmap.value = original
                     listOf(fusedQuad)
                 } else emptyList()
             } else return emptyList()
@@ -345,7 +343,7 @@ class CameraViewModel : ViewModel() {
         return acos(dot / (norm1 * norm2)) * 180.0 / PI
     }
 
-    private fun warpDocument(src: Mat, quad: MatOfPoint, imageProxy: ImageProxy, scale: Double = 3.0, enhance: Boolean = true): Bitmap {
+    private fun warpDocument(src: Mat, quad: MatOfPoint, imageProxy: ImageProxy): Bitmap? {
         val sorted = quad.toSortedQuad()
 
         val tl = sorted[0]
@@ -353,60 +351,43 @@ class CameraViewModel : ViewModel() {
         val br = sorted[2]
         val bl = sorted[3]
 
-        val topWidth = hypot(tr.x - tl.x, tr.y - tl.y)
-        val bottomWidth = hypot(br.x - bl.x, br.y - bl.y)
-        val detectedWidth = max(topWidth, bottomWidth)
+        val scaleFactor = 2.0
 
-        val leftHeight = hypot(tl.x - bl.x, tl.y - bl.y)
-        val rightHeight = hypot(tr.x - br.x, tr.y - br.y)
-        val detectedHeight = max(leftHeight, rightHeight)
+        // Compute width
+        val widthA = hypot(br.x - bl.x, br.y - bl.y)
+        val widthB = hypot(tr.x - tl.x, tr.y - tl.y)
+        val maxWidth = (max(widthA, widthB) * scaleFactor).toInt()
 
-        val topCenter = Point((tl.x + tr.x) / 2, (tl.y + tr.y) / 2)
-        val bottomCenter = Point((bl.x + br.x) / 2, (bl.y + br.y) / 2)
-        val leftCenter = Point((tl.x + bl.x) / 2, (tl.y + bl.y) / 2)
-        val rightCenter = Point((tr.x + br.x) / 2, (tr.y + br.y) / 2)
+        // Compute height
+        val heightA = hypot(tr.x - br.x, tr.y - br.y)
+        val heightB = hypot(tl.x - bl.x, tl.y - bl.y)
+        val maxHeight = (max(heightA, heightB) * scaleFactor).toInt()
 
-        val verticalDist = hypot(topCenter.x - bottomCenter.x, topCenter.y - bottomCenter.y)
-        val horizontalDist = hypot(leftCenter.x - rightCenter.x, leftCenter.y - rightCenter.y)
+        val srcPoints = MatOfPoint2f(
+            tl,
+            tr,
+            br,
+            bl
+        )
 
-        val isLandscape = horizontalDist > verticalDist
-
-        val baseResolution = 200.0 * scale
-        val a4Aspect = 1.414
-
-        val (outputWidth, outputHeight) = if (isLandscape) {
-            val h = baseResolution
-            val w = h * a4Aspect
-            w.toInt() to h.toInt()
-        } else {
-            val w = baseResolution
-            val h = w / a4Aspect
-            w.toInt() to h.toInt()
-        }
-
-        Log.d("CameraViewModel", "Detected: ${detectedWidth}x${detectedHeight}, isLandscape=${isLandscape}, output: ${outputWidth}x${outputHeight}")
-
-        val srcPoints = MatOfPoint2f(tl, tr, br, bl)
         val dstPoints = MatOfPoint2f(
             Point(0.0, 0.0),
-            Point(outputWidth.toDouble(), 0.0),
-            Point(outputWidth.toDouble(), outputHeight.toDouble()),
-            Point(0.0, outputHeight.toDouble())
+            Point(maxWidth.toDouble(), 0.0),
+            Point(maxWidth.toDouble(), maxHeight.toDouble()),
+            Point(0.0, maxHeight.toDouble())
         )
 
         val transform = Imgproc.getPerspectiveTransform(srcPoints, dstPoints)
 
         val output = Mat()
-        Imgproc.warpPerspective(src, output, transform, Size(outputWidth.toDouble(), outputHeight.toDouble()))
+        Imgproc.warpPerspective(
+            src,
+            output,
+            transform,
+            Size(maxWidth.toDouble(), maxHeight.toDouble())
+        )
 
-        val result = if (enhance) {
-            output.enhanceDocument().fixRotation(imageProxy).toBitmap()
-        } else {
-            output.fixRotation(imageProxy).toBitmap()
-        }
-
-        output.release()
-        return result
+        return output.enhanceDocument().fixRotation(imageProxy).toBitmap()
     }
 
     private fun distance(p1: Point, p2: Point): Double {

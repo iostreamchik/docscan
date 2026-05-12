@@ -17,8 +17,5 @@ class App: Application() {
         } else {
             Log.e("OpenCV", "OpenCV initialization failed")
         }
-
-        val mat = Mat(10, 10, CvType.CV_8UC1)
-        Log.d("OpenCV", "Mat created: ${mat.rows()} x ${mat.cols()}")
     }
 }
