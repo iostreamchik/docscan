@@ -58,9 +58,8 @@ fun ImageProxy.toMatRGBA(): Mat {
     return rgba
 }
 
-fun Mat.fixRotation(imageProxy: ImageProxy): Mat {
-    val rotation = imageProxy.imageInfo.rotationDegrees
-    return when (rotation) {
+fun Mat.fixRotation(rotationDegrees: Int): Mat {
+    return when (rotationDegrees) {
         90 -> this.rotate90Clockwise()
         270 -> this.rotate90CounterClockwise()
         180 -> {
@@ -133,4 +132,15 @@ fun Mat.enhanceDocument(): Mat {
     Core.addWeighted(result, 1.3, blurred, -0.3, 0.0, result)
 
     return result
+}
+
+fun Mat.sharpen(): Mat {
+    val blurred = Mat()
+    Imgproc.GaussianBlur(this, blurred, Size(0.0, 0.0), 2.0)
+    
+    val sharpened = Mat()
+    Core.addWeighted(this, 1.3, blurred, -0.3, 0.0, sharpened)
+    
+    blurred.release()
+    return sharpened
 }

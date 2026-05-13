@@ -1,8 +1,12 @@
 package io.github.iostreamchik.scanner
 
+import android.util.Log
+import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.BorderStroke
@@ -87,17 +91,17 @@ fun CameraScreen(
                 .padding(horizontal = 16.dp)
                 .align(Alignment.BottomStart)
         ) {
-//            val exposure by viewModel.exposureStateFlow.collectAsStateWithLifecycle()
-//            Text(
-//                text = exposure, fontWeight = FontWeight.Bold, style = TextStyle(
-//                    fontSize = 30.sp,
-//                    shadow = Shadow(
-//                        color = Color.Black.copy(alpha = 0.5f),
-//                        offset = Offset(5f, 5f),
-//                        blurRadius = 8f
-//                    )
-//                )
-//            )
+            val exposure by viewModel.exposureStateFlow.collectAsStateWithLifecycle()
+            Text(
+                text = exposure, fontWeight = FontWeight.Bold, style = TextStyle(
+                    fontSize = 30.sp,
+                    shadow = Shadow(
+                        color = Color.Black.copy(alpha = 0.5f),
+                        offset = Offset(5f, 5f),
+                        blurRadius = 8f
+                    )
+                )
+            )
             Row(
                 Modifier
                     .navigationBarsPadding(), horizontalArrangement = Arrangement.SpaceBetween
@@ -205,20 +209,35 @@ fun CameraScreen(
                 .getInstance(context)
                 .get()
 
-            val preview = Preview.Builder().build().also {
-                it.surfaceProvider = previewView.surfaceProvider
-            }
-
-            val imageAnalyzer = ImageAnalysis.Builder()
-                .setBackpressureStrategy(
-                    ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
+            // 1. Define the Resolution Selector
+            // This tells CameraX to prefer the highest resolution possible
+            val resolutionSelector = ResolutionSelector.Builder()
+                .setResolutionStrategy(
+                    ResolutionStrategy(
+                        // Setting a very high resolution acts as a hint to pick the max available
+                        Size(1000, 1000),
+                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER
+                    )
                 )
                 .build()
 
-            imageAnalyzer.setAnalyzer(
-                Executors.newSingleThreadExecutor()
-            ) { imageProxy ->
+            // 2. Apply the selector to the Preview
+            val preview = Preview.Builder()
+                .setResolutionSelector(resolutionSelector)
+                .build()
+                .also {
+                    it.surfaceProvider = previewView.surfaceProvider
+                }
 
+            // 3. Apply the SAME selector to the ImageAnalyzer
+            // IMPORTANT: If you don't do this, the analyzer might use a low-res
+            // stream even if the preview is high-res.
+            val imageAnalyzer = ImageAnalysis.Builder()
+                .setResolutionSelector(resolutionSelector)
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+
+            imageAnalyzer.setAnalyzer(Executors.newSingleThreadExecutor()) { imageProxy ->
                 val contours = viewModel.processFrame(imageProxy)
 
                 contourState.value = ContourData(
@@ -227,17 +246,20 @@ fun CameraScreen(
                     frameHeight = imageProxy.height,
                     rotation = imageProxy.imageInfo.rotationDegrees
                 )
-
                 imageProxy.close()
             }
 
-            cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
-                lifecycleOwner,
-                CameraSelector.DEFAULT_BACK_CAMERA,
-                preview,
-                imageAnalyzer
-            )
+            try {
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(
+                    lifecycleOwner,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    preview,
+                    imageAnalyzer
+                )
+            } catch (e: Exception) {
+                Log.e("CameraX", "Use case binding failed", e)
+            }
         }
     }
 

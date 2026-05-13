@@ -14,6 +14,7 @@ import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
+import org.opencv.core.Core
 import java.lang.Math.PI
 import kotlin.math.abs
 import kotlin.math.acos
@@ -29,11 +30,16 @@ class CameraViewModel : ViewModel() {
     private var lastFrameSize: Size? = null
     private val MAX_HISTORY = 10
 
+    private val PROCESS_WIDTH = 640.0
+
     private val _filteredBitmap = MutableStateFlow<Bitmap?>(null)
     val filteredBitmap = _filteredBitmap.asStateFlow()
 
     private val _resultBitmap = MutableStateFlow<Bitmap?>(null)
     val resultBitmap = _resultBitmap.asStateFlow()
+
+    private val _exposureStateFlow = MutableStateFlow("")
+    val exposureStateFlow = _exposureStateFlow.asStateFlow()
 
     val gray = Mat()
     val blurred = Mat()
@@ -51,12 +57,27 @@ class CameraViewModel : ViewModel() {
         )
         val mat = imageProxy.toMatRGBA()
 
+        val originalWidth = imageProxy.width
+        val originalHeight = imageProxy.height
+
+        val maxDimension = max(originalWidth, originalHeight)
+
+        val scale = PROCESS_WIDTH / maxDimension
+
+        val scaledWidth = (originalWidth * scale)
+        val scaledHeight = (originalHeight * scale)
+
         try {
+            val smallMat = Mat()
+            Imgproc.resize(mat, smallMat, Size(scaledWidth, scaledHeight))
             // 1️⃣ Grayscale
-            Imgproc.cvtColor(mat, gray, Imgproc.COLOR_RGBA2GRAY)
+            Imgproc.cvtColor(smallMat, gray, Imgproc.COLOR_RGBA2GRAY)
+
+            val meanScalar = Core.mean(gray)
+            val avgBrightness = meanScalar.`val`[0]
+            _exposureStateFlow.value = "${avgBrightness.toInt()}"
 
             // 2️⃣ Blur
-            val scale = imageProxy.width / 640.0
             // Determine kernel size: must be at least 3, must be odd
             var ksize = (3.0 * scale).toInt()
             if (ksize % 2 == 0) ksize += 1
@@ -82,7 +103,6 @@ class CameraViewModel : ViewModel() {
                 255.0,
                 Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
             )
-
             val high = otsu
             val low = otsu * 0.4
 
@@ -94,18 +114,17 @@ class CameraViewModel : ViewModel() {
                 (5 * scale).coerceAtLeast(3.0),
                 (5 * scale).coerceAtLeast(3.0)
             )
-            Log.d("CameraViewModel", "Size: $size scale: $scale otsu: [$low-$high]")
+            Log.d("CameraViewModel", "imageProxy.width: ${imageProxy.width} size: $size scale: $scale otsu: [$low-$high] ")
             val kernel2 = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, size)
-            Imgproc.morphologyEx(edges, morphAdd, Imgproc.MORPH_DILATE, kernel2)
+            Imgproc.morphologyEx(edges, morph, Imgproc.MORPH_DILATE, kernel2)
 
-
-            _filteredBitmap.value = morphAdd.fixRotation(imageProxy).toBitmap()
+            _filteredBitmap.value = morph.fixRotation(imageProxy.imageInfo.rotationDegrees).toBitmap()
 
             // 7️⃣ Find contours
             val contours = mutableListOf<MatOfPoint>()
 
             Imgproc.findContours(
-                morphAdd,
+                morph,
                 contours,
                 hierarchy,
                 Imgproc.RETR_LIST,
@@ -114,7 +133,7 @@ class CameraViewModel : ViewModel() {
 
             if (contours.isEmpty()) return emptyList()
 
-            val frameArea = imageProxy.width * imageProxy.height.toDouble()
+            val frameArea = scaledWidth * scaledHeight
             val minArea = frameArea * 0.015
 
             val documentCandidates = mutableListOf<MatOfPoint>()
@@ -143,14 +162,27 @@ class CameraViewModel : ViewModel() {
 
                 if (approx.total() != 4L) continue
 
-                val quad = MatOfPoint(*approx.toArray())
+                val scaleX = originalWidth.toDouble() / scaledWidth
+                val scaleY = originalHeight.toDouble() / scaledHeight
+
+                val scaledPoints = approx.toArray().map { point ->
+                    Point(
+                        point.x * scaleX,
+                        point.y * scaleY
+                    )
+                }
+
+                val quad = MatOfPoint(*scaledPoints.toTypedArray())
+//                val quad = MatOfPoint(*approx.toArray())
+
 
                 // 🔷 Angle validation
                 if (!isRectangle(approx)) continue
 
-                // 🔷 Solidity check
+                // 🔷 Solidity check - scale area back to original coordinates
+                val scaledArea = area * (scaleX * scaleY)
                 val rect = Imgproc.boundingRect(quad)
-                val solidity = area / (rect.width * rect.height).toDouble()
+                val solidity = scaledArea / (rect.width * rect.height).toDouble()
                 if (solidity < 0.3) continue
 
                 documentCandidates.add(quad)
@@ -160,7 +192,7 @@ class CameraViewModel : ViewModel() {
 
             // ✅ Choose best by score
             val best = documentCandidates.maxByOrNull {
-                scoreContour(it, imageProxy.width, imageProxy.height)
+                scoreContour(it, scaledWidth.toInt(), scaledHeight.toInt())
             }
 
             val result = best?.let { listOf(it) } ?: emptyList()
@@ -169,7 +201,8 @@ class CameraViewModel : ViewModel() {
             if (isStable()) {
                 val fusedQuad = getFusedQuad()
                 return if (fusedQuad != null) {
-                    val warped = warpDocument(mat, fusedQuad, imageProxy)
+//                    val warped = warpDocument(mat, fusedQuad, imageProxy)
+                    val warped = warpDocumentHighQuality(imageProxy, mat, fusedQuad)
                     _resultBitmap.value = warped
                     listOf(fusedQuad)
                 } else emptyList()
@@ -188,6 +221,14 @@ class CameraViewModel : ViewModel() {
             morphAdd.release()
             hierarchy.release()
         }
+    }
+
+    private fun scaleContour(contour: MatOfPoint, scale: Double): MatOfPoint {
+        val points = contour.toArray()
+        val scaledPoints = points.map {
+            Point(it.x * scale, it.y * scale)
+        }
+        return MatOfPoint(*scaledPoints.toTypedArray())
     }
 
     private fun updateHistory(quad: MatOfPoint) {
@@ -387,7 +428,7 @@ class CameraViewModel : ViewModel() {
             Size(maxWidth.toDouble(), maxHeight.toDouble())
         )
 
-        return output.enhanceDocument().fixRotation(imageProxy).toBitmap()
+        return output.enhanceDocument().fixRotation(imageProxy.imageInfo.rotationDegrees).toBitmap()
     }
 
     private fun distance(p1: Point, p2: Point): Double {
@@ -448,6 +489,38 @@ class CameraViewModel : ViewModel() {
 
         return quad.map {
             Point(it.x * scaleX, it.y * scaleY)
+        }
+    }
+
+    private fun warpDocumentHighQuality(imageProxy: ImageProxy, src: Mat, quad: MatOfPoint): Bitmap? {
+        return try {
+            val sorted = sortQuadPoints(quad.toArray().toList())
+            val (tl, tr, br, bl) = sorted // Destructuring
+
+            // Use original image dimensions for output size
+            val outputWidth = src.cols().toDouble()
+            val outputHeight = src.rows().toDouble()
+
+            val srcPoints = MatOfPoint2f(tl, tr, br, bl)
+            val dstPoints = MatOfPoint2f(
+                Point(0.0, 0.0),
+                Point(outputWidth, 0.0),
+                Point(outputWidth, outputHeight),
+                Point(0.0, outputHeight)
+            )
+
+            val transform = Imgproc.getPerspectiveTransform(srcPoints, dstPoints)
+            val output = Mat()
+            Imgproc.warpPerspective(src, output, transform, Size(outputWidth, outputHeight))
+            // 7. Convert to Bitmap (applying your existing extensions for rotation/enhancement)
+            // This ensures the "crop" looks like a real scanned document
+            output
+                .fixRotation(imageProxy.imageInfo.rotationDegrees)
+                .sharpen()
+                .toBitmap()
+        } catch (e: Exception) {
+            Log.e("CameraViewModel", "Warp error: ${e.message}")
+            null
         }
     }
 }
