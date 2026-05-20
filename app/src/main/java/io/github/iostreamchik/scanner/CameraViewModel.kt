@@ -1,4 +1,3 @@
-// This one is the best
 package io.github.iostreamchik.scanner
 
 import android.graphics.Bitmap
@@ -15,6 +14,7 @@ import org.opencv.core.Point
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import org.opencv.core.Core
+import org.opencv.core.MatOfDouble
 import java.lang.Math.PI
 import kotlin.math.abs
 import kotlin.math.acos
@@ -40,6 +40,8 @@ class CameraViewModel : ViewModel() {
 
     private val _exposureStateFlow = MutableStateFlow("")
     val exposureStateFlow = _exposureStateFlow.asStateFlow()
+    private val _contrastStateFlow = MutableStateFlow("")
+    val contrastStateFlow = _contrastStateFlow.asStateFlow()
 
     val gray = Mat()
     val blurred = Mat()
@@ -72,10 +74,17 @@ class CameraViewModel : ViewModel() {
             Imgproc.resize(mat, smallMat, Size(scaledWidth, scaledHeight))
             // 1️⃣ Grayscale
             Imgproc.cvtColor(smallMat, gray, Imgproc.COLOR_RGBA2GRAY)
+            smallMat.release()
 
-            val meanScalar = Core.mean(gray)
-            val avgBrightness = meanScalar.`val`[0]
+            val mean = MatOfDouble()
+            val std = MatOfDouble()
+            Core.meanStdDev(gray, mean, std)
+            val avgBrightness = mean.toArray()[0]
+            val contrast = std.toArray()[0]
+            mean.release()
+            std.release()
             _exposureStateFlow.value = "${avgBrightness.toInt()}"
+            _contrastStateFlow.value = "${contrast.toInt()}"
 
             // 2️⃣ Blur
             // Determine kernel size: must be at least 3, must be odd
@@ -84,18 +93,39 @@ class CameraViewModel : ViewModel() {
             Imgproc.medianBlur(gray, blurred, ksize)
 
             // Add CLAHE for contrast enhancement
-            val clahe = Imgproc.createCLAHE(1.0, Size(1.0, 1.0))
+            // Dynamically adjust clipLimit and tile grid size based on avgBrightness
+            val clipLimit = when {
+                avgBrightness < 40 -> 2.0
+                avgBrightness < 80 -> 1.5
+                avgBrightness < 120 -> 1.2
+                else -> 1.0
+            }
+            val tileSize = when {
+                avgBrightness < 80 -> 8.0
+                avgBrightness < 120 -> 16.0
+                else -> 1.0
+            }
+            val clahe = Imgproc.createCLAHE(clipLimit, Size(tileSize, tileSize))
             clahe.apply(blurred, enhanced)
 
             // 3️⃣ Adaptive Morph Close (scale-aware)
-            val kernelSize = (5 * scale).toInt().coerceAtLeast(5)
+            val kernelSize = when {
+                avgBrightness < 70 -> 11.0
+                avgBrightness < 100 -> 9.0
+                else -> 5.0
+            }
+//            val kernelSize = (5 * scale).toInt().coerceAtLeast(5)
             val kernel = Imgproc.getStructuringElement(
                 Imgproc.MORPH_RECT,
-                Size(kernelSize.toDouble(), kernelSize.toDouble())
+                Size(kernelSize, kernelSize)
             )
             Imgproc.morphologyEx(enhanced, morph, Imgproc.MORPH_CLOSE, kernel)
+//                        Imgproc.dilate(enhanced, morph, kernel, Point(-1.0, -1.0), 5)
+// 2. Erode 5 times
+//            Imgproc.erode(morph, morph, kernel, Point(-1.0, -1.0), 5)
 
             // 4️⃣ Otsu for auto Canny
+
             val otsu = Imgproc.threshold(
                 morph,
                 temp,
@@ -103,11 +133,11 @@ class CameraViewModel : ViewModel() {
                 255.0,
                 Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
             )
-            val high = otsu
-            val low = otsu * 0.4
+            val high = otsu.coerceIn(70.0, 160.0)
+            val low = (high * 0.45).coerceAtLeast(35.0)
 
             // 5️⃣ Canny (correct order: low, high)
-            Imgproc.Canny(morph, edges, low, high)
+            Imgproc.Canny(enhanced, edges, low, high)
 
             // 6️⃣ Strong closing to connect document edges
             val size = Size(
@@ -116,7 +146,11 @@ class CameraViewModel : ViewModel() {
             )
             Log.d("CameraViewModel", "imageProxy.width: ${imageProxy.width} size: $size scale: $scale otsu: [$low-$high] ")
             val kernel2 = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, size)
-            Imgproc.morphologyEx(edges, morph, Imgproc.MORPH_DILATE, kernel2)
+//            Imgproc.dilate(edges, morph, kernel, Point(-1.0, -1.0), 2)
+// 2. Erode 5 times
+//            Imgproc.erode(morph, morph, kernel, Point(-1.0, -1.0), 2)
+            Imgproc.morphologyEx(edges, morph, Imgproc.MORPH_CLOSE, kernel2)
+            kernel2.release()
 
             _filteredBitmap.value = morph.fixRotation(imageProxy.imageInfo.rotationDegrees).toBitmap()
 
@@ -202,6 +236,14 @@ class CameraViewModel : ViewModel() {
                 val fusedQuad = getFusedQuad()
                 return if (fusedQuad != null) {
 //                    val warped = warpDocument(mat, fusedQuad, imageProxy)
+                    val originalQuad = getOriginalResolutionQuad(
+                        fusedQuad,
+                        imageProxy.width,
+                        imageProxy.height,
+                        scaledWidth,
+                        scaledHeight
+                    )
+                    Log.d("CameraViewModel", "\nFused Quad: ${fusedQuad.toArray().joinToString(", ")},\n Original Quad: ${originalQuad.toArray().joinToString(", ")}")
                     val warped = warpDocumentHighQuality(imageProxy, mat, fusedQuad)
                     _resultBitmap.value = warped
                     listOf(fusedQuad)
@@ -211,7 +253,6 @@ class CameraViewModel : ViewModel() {
             e.printStackTrace()
             return emptyList()
         } finally {
-            mat.release()
             gray.release()
             blurred.release()
             enhanced.release()
@@ -221,14 +262,6 @@ class CameraViewModel : ViewModel() {
             morphAdd.release()
             hierarchy.release()
         }
-    }
-
-    private fun scaleContour(contour: MatOfPoint, scale: Double): MatOfPoint {
-        val points = contour.toArray()
-        val scaledPoints = points.map {
-            Point(it.x * scale, it.y * scale)
-        }
-        return MatOfPoint(*scaledPoints.toTypedArray())
     }
 
     private fun updateHistory(quad: MatOfPoint) {
@@ -522,5 +555,24 @@ class CameraViewModel : ViewModel() {
             Log.e("CameraViewModel", "Warp error: ${e.message}")
             null
         }
+    }
+
+    private fun getOriginalResolutionQuad(
+        scaledQuad: MatOfPoint,
+        originalWidth: Int,
+        originalHeight: Int,
+        scaledWidth: Double,
+        scaledHeight: Double
+    ): MatOfPoint {
+
+        // Calculate the ratio used to shrink the image
+        val scaleX = originalWidth / scaledWidth
+        val scaleY = originalHeight / scaledHeight
+
+        // Map each point back to the original coordinate space
+        val originalPoints = scaledQuad.toArray().map { point ->
+            Point(point.x * scaleX, point.y * scaleY)
+        }
+        return MatOfPoint(*originalPoints.toTypedArray())
     }
 }

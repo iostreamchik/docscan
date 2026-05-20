@@ -1,6 +1,7 @@
 package io.github.iostreamchik.scanner
 
 import android.graphics.Bitmap
+import android.graphics.ImageFormat
 import androidx.camera.core.ImageProxy
 import androidx.core.graphics.createBitmap
 import org.opencv.android.Utils
@@ -9,53 +10,107 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
+import java.nio.ByteBuffer
 
-fun Int.coerceOdd(): Int {
-    return if (this % 2 == 0) this + 1 else this
-}
 fun ImageProxy.toMatRGBA(): Mat {
-    val yBuffer = planes[0].buffer
-    val uBuffer = planes[1].buffer
-    val vBuffer = planes[2].buffer
+    // Safety check ensuring correct format
+    if (format != ImageFormat.YUV_420_888) {
+        throw IllegalArgumentException("Unsupported image format: $format. Expected YUV_420_888")
+    }
 
+    val width = width
+    val height = height
+
+    val yPlane = planes[0]
+    val uPlane = planes[1]
+    val vPlane = planes[2]
+
+    val yBuffer: ByteBuffer = yPlane.buffer
+    val uBuffer: ByteBuffer = uPlane.buffer
+    val vBuffer: ByteBuffer = vPlane.buffer
+
+    // Clear buffer positions to guarantee reproducible reads
+    yBuffer.rewind()
+    uBuffer.rewind()
+    vBuffer.rewind()
+
+    val yRowStride = yPlane.rowStride
+    val uRowStride = uPlane.rowStride
+    val vRowStride = vPlane.rowStride
+    val uvPixelStride = uPlane.pixelStride
+
+    // Step 1: Allocate a single Master Mat to hold the raw YUV data layout matching rowStride
+    // We allocation based on yRowStride instead of 'width' to completely absorb the hardware padding
+    val rawYuvMat = Mat(height + height / 2, yRowStride, CvType.CV_8UC1)
+
+    // Create view headers inside rawYuvMat for efficient zero-copy data insertions
+    val yMatHeader = rawYuvMat.submat(0, height, 0, yRowStride)
+    val uvMatHeader = rawYuvMat.submat(height, height + height / 2, 0, yRowStride)
+
+    // Step 2: Fill the Y channel using bulk heap allocations (Bypasses loops)
     val ySize = yBuffer.remaining()
-    val nv21 = ByteArray(ySize + ySize / 2)
+    val yByteArray = ByteArray(ySize)
+    yBuffer.get(yByteArray)
+    yMatHeader.put(0, 0, yByteArray)
 
-    val yRowStride = planes[0].rowStride
-    val vRowStride = planes[2].rowStride
-    val uRowStride = planes[1].rowStride
-    val uvPixelStride = planes[1].pixelStride
+    // Step 3: Parse and compact the UV Channel depending on the hardware architecture
+    if (uvPixelStride == 2) {
+        // NV21 or NV12 interleaved format.
+        // Typically, the V buffer begins exactly 1 byte before or after the U buffer.
+        val uvSize = vBuffer.remaining()
+        val uvByteArray = ByteArray(uvSize)
+        vBuffer.get(uvByteArray)
 
-    // Copy Y channel
-    if (yRowStride == width) {
-        yBuffer.get(nv21, 0, ySize)
+        // Put the raw interleaved block directly into the UV submat section
+        uvMatHeader.put(0, 0, uvByteArray)
     } else {
-        for (row in 0 until height) {
-            yBuffer.position(row * yRowStride)
-            yBuffer.get(nv21, row * width, width)
-        }
+        // Fallback for rare devices where planes are entirely planar/separated (uvPixelStride == 1)
+        val uvSize = (yRowStride / 2) * (height / 2)
+        val uByteArray = ByteArray(uBuffer.remaining())
+        val vByteArray = ByteArray(vBuffer.remaining())
+        uBuffer.get(uByteArray)
+        vBuffer.get(vByteArray)
+
+        // Manual reconstruction utilizing fast native matrix operations
+        val uMat = Mat(height / 2, uRowStride, CvType.CV_8UC1)
+        uMat.put(0, 0, uByteArray)
+        val vMat = Mat(height / 2, vRowStride, CvType.CV_8UC1)
+        vMat.put(0, 0, vByteArray)
+
+        // Interleave via OpenCV's native channels merge (Highly optimized vs JVM loops)
+        val list = listOf(vMat, uMat)
+        val mergedUV = Mat()
+        Core.merge(list, mergedUV)
+
+        // Copy the cleanly merged native structure into our layout
+        mergedUV.copyTo(uvMatHeader.submat(0, height / 2, 0, mergedUV.cols()))
+
+        uMat.release()
+        vMat.release()
+        mergedUV.release()
     }
 
-    // Copy UV channels (interleaved NV21)
-    val uvHeight = height / 2
-    val uvWidth = width / 2
-    var pos = ySize
-    for (row in 0 until uvHeight) {
-        for (col in 0 until uvWidth) {
-            val v = vBuffer.get(row * vRowStride + col * uvPixelStride)
-            val u = uBuffer.get(row * uRowStride + col * uvPixelStride)
-            nv21[pos++] = v
-            nv21[pos++] = u
-        }
+    // Step 4: Convert the padded YUV matrix to RGBA format
+    val paddedRgba = Mat()
+    Imgproc.cvtColor(rawYuvMat, paddedRgba, Imgproc.COLOR_YUV2RGBA_NV21, 4)
+
+    // Step 5: Crop out the hardware padding to isolate pure pixels and eliminate the green border
+    val finalRgba = if (yRowStride != width) {
+        val roi = org.opencv.core.Rect(0, 0, width, height)
+        Mat(paddedRgba, roi) // Submat crop out padding
+    } else {
+        paddedRgba
     }
 
-    val yuv = Mat(height + height / 2, width, CvType.CV_8UC1)
-    yuv.put(0, 0, nv21)
+    // Step 6: Native Memory Cleanup to avoid Out-Of-Memory (OOM) freezing
+    yMatHeader.release()
+    uvMatHeader.release()
+    rawYuvMat.release()
+    if (yRowStride != width) {
+        paddedRgba.release()
+    }
 
-    val rgba = Mat()
-    Imgproc.cvtColor(yuv, rgba, Imgproc.COLOR_YUV2RGBA_NV21, 4)
-    yuv.release()
-    return rgba
+    return finalRgba
 }
 
 fun Mat.fixRotation(rotationDegrees: Int): Mat {

@@ -104,11 +104,14 @@ fun CameraScreen(
             )
             Row(
                 Modifier
-                    .navigationBarsPadding(), horizontalArrangement = Arrangement.SpaceBetween
+                    .navigationBarsPadding()
+                    .height(260.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 val bmp by viewModel.filteredBitmap.collectAsStateWithLifecycle()
                 bmp?.let {
                     Card(
+                        modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(cornerRadius),
                         elevation = CardDefaults.cardElevation(8.dp),
                         colors = CardDefaults.cardColors(
@@ -125,6 +128,7 @@ fun CameraScreen(
                 val resultBmp by viewModel.resultBitmap.collectAsStateWithLifecycle()
                 resultBmp?.let {
                     Card(
+                        modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(4.dp),
                         elevation = CardDefaults.cardElevation(8.dp),
                         colors = CardDefaults.cardColors(
@@ -211,11 +215,12 @@ fun CameraScreen(
 
             // 1. Define the Resolution Selector
             // This tells CameraX to prefer the highest resolution possible
+            val size = 1000
             val resolutionSelector = ResolutionSelector.Builder()
                 .setResolutionStrategy(
                     ResolutionStrategy(
                         // Setting a very high resolution acts as a hint to pick the max available
-                        Size(1000, 1000),
+                        Size(size, size),
                         ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER
                     )
                 )
