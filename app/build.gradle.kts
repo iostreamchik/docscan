@@ -71,6 +71,7 @@ dependencies {
     implementation(libs.camerax.view)
 
     implementation(libs.opencv)
+    implementation(libs.androidx.exifinterface)
 
 
     testImplementation(libs.junit)

@@ -1,11 +1,20 @@
 package io.github.iostreamchik.scanner
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.ImageDecoder
+import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import org.opencv.android.Utils
 import org.opencv.core.Mat
 import org.opencv.core.MatOfInt
 import org.opencv.core.MatOfPoint
@@ -53,215 +62,41 @@ class CameraViewModel : ViewModel() {
     val hierarchy = Mat()
 
     fun processFrame(imageProxy: ImageProxy): List<MatOfPoint> {
-        lastFrameSize = Size(
-            imageProxy.width.toDouble(),
-            imageProxy.height.toDouble()
-        )
+        val width = imageProxy.width
+        val height = imageProxy.height
+        lastFrameSize = Size(width.toDouble(), height.toDouble())
+        
         val mat = imageProxy.toMatRGBA()
+        val rotation = imageProxy.imageInfo.rotationDegrees
 
-        val originalWidth = imageProxy.width
-        val originalHeight = imageProxy.height
+        val result = detectDocument(mat, rotation)
 
-        val maxDimension = max(originalWidth, originalHeight)
-
-        val scale = PROCESS_WIDTH / maxDimension
-
-        val scaledWidth = (originalWidth * scale)
-        val scaledHeight = (originalHeight * scale)
-
-        try {
-            val smallMat = Mat()
-            Imgproc.resize(mat, smallMat, Size(scaledWidth, scaledHeight))
-            // 1️⃣ Grayscale
-            Imgproc.cvtColor(smallMat, gray, Imgproc.COLOR_RGBA2GRAY)
-            smallMat.release()
-
-            val mean = MatOfDouble()
-            val std = MatOfDouble()
-            Core.meanStdDev(gray, mean, std)
-            val avgBrightness = mean.toArray()[0]
-            val contrast = std.toArray()[0]
-            mean.release()
-            std.release()
-            _exposureStateFlow.value = "${avgBrightness.toInt()}"
-            _contrastStateFlow.value = "${contrast.toInt()}"
-
-            // 2️⃣ Blur
-            // Determine kernel size: must be at least 3, must be odd
-            var ksize = (3.0 * scale).toInt()
-            if (ksize % 2 == 0) ksize += 1
-            Imgproc.medianBlur(gray, blurred, ksize)
-
-            // Add CLAHE for contrast enhancement
-            // Dynamically adjust clipLimit and tile grid size based on avgBrightness
-            val clipLimit = when {
-                avgBrightness < 40 -> 2.0
-                avgBrightness < 80 -> 1.5
-                avgBrightness < 120 -> 1.2
-                else -> 1.0
-            }
-            val tileSize = when {
-                avgBrightness < 80 -> 8.0
-                avgBrightness < 120 -> 16.0
-                else -> 1.0
-            }
-            val clahe = Imgproc.createCLAHE(clipLimit, Size(tileSize, tileSize))
-            clahe.apply(blurred, enhanced)
-
-            // 3️⃣ Adaptive Morph Close (scale-aware)
-            val kernelSize = when {
-                avgBrightness < 70 -> 11.0
-                avgBrightness < 100 -> 9.0
-                else -> 5.0
-            }
-//            val kernelSize = (5 * scale).toInt().coerceAtLeast(5)
-            val kernel = Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT,
-                Size(kernelSize, kernelSize)
-            )
-            Imgproc.morphologyEx(enhanced, morph, Imgproc.MORPH_CLOSE, kernel)
-//                        Imgproc.dilate(enhanced, morph, kernel, Point(-1.0, -1.0), 5)
-// 2. Erode 5 times
-//            Imgproc.erode(morph, morph, kernel, Point(-1.0, -1.0), 5)
-
-            // 4️⃣ Otsu for auto Canny
-
-            val otsu = Imgproc.threshold(
-                morph,
-                temp,
-                0.0,
-                255.0,
-                Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
-            )
-            val high = otsu.coerceIn(70.0, 160.0)
-            val low = (high * 0.45).coerceAtLeast(35.0)
-
-            // 5️⃣ Canny (correct order: low, high)
-            Imgproc.Canny(enhanced, edges, low, high)
-
-            // 6️⃣ Strong closing to connect document edges
-            val size = Size(
-                (5 * scale).coerceAtLeast(3.0),
-                (5 * scale).coerceAtLeast(3.0)
-            )
-            Log.d("CameraViewModel", "imageProxy.width: ${imageProxy.width} size: $size scale: $scale otsu: [$low-$high] ")
-            val kernel2 = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, size)
-//            Imgproc.dilate(edges, morph, kernel, Point(-1.0, -1.0), 2)
-// 2. Erode 5 times
-//            Imgproc.erode(morph, morph, kernel, Point(-1.0, -1.0), 2)
-            Imgproc.morphologyEx(edges, morph, Imgproc.MORPH_CLOSE, kernel2)
-            kernel2.release()
-
-            _filteredBitmap.value = morph.fixRotation(imageProxy.imageInfo.rotationDegrees).toBitmap()
-
-            // 7️⃣ Find contours
-            val contours = mutableListOf<MatOfPoint>()
-
-            Imgproc.findContours(
-                morph,
-                contours,
-                hierarchy,
-                Imgproc.RETR_LIST,
-                Imgproc.CHAIN_APPROX_SIMPLE
-            )
-
-            if (contours.isEmpty()) return emptyList()
-
-            val frameArea = scaledWidth * scaledHeight
-            val minArea = frameArea * 0.015
-
-            val documentCandidates = mutableListOf<MatOfPoint>()
-
-            for (contour in contours) {
-
-                val area = Imgproc.contourArea(contour)
-                if (area < minArea) continue
-
-                // Convex hull
-                val hull = MatOfInt()
-                Imgproc.convexHull(contour, hull)
-
-                val contourArray = contour.toArray()
-                val hullPoints = MatOfPoint()
-                hullPoints.fromList(hull.toArray().map { contourArray[it] })
-
-                val peri = Imgproc.arcLength(MatOfPoint2f(*hullPoints.toArray()), true)
-                val approx = MatOfPoint2f()
-                Imgproc.approxPolyDP(
-                    MatOfPoint2f(*hullPoints.toArray()),
-                    approx,
-                    0.02 * peri,
-                    true
-                )
-
-                if (approx.total() != 4L) continue
-
-                val scaleX = originalWidth.toDouble() / scaledWidth
-                val scaleY = originalHeight.toDouble() / scaledHeight
-
-                val scaledPoints = approx.toArray().map { point ->
-                    Point(
-                        point.x * scaleX,
-                        point.y * scaleY
-                    )
-                }
-
-                val quad = MatOfPoint(*scaledPoints.toTypedArray())
-//                val quad = MatOfPoint(*approx.toArray())
-
-
-                // 🔷 Angle validation
-                if (!isRectangle(approx)) continue
-
-                // 🔷 Solidity check - scale area back to original coordinates
-                val scaledArea = area * (scaleX * scaleY)
-                val rect = Imgproc.boundingRect(quad)
-                val solidity = scaledArea / (rect.width * rect.height).toDouble()
-                if (solidity < 0.3) continue
-
-                documentCandidates.add(quad)
-            }
-
-            if (documentCandidates.isEmpty()) return emptyList()
-
-            // ✅ Choose best by score
-            val best = documentCandidates.maxByOrNull {
-                scoreContour(it, scaledWidth.toInt(), scaledHeight.toInt())
-            }
-
-            val result = best?.let { listOf(it) } ?: emptyList()
+        if (result.isNotEmpty()) {
             result.forEach { updateHistory(it) }
-
+            
             if (isStable()) {
                 val fusedQuad = getFusedQuad()
-                return if (fusedQuad != null) {
-//                    val warped = warpDocument(mat, fusedQuad, imageProxy)
+                if (fusedQuad != null) {
+                    val maxDimension = max(width, height)
+                    val scale = PROCESS_WIDTH / maxDimension
+                    val scaledWidth = width * scale
+                    val scaledHeight = height * scale
+
                     val originalQuad = getOriginalResolutionQuad(
                         fusedQuad,
-                        imageProxy.width,
-                        imageProxy.height,
+                        width,
+                        height,
                         scaledWidth,
                         scaledHeight
                     )
                     Log.d("CameraViewModel", "\nFused Quad: ${fusedQuad.toArray().joinToString(", ")},\n Original Quad: ${originalQuad.toArray().joinToString(", ")}")
-                    val warped = warpDocumentHighQuality(imageProxy, mat, fusedQuad)
+                    val warped = warpDocumentHighQuality(mat, fusedQuad, rotation)
                     _resultBitmap.value = warped
-                    listOf(fusedQuad)
-                } else emptyList()
-            } else return emptyList()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return emptyList()
-        } finally {
-            gray.release()
-            blurred.release()
-            enhanced.release()
-            morph.release()
-            temp.release()
-            edges.release()
-            morphAdd.release()
-            hierarchy.release()
+                    return listOf(fusedQuad)
+                }
+            }
         }
+        return result
     }
 
     private fun updateHistory(quad: MatOfPoint) {
@@ -362,6 +197,165 @@ class CameraViewModel : ViewModel() {
         return (totalDistance / 4.0) / diagonal
     }
 
+
+    private fun detectDocument(mat: Mat, rotation: Int): List<MatOfPoint> {
+        val originalWidth = mat.cols()
+        val originalHeight = mat.rows()
+        val maxDimension = max(originalWidth, originalHeight)
+        val scale = PROCESS_WIDTH / maxDimension
+        val scaledWidth = (originalWidth * scale)
+        val scaledHeight = (originalHeight * scale)
+
+        try {
+            val smallMat = Mat()
+            Imgproc.resize(mat, smallMat, Size(scaledWidth, scaledHeight))
+
+            // 1️⃣ Grayscale
+            Imgproc.cvtColor(smallMat, gray, Imgproc.COLOR_RGBA2GRAY)
+            smallMat.release()
+
+            val mean = MatOfDouble()
+            val std = MatOfDouble()
+            Core.meanStdDev(gray, mean, std)
+            val avgBrightness = mean.toArray()[0]
+            val contrast = std.toArray()[0]
+            mean.release()
+            std.release()
+            _exposureStateFlow.value = "${avgBrightness.toInt()}"
+            _contrastStateFlow.value = "${contrast.toInt()}"
+
+            // 2️⃣ Blur
+            var ksize = (3.0 * scale).toInt()
+            if (ksize % 2 == 0) ksize += 1
+            Imgproc.medianBlur(gray, blurred, ksize)
+
+            val clipLimit = when {
+                avgBrightness < 40 -> 2.0
+                avgBrightness < 80 -> 1.5
+                avgBrightness < 120 -> 1.2
+                else -> 1.0
+            }
+            val tileSize = when {
+                avgBrightness < 80 -> 8.0
+                avgBrightness < 120 -> 16.0
+                else -> 1.0
+            }
+            val clahe = Imgproc.createCLAHE(clipLimit, Size(tileSize, tileSize))
+            clahe.apply(blurred, enhanced)
+
+            // 3️⃣ Adaptive Morph Close
+            val kernelSize = when {
+                avgBrightness < 70 -> 11.0
+                avgBrightness < 100 -> 9.0
+                else -> 5.0
+            }
+            val kernel = Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT,
+                Size(kernelSize, kernelSize)
+            )
+            Imgproc.morphologyEx(enhanced, morph, Imgproc.MORPH_CLOSE, kernel)
+
+            // 4️⃣ Otsu
+            val otsu = Imgproc.threshold(
+                morph,
+                temp,
+                0.0,
+                255.0,
+                Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
+            )
+            val high = otsu.coerceIn(70.0, 160.0)
+            val low = (high * 0.45).coerceAtLeast(35.0)
+
+            // 5️⃣ Canny
+            Imgproc.Canny(enhanced, edges, low, high)
+
+            // 6️⃣ Strong closing
+            val size = Size(
+                (5 * scale).coerceAtLeast(3.0),
+                (5 * scale).coerceAtLeast(3.0)
+            )
+            val kernel2 = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, size)
+            Imgproc.morphologyEx(edges, morph, Imgproc.MORPH_CLOSE, kernel2)
+            kernel2.release()
+
+            _filteredBitmap.value = morph.fixRotation(rotation).toBitmap()
+
+            // 7️⃣ Find contours
+            val contours = mutableListOf<MatOfPoint>()
+            Imgproc.findContours(
+                morph,
+                contours,
+                hierarchy,
+                Imgproc.RETR_LIST,
+                Imgproc.CHAIN_APPROX_SIMPLE
+            )
+
+            if (contours.isEmpty()) return emptyList()
+
+            val frameArea = scaledWidth * scaledHeight
+            val minArea = frameArea * 0.015
+            val documentCandidates = mutableListOf<MatOfPoint>()
+
+            for (contour in contours) {
+                val area = Imgproc.contourArea(contour)
+                if (area < minArea) continue
+
+                val hull = MatOfInt()
+                Imgproc.convexHull(contour, hull)
+                val contourArray = contour.toArray()
+                val hullPoints = MatOfPoint()
+                hullPoints.fromList(hull.toArray().map { contourArray[it] })
+
+                val peri = Imgproc.arcLength(MatOfPoint2f(*hullPoints.toArray()), true)
+                val approx = MatOfPoint2f()
+                Imgproc.approxPolyDP(
+                    MatOfPoint2f(*hullPoints.toArray()),
+                    approx,
+                    0.02 * peri,
+                    true
+                )
+
+                if (approx.total() != 4L) continue
+
+                val scaleX = originalWidth.toDouble() / scaledWidth
+                val scaleY = originalHeight.toDouble() / scaledHeight
+                val scaledPoints = approx.toArray().map { point ->
+                    Point(point.x * scaleX, point.y * scaleY)
+                }
+                val quad = MatOfPoint(*scaledPoints.toTypedArray())
+
+                if (!isRectangle(approx)) continue
+
+                val scaledArea = area * (scaleX * scaleY)
+                val rect = Imgproc.boundingRect(quad)
+                val solidity = scaledArea / (rect.width * rect.height).toDouble()
+                if (solidity < 0.3) continue
+
+                documentCandidates.add(quad)
+            }
+
+            if (documentCandidates.isEmpty()) return emptyList()
+
+            val best = documentCandidates.maxByOrNull {
+                scoreContour(it, scaledWidth.toInt(), scaledHeight.toInt())
+            }
+
+            return best?.let { listOf(it) } ?: emptyList()
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return emptyList()
+        } finally {
+            gray.release()
+            blurred.release()
+            enhanced.release()
+            morph.release()
+            temp.release()
+            edges.release()
+            morphAdd.release()
+            hierarchy.release()
+        }
+    }
 
     private fun scoreContour(
         contour: MatOfPoint,
@@ -525,7 +519,7 @@ class CameraViewModel : ViewModel() {
         }
     }
 
-    private fun warpDocumentHighQuality(imageProxy: ImageProxy, src: Mat, quad: MatOfPoint): Bitmap? {
+    private fun warpDocumentHighQuality(src: Mat, quad: MatOfPoint, rotationDegrees: Int): Bitmap? {
         return try {
             val sorted = sortQuadPoints(quad.toArray().toList())
             val (tl, tr, br, bl) = sorted // Destructuring
@@ -548,7 +542,7 @@ class CameraViewModel : ViewModel() {
             // 7. Convert to Bitmap (applying your existing extensions for rotation/enhancement)
             // This ensures the "crop" looks like a real scanned document
             output
-                .fixRotation(imageProxy.imageInfo.rotationDegrees)
+                .fixRotation(rotationDegrees)
                 .sharpen()
                 .toBitmap()
         } catch (e: Exception) {
@@ -575,4 +569,44 @@ class CameraViewModel : ViewModel() {
         }
         return MatOfPoint(*originalPoints.toTypedArray())
     }
+
+    fun processPickedDocument(context: Context, uri: Uri) {
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, _, _ ->
+                        decoder.isMutableRequired = true
+                    }
+                } else {
+                    MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+                }
+
+                val mat = Mat()
+                Utils.bitmapToMat(bitmap, mat)
+
+                val originalWidth = mat.cols()
+                val originalHeight = mat.rows()
+
+                // Picked documents usually have 0 rotation
+                val rotation = 0
+
+                val result = detectDocument(mat, rotation)
+
+                if (result.isNotEmpty()) {
+                    val bestQuad = result.first()
+                    val warped = warpDocumentHighQuality(mat, bestQuad, rotation)
+                    _resultBitmap.value = warped ?: mat.enhanceDocument().toBitmap()
+                } else {
+                    _resultBitmap.value = mat.enhanceDocument().toBitmap()
+                }
+
+                mat.release()
+                bitmap.recycle()
+
+            } catch (e: Exception) {
+                Log.e("CameraViewModel", "Error processing picked document", e)
+            }
+        }
+    }
+
 }
