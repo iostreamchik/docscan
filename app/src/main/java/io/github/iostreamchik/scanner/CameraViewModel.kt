@@ -49,23 +49,14 @@ class CameraViewModel : ViewModel() {
 
     private val _exposureStateFlow = MutableStateFlow("")
     val exposureStateFlow = _exposureStateFlow.asStateFlow()
-    private val _contrastStateFlow = MutableStateFlow("")
-    val contrastStateFlow = _contrastStateFlow.asStateFlow()
 
-    val gray = Mat()
-    val blurred = Mat()
-    val enhanced = Mat()
-    val morph = Mat()
-    val temp = Mat()
-    val edges = Mat()
-    val morphAdd = Mat()
-    val hierarchy = Mat()
+    private val mats = io.github.iostreamchik.scanner.opencv.MatBundle()
 
     fun processFrame(imageProxy: ImageProxy): List<MatOfPoint> {
         val width = imageProxy.width
         val height = imageProxy.height
         lastFrameSize = Size(width.toDouble(), height.toDouble())
-        
+
         val mat = imageProxy.toMatRGBA()
         val rotation = imageProxy.imageInfo.rotationDegrees
 
@@ -211,23 +202,22 @@ class CameraViewModel : ViewModel() {
             Imgproc.resize(mat, smallMat, Size(scaledWidth, scaledHeight))
 
             // 1️⃣ Grayscale
-            Imgproc.cvtColor(smallMat, gray, Imgproc.COLOR_RGBA2GRAY)
+            Imgproc.cvtColor(smallMat, mats.gray, Imgproc.COLOR_RGBA2GRAY)
             smallMat.release()
 
             val mean = MatOfDouble()
             val std = MatOfDouble()
-            Core.meanStdDev(gray, mean, std)
+            Core.meanStdDev(mats.gray, mean, std)
             val avgBrightness = mean.toArray()[0]
             val contrast = std.toArray()[0]
             mean.release()
             std.release()
             _exposureStateFlow.value = "${avgBrightness.toInt()}"
-            _contrastStateFlow.value = "${contrast.toInt()}"
 
             // 2️⃣ Blur
             var ksize = (3.0 * scale).toInt()
             if (ksize % 2 == 0) ksize += 1
-            Imgproc.medianBlur(gray, blurred, ksize)
+            Imgproc.medianBlur(mats.gray, mats.blurred, ksize)
 
             val clipLimit = when {
                 avgBrightness < 40 -> 2.0
@@ -241,7 +231,7 @@ class CameraViewModel : ViewModel() {
                 else -> 1.0
             }
             val clahe = Imgproc.createCLAHE(clipLimit, Size(tileSize, tileSize))
-            clahe.apply(blurred, enhanced)
+            clahe.apply(mats.blurred, mats.enhanced)
 
             // 3️⃣ Adaptive Morph Close
             val kernelSize = when {
@@ -253,12 +243,12 @@ class CameraViewModel : ViewModel() {
                 Imgproc.MORPH_RECT,
                 Size(kernelSize, kernelSize)
             )
-            Imgproc.morphologyEx(enhanced, morph, Imgproc.MORPH_CLOSE, kernel)
+            Imgproc.morphologyEx(mats.enhanced, mats.morph, Imgproc.MORPH_CLOSE, kernel)
 
             // 4️⃣ Otsu
             val otsu = Imgproc.threshold(
-                morph,
-                temp,
+                mats.morph,
+                mats.temp,
                 0.0,
                 255.0,
                 Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
@@ -267,7 +257,7 @@ class CameraViewModel : ViewModel() {
             val low = (high * 0.45).coerceAtLeast(35.0)
 
             // 5️⃣ Canny
-            Imgproc.Canny(enhanced, edges, low, high)
+            Imgproc.Canny(mats.enhanced, mats.edges, low, high)
 
             // 6️⃣ Strong closing
             val size = Size(
@@ -275,17 +265,17 @@ class CameraViewModel : ViewModel() {
                 (5 * scale).coerceAtLeast(3.0)
             )
             val kernel2 = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, size)
-            Imgproc.morphologyEx(edges, morph, Imgproc.MORPH_CLOSE, kernel2)
+            Imgproc.morphologyEx(mats.edges, mats.morph, Imgproc.MORPH_CLOSE, kernel2)
             kernel2.release()
 
-            _filteredBitmap.value = morph.fixRotation(rotation).toBitmap()
+            _filteredBitmap.value = mats.morph?.fixRotation(rotation)?.toBitmap()
 
             // 7️⃣ Find contours
             val contours = mutableListOf<MatOfPoint>()
             Imgproc.findContours(
-                morph,
+                mats.morph,
                 contours,
-                hierarchy,
+                mats.hierarchy,
                 Imgproc.RETR_LIST,
                 Imgproc.CHAIN_APPROX_SIMPLE
             )
@@ -346,14 +336,7 @@ class CameraViewModel : ViewModel() {
             e.printStackTrace()
             return emptyList()
         } finally {
-            gray.release()
-            blurred.release()
-            enhanced.release()
-            morph.release()
-            temp.release()
-            edges.release()
-            morphAdd.release()
-            hierarchy.release()
+            mats.releaseAll()
         }
     }
 

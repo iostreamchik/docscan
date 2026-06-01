@@ -11,11 +11,6 @@ class App: Application() {
     override fun onCreate() {
         super.onCreate()
         val success = OpenCVLoader.initLocal()
-
-        if (success) {
-            Log.d("OpenCV", "OpenCV initialized successfully")
-        } else {
-            Log.e("OpenCV", "OpenCV initialization failed")
-        }
+        Log.d("OpenCV", if (success) "OpenCV initialized successfully" else "OpenCV initialization failed")
     }
 }
