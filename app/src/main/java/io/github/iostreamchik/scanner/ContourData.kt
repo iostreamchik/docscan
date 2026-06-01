@@ -7,4 +7,8 @@ data class ContourData(
     val frameWidth: Int,
     val frameHeight: Int,
     val rotation: Int
-)
+) {
+    fun release() {
+        contours.forEach { it.release() }
+    }
+}

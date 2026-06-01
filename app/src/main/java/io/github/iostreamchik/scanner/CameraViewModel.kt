@@ -104,44 +104,67 @@ class CameraViewModel : ViewModel() {
         val quads = quadHistory.toList()
 
         var totalMovement = 0.0
+        var validPairs = 0
 
         for (i in 1 until quads.size) {
+            val prevSorted = quads[i - 1].toSortedQuad()
+            val currSorted = quads[i].toSortedQuad()
+            
+            // Skip if either quad is invalid
+            if (prevSorted.isEmpty() || currSorted.isEmpty()) continue
+            
             totalMovement += quadDistance(
-                quads[i - 1].toSortedQuad(),
-                quads[i].toSortedQuad(),
+                prevSorted,
+                currSorted,
                 frameSize.width,
                 frameSize.height
             )
+            validPairs++
         }
 
-        return (totalMovement / (quads.size - 1)) < 0.02
+        // Need at least one valid pair to calculate stability
+        return validPairs > 0 && (totalMovement / validPairs) < 0.02
     }
 
     private fun MatOfPoint.toSortedQuad(): List<Point> {
-        return sortQuadPoints(this.toArray().toList())
+        val points = this.toArray().toList()
+        if (points.size != 4) {
+            Log.w("CameraViewModel", "toSortedQuad: Invalid quad with ${points.size} points, returning empty list")
+            return emptyList()
+        }
+        return sortQuadPoints(points)
     }
 
     private fun getFusedQuad(): MatOfPoint? {
         if (quadHistory.isEmpty()) return null
 
-        val sortedQuads = quadHistory.map { sortQuadPoints(it.toArray().toList()) }
+        val validSortedQuads = quadHistory.mapNotNull { matOfPoint ->
+            val points = matOfPoint.toArray().toList()
+            if (points.size == 4) sortQuadPoints(points) else null
+        }
+
+        // Need at least some valid quads to fuse
+        if (validSortedQuads.isEmpty()) return null
 
         val averaged = Array(4) { Point(0.0, 0.0) }
 
         for (i in 0..3) {
-            for (quad in sortedQuads) {
+            for (quad in validSortedQuads) {
                 averaged[i].x += quad[i].x
                 averaged[i].y += quad[i].y
             }
-            averaged[i].x /= sortedQuads.size
-            averaged[i].y /= sortedQuads.size
+            averaged[i].x /= validSortedQuads.size
+            averaged[i].y /= validSortedQuads.size
         }
 
         return MatOfPoint(*averaged)
     }
 
     fun sortQuadPoints(points: List<Point>): List<Point> {
-        require(points.size == 4) { "Quad must have exactly 4 points" }
+        if (points.size != 4) {
+            Log.w("CameraViewModel", "sortQuadPoints: Invalid quad with ${points.size} points, returning empty list")
+            return emptyList()
+        }
 
         // 1️⃣ Compute centroid
         val centerX = points.sumOf { it.x } / 4.0

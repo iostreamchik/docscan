@@ -31,6 +31,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,14 +65,7 @@ fun CameraScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
 
-    data class ContourData(
-        val contours: List<MatOfPoint>,
-        val frameWidth: Int,
-        val frameHeight: Int,
-        val rotation: Int
-    )
-
-    val contourState = remember { mutableStateOf<ContourData?>(null) }
+    val contourState = remember { mutableStateOf<io.github.iostreamchik.scanner.ContourData?>(null) }
 
     val pickMediaLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -267,12 +261,16 @@ fun CameraScreen(
             imageAnalyzer.setAnalyzer(Executors.newSingleThreadExecutor()) { imageProxy ->
                 val contours = viewModel.processFrame(imageProxy)
 
-                contourState.value = ContourData(
+                val newContourData = io.github.iostreamchik.scanner.ContourData(
                     contours = contours,
                     frameWidth = imageProxy.width,
                     frameHeight = imageProxy.height,
                     rotation = imageProxy.imageInfo.rotationDegrees
                 )
+                
+                contourState.value?.release()
+                contourState.value = newContourData
+                
                 imageProxy.close()
             }
 
@@ -286,6 +284,15 @@ fun CameraScreen(
                 )
             } catch (e: Exception) {
                 Log.e("CameraX", "Use case binding failed", e)
+                // Release any existing contour data to prevent memory leak on error
+                contourState.value?.release()
+            }
+        }
+        
+        // Release contour data when the composable is disposed to prevent memory leaks
+        DisposableEffect(Unit) {
+            onDispose {
+                contourState.value?.release()
             }
         }
     }
