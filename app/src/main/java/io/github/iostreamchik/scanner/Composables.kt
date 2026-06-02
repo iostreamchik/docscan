@@ -2,12 +2,22 @@ package io.github.iostreamchik.scanner
 
 import android.os.Build
 import android.view.RoundedCorner
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.max
 
 @Composable
 fun rememberDeviceCornerRadiusDp(
@@ -25,6 +35,84 @@ fun rememberDeviceCornerRadiusDp(
             } ?: defaultValue
         } else {
             defaultValue
+        }
+    }
+}
+
+@Composable
+fun BitmapCard(
+    bitmap: android.graphics.Bitmap?,
+    modifier: Modifier = Modifier,
+    shape: Shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+) {
+    bitmap?.let {
+        Card(
+            modifier = modifier,
+            shape = shape,
+            elevation = CardDefaults.cardElevation(8.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color.Transparent,
+            ),
+        ) {
+            val imageBitmap = remember(it) { it.asImageBitmap() }
+            Image(
+                bitmap = imageBitmap,
+                contentDescription = null,
+            )
+        }
+    }
+}
+
+@Composable
+fun ContourCanvas(
+    contourState: androidx.compose.runtime.State<io.github.iostreamchik.scanner.ContourData?>,
+    modifier: Modifier = Modifier
+) {
+    // Pre-calculate rotated points and frame dimensions to avoid heavy math in DrawScope
+    val rotatedContours = remember(contourState.value) {
+        val data = contourState.value ?: return@remember null
+        val originalW = data.frameWidth.toFloat()
+        val originalH = data.frameHeight.toFloat()
+
+        val rotatedW = if (data.rotation == 90 || data.rotation == 270) originalH else originalW
+        val rotatedH = if (data.rotation == 90 || data.rotation == 270) originalW else originalH
+
+        val contours = data.contours.map { contour ->
+            val points = contour.toArray()
+            points.map { pt ->
+                when (data.rotation) {
+                    90 -> Offset(originalH - pt.y.toFloat(), pt.x.toFloat())
+                    180 -> Offset(originalW - pt.x.toFloat(), originalH - pt.y.toFloat())
+                    270 -> Offset(pt.y.toFloat(), originalW - pt.x.toFloat())
+                    else -> Offset(pt.x.toFloat(), pt.y.toFloat())
+                }
+            }
+        }
+
+        Triple(contours, rotatedW, rotatedH)
+    }
+
+    Canvas(modifier = modifier) {
+        val contours = rotatedContours?.first ?: return@Canvas
+        val rotatedW = rotatedContours?.second ?: return@Canvas
+        val rotatedH = rotatedContours?.third ?: return@Canvas
+
+        val scale = max(size.width / rotatedW, size.height / rotatedH)
+        val dx = (size.width - (rotatedW * scale)) / 2f
+        val dy = (size.height - (rotatedH * scale)) / 2f
+
+        contours.forEach { points ->
+            for (i in points.indices) {
+                val p1 = points[i]
+                val p2 = points[(i + 1) % points.size]
+
+                drawLine(
+                    color = Color.Red.copy(alpha = 0.5f),
+                    start = Offset(p1.x * scale + dx, p1.y * scale + dy),
+                    end = Offset(p2.x * scale + dx, p2.y * scale + dy),
+                    strokeWidth = 8f
+                )
+            }
         }
     }
 }

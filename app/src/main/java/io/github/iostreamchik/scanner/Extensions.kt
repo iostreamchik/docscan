@@ -97,7 +97,7 @@ fun ImageProxy.toMatRGBA(): Mat {
     // Step 5: Crop out the hardware padding to isolate pure pixels and eliminate the green border
     val finalRgba = if (yRowStride != width) {
         val roi = org.opencv.core.Rect(0, 0, width, height)
-        Mat(paddedRgba, roi) // Submat crop out padding
+        Mat(paddedRgba, roi).clone() // Clone to own native memory before parent release
     } else {
         paddedRgba
     }
@@ -123,7 +123,7 @@ fun Mat.fixRotation(rotationDegrees: Int): Mat {
             tmp
         }
 
-        else -> this
+        else -> this.clone()
     }
 }
 

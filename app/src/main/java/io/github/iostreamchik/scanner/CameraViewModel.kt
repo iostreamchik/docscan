@@ -15,31 +15,43 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.opencv.android.Utils
+import org.opencv.core.Core
+import org.opencv.core.CvType
 import org.opencv.core.Mat
-import org.opencv.core.MatOfInt
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
-import org.opencv.core.Core
-import org.opencv.core.MatOfDouble
 import java.lang.Math.PI
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.sqrt
+import io.github.iostreamchik.scanner.opencv.IMatBundle
+import io.github.iostreamchik.scanner.opencv.MatBundle
 
+class CameraViewModel(
+    private val matBundle: IMatBundle = MatBundle()
+) : ViewModel() {
 
-class CameraViewModel : ViewModel() {
+    val cameraExecutor = Executors.newSingleThreadExecutor()
 
     private val quadHistory = ArrayDeque<MatOfPoint>()
     private var lastFrameSize: Size? = null
     private val MAX_HISTORY = 10
+    private var frameCounter = 0
+    private val STABILITY_CHECK_INTERVAL = 3
 
     private val PROCESS_WIDTH = 640.0
+
+    // Cache: skip re-warping when the same quad is detected repeatedly
+    private var lastWarpedQuadHash: Long = 0
+    private var lastWarpedBitmap: Bitmap? = null
 
     private val _filteredBitmap = MutableStateFlow<Bitmap?>(null)
     val filteredBitmap = _filteredBitmap.asStateFlow()
@@ -50,7 +62,16 @@ class CameraViewModel : ViewModel() {
     private val _exposureStateFlow = MutableStateFlow("")
     val exposureStateFlow = _exposureStateFlow.asStateFlow()
 
-    private val mats = io.github.iostreamchik.scanner.opencv.MatBundle()
+    private val _errorState = MutableStateFlow<String?>(null)
+    val errorState = _errorState.asStateFlow()
+
+    private var lastUiUpdateTime = 0L
+    private val UI_UPDATE_THROTTLE_MS = 100L
+
+
+    fun setError(message: String?) {
+        _errorState.value = message
+    }
 
     fun processFrame(imageProxy: ImageProxy): List<MatOfPoint> {
         val width = imageProxy.width
@@ -63,11 +84,14 @@ class CameraViewModel : ViewModel() {
         val result = detectDocument(mat, rotation)
 
         if (result.isNotEmpty()) {
-            result.forEach { updateHistory(it) }
-            
             if (isStable()) {
                 val fusedQuad = getFusedQuad()
                 if (fusedQuad != null) {
+                    // Always add detection results to history — never add the fused quad
+                    // itself, which would saturate the history with near-duplicate values
+                    // and prevent getFusedQuad() from responding to new detections.
+                    result.forEach { updateHistory(it) }
+                    val quadHash = quadHash(fusedQuad)
                     val maxDimension = max(width, height)
                     val scale = PROCESS_WIDTH / maxDimension
                     val scaledWidth = width * scale
@@ -81,24 +105,41 @@ class CameraViewModel : ViewModel() {
                         scaledHeight
                     )
                     Log.d("CameraViewModel", "\nFused Quad: ${fusedQuad.toArray().joinToString(", ")},\n Original Quad: ${originalQuad.toArray().joinToString(", ")}")
-                    val warped = warpDocumentHighQuality(mat, fusedQuad, rotation)
-                    _resultBitmap.value = warped
-                    return listOf(fusedQuad)
+                    // Warp only if the quad has changed — skip expensive op when hash matches
+                    val warped = if (quadHash != lastWarpedQuadHash) {
+                        warpDocumentHighQuality(mat, fusedQuad, rotation).also {
+                            lastWarpedBitmap?.recycle()
+                            lastWarpedBitmap = it
+                            lastWarpedQuadHash = quadHash
+                        }
+                    } else {
+                        lastWarpedBitmap
+                    }
+                    // Clone the bitmap before emitting to state flow so Compose gets
+                    // its own independent copy that won't be affected by recycling.
+                    _resultBitmap.value = warped?.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+                    // Clone: fusedQuad lives in quadHistory, caller owns the clone
+                    return listOf(MatOfPoint(*fusedQuad.toArray()))
                 }
+            } else {
+                // Accumulate during pre-stability bootstrapping
+                result.forEach { updateHistory(it) }
             }
         }
-        return result
+        // Clone each result: objects also live in quadHistory, caller owns the clones
+        return result.map { MatOfPoint(*it.toArray()) }
     }
 
     private fun updateHistory(quad: MatOfPoint) {
         if (quadHistory.size >= MAX_HISTORY) {
-            quadHistory.removeFirst()
+            quadHistory.removeFirst().release()
         }
         quadHistory.addLast(quad)
     }
 
     private fun isStable(): Boolean {
         if (quadHistory.size < MAX_HISTORY) return false
+        if (++frameCounter % STABILITY_CHECK_INTERVAL != 0) return true
 
         val frameSize = lastFrameSize ?: return false
         val quads = quadHistory.toList()
@@ -225,22 +266,23 @@ class CameraViewModel : ViewModel() {
             Imgproc.resize(mat, smallMat, Size(scaledWidth, scaledHeight))
 
             // 1️⃣ Grayscale
-            Imgproc.cvtColor(smallMat, mats.gray, Imgproc.COLOR_RGBA2GRAY)
+            Imgproc.cvtColor(smallMat, matBundle.gray, Imgproc.COLOR_RGBA2GRAY)
             smallMat.release()
 
-            val mean = MatOfDouble()
-            val std = MatOfDouble()
-            Core.meanStdDev(mats.gray, mean, std)
-            val avgBrightness = mean.toArray()[0]
-            val contrast = std.toArray()[0]
-            mean.release()
-            std.release()
-            _exposureStateFlow.value = "${avgBrightness.toInt()}"
+            Core.meanStdDev(matBundle.gray, matBundle.mean, matBundle.std)
+            val avgBrightness = matBundle.mean.toArray()[0]
+            val contrast = matBundle.std.toArray()[0]
+            
+            val exposureTime = System.currentTimeMillis()
+            if (exposureTime - lastUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
+                _exposureStateFlow.value = "${avgBrightness.toInt()}"
+                lastUiUpdateTime = exposureTime
+            }
 
             // 2️⃣ Blur
             var ksize = (3.0 * scale).toInt()
             if (ksize % 2 == 0) ksize += 1
-            Imgproc.medianBlur(mats.gray, mats.blurred, ksize)
+            Imgproc.medianBlur(matBundle.gray, matBundle.blurred, ksize)
 
             val clipLimit = when {
                 avgBrightness < 40 -> 2.0
@@ -254,7 +296,7 @@ class CameraViewModel : ViewModel() {
                 else -> 1.0
             }
             val clahe = Imgproc.createCLAHE(clipLimit, Size(tileSize, tileSize))
-            clahe.apply(mats.blurred, mats.enhanced)
+            clahe.apply(matBundle.blurred, matBundle.enhanced)
 
             // 3️⃣ Adaptive Morph Close
             val kernelSize = when {
@@ -262,16 +304,19 @@ class CameraViewModel : ViewModel() {
                 avgBrightness < 100 -> 9.0
                 else -> 5.0
             }
-            val kernel = Imgproc.getStructuringElement(
+            Imgproc.getStructuringElement(
                 Imgproc.MORPH_RECT,
                 Size(kernelSize, kernelSize)
-            )
-            Imgproc.morphologyEx(mats.enhanced, mats.morph, Imgproc.MORPH_CLOSE, kernel)
+            ).also { kernel ->
+                matBundle.kernel.release()
+                kernel.copyTo(matBundle.kernel)
+            }
+            Imgproc.morphologyEx(matBundle.enhanced, matBundle.morph, Imgproc.MORPH_CLOSE, matBundle.kernel)
 
             // 4️⃣ Otsu
             val otsu = Imgproc.threshold(
-                mats.morph,
-                mats.temp,
+                matBundle.morph,
+                matBundle.temp,
                 0.0,
                 255.0,
                 Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
@@ -280,25 +325,31 @@ class CameraViewModel : ViewModel() {
             val low = (high * 0.45).coerceAtLeast(35.0)
 
             // 5️⃣ Canny
-            Imgproc.Canny(mats.enhanced, mats.edges, low, high)
+            Imgproc.Canny(matBundle.enhanced, matBundle.edges, low, high)
 
             // 6️⃣ Strong closing
             val size = Size(
                 (5 * scale).coerceAtLeast(3.0),
                 (5 * scale).coerceAtLeast(3.0)
             )
-            val kernel2 = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, size)
-            Imgproc.morphologyEx(mats.edges, mats.morph, Imgproc.MORPH_CLOSE, kernel2)
-            kernel2.release()
+            Imgproc.getStructuringElement(Imgproc.MORPH_RECT, size).also { kernel2 ->
+                matBundle.kernel2.release()
+                kernel2.copyTo(matBundle.kernel2)
+            }
+            Imgproc.morphologyEx(matBundle.edges, matBundle.morph, Imgproc.MORPH_CLOSE, matBundle.kernel2)
 
-            _filteredBitmap.value = mats.morph?.fixRotation(rotation)?.toBitmap()
+            val filterTime = System.currentTimeMillis()
+            if (filterTime - lastUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
+                _filteredBitmap.value = matBundle.morph.fixRotation(rotation).toBitmap()
+                lastUiUpdateTime = filterTime
+            }
 
             // 7️⃣ Find contours
             val contours = mutableListOf<MatOfPoint>()
             Imgproc.findContours(
-                mats.morph,
+                matBundle.morph,
                 contours,
-                mats.hierarchy,
+                matBundle.hierarchy,
                 Imgproc.RETR_LIST,
                 Imgproc.CHAIN_APPROX_SIMPLE
             )
@@ -313,16 +364,18 @@ class CameraViewModel : ViewModel() {
                 val area = Imgproc.contourArea(contour)
                 if (area < minArea) continue
 
-                val hull = MatOfInt()
+                val hull = matBundle.hull
+                matBundle.hullPoints.release()
+                matBundle.hullPoints.create(0, 1, CvType.CV_32FC2)
+                val approx = matBundle.approx
                 Imgproc.convexHull(contour, hull)
                 val contourArray = contour.toArray()
-                val hullPoints = MatOfPoint()
-                hullPoints.fromList(hull.toArray().map { contourArray[it] })
+                val hullPointList = hull.toArray().map { contourArray[it] }
+                matBundle.hullPoints.fromList(hullPointList.map { Point(it.x, it.y) })
 
-                val peri = Imgproc.arcLength(MatOfPoint2f(*hullPoints.toArray()), true)
-                val approx = MatOfPoint2f()
+                val peri = Imgproc.arcLength(matBundle.hullPoints, true)
                 Imgproc.approxPolyDP(
-                    MatOfPoint2f(*hullPoints.toArray()),
+                    matBundle.hullPoints,
                     approx,
                     0.02 * peri,
                     true
@@ -337,12 +390,18 @@ class CameraViewModel : ViewModel() {
                 }
                 val quad = MatOfPoint(*scaledPoints.toTypedArray())
 
-                if (!isRectangle(approx)) continue
+                if (!isRectangle(approx)) {
+                    quad.release()
+                    continue
+                }
 
                 val scaledArea = area * (scaleX * scaleY)
                 val rect = Imgproc.boundingRect(quad)
                 val solidity = scaledArea / (rect.width * rect.height).toDouble()
-                if (solidity < 0.3) continue
+                if (solidity < 0.3) {
+                    quad.release()
+                    continue
+                }
 
                 documentCandidates.add(quad)
             }
@@ -359,7 +418,7 @@ class CameraViewModel : ViewModel() {
             e.printStackTrace()
             return emptyList()
         } finally {
-            mats.releaseAll()
+            matBundle.releaseAll()
         }
     }
 
@@ -417,96 +476,20 @@ class CameraViewModel : ViewModel() {
         return acos(dot / (norm1 * norm2)) * 180.0 / PI
     }
 
-    private fun warpDocument(src: Mat, quad: MatOfPoint, imageProxy: ImageProxy): Bitmap? {
-        val sorted = quad.toSortedQuad()
-
-        val tl = sorted[0]
-        val tr = sorted[1]
-        val br = sorted[2]
-        val bl = sorted[3]
-
-        val scaleFactor = 2.0
-
-        // Compute width
-        val widthA = hypot(br.x - bl.x, br.y - bl.y)
-        val widthB = hypot(tr.x - tl.x, tr.y - tl.y)
-        val maxWidth = (max(widthA, widthB) * scaleFactor).toInt()
-
-        // Compute height
-        val heightA = hypot(tr.x - br.x, tr.y - br.y)
-        val heightB = hypot(tl.x - bl.x, tl.y - bl.y)
-        val maxHeight = (max(heightA, heightB) * scaleFactor).toInt()
-
-        val srcPoints = MatOfPoint2f(
-            tl,
-            tr,
-            br,
-            bl
-        )
-
-        val dstPoints = MatOfPoint2f(
-            Point(0.0, 0.0),
-            Point(maxWidth.toDouble(), 0.0),
-            Point(maxWidth.toDouble(), maxHeight.toDouble()),
-            Point(0.0, maxHeight.toDouble())
-        )
-
-        val transform = Imgproc.getPerspectiveTransform(srcPoints, dstPoints)
-
-        val output = Mat()
-        Imgproc.warpPerspective(
-            src,
-            output,
-            transform,
-            Size(maxWidth.toDouble(), maxHeight.toDouble())
-        )
-
-        return output.enhanceDocument().fixRotation(imageProxy.imageInfo.rotationDegrees).toBitmap()
-    }
-
     private fun distance(p1: Point, p2: Point): Double {
         val dx = p1.x - p2.x
         val dy = p1.y - p2.y
         return sqrt(dx * dx + dy * dy)
     }
 
-    private fun warpDocument(
-        src: Mat,
-        quad: MatOfPoint
-    ): Mat {
-
-        val points = sortQuadPoints(quad.toArray().toList())
-
-        val tl = points[0]
-        val tr = points[1]
-        val br = points[2]
-        val bl = points[3]
-
-        // Compute width
-        val widthA = distance(br, bl)
-        val widthB = distance(tr, tl)
-        val maxWidth = max(widthA, widthB).toInt()
-
-        // Compute height
-        val heightA = distance(tr, br)
-        val heightB = distance(tl, bl)
-        val maxHeight = max(heightA, heightB).toInt()
-
-        val srcMat = MatOfPoint2f(tl, tr, br, bl)
-
-        val dstMat = MatOfPoint2f(
-            Point(0.0, 0.0),
-            Point(maxWidth - 1.0, 0.0),
-            Point(maxWidth - 1.0, maxHeight - 1.0),
-            Point(0.0, maxHeight - 1.0)
-        )
-
-        val transform = Imgproc.getPerspectiveTransform(srcMat, dstMat)
-
-        val output = Mat()
-        Imgproc.warpPerspective(src, output, transform, Size(maxWidth.toDouble(), maxHeight.toDouble()))
-
-        return output
+    private fun quadHash(quad: MatOfPoint): Long {
+        val points = quad.toArray()
+        var hash: Long = 1
+        for (p in points) {
+            hash = 31 * hash + p.x.toInt()
+            hash = 31 * hash + p.y.toInt()
+        }
+        return hash
     }
 
     fun scaleQuad(
@@ -577,7 +560,7 @@ class CameraViewModel : ViewModel() {
     }
 
     fun processPickedDocument(context: Context, uri: Uri) {
-        viewModelScope.launch(Dispatchers.Default) {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, _, _ ->
@@ -589,9 +572,6 @@ class CameraViewModel : ViewModel() {
 
                 val mat = Mat()
                 Utils.bitmapToMat(bitmap, mat)
-
-                val originalWidth = mat.cols()
-                val originalHeight = mat.rows()
 
                 // Picked documents usually have 0 rotation
                 val rotation = 0
@@ -613,6 +593,19 @@ class CameraViewModel : ViewModel() {
                 Log.e("CameraViewModel", "Error processing picked document", e)
             }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        cameraExecutor.shutdown()
+        cameraExecutor.awaitTermination(5, TimeUnit.SECONDS)
+        _filteredBitmap.value?.recycle()
+        _filteredBitmap.value = null
+        _resultBitmap.value?.recycle()
+        _resultBitmap.value = null
+        lastWarpedBitmap?.recycle()
+        lastWarpedBitmap = null
+        lastWarpedQuadHash = 0
     }
 
 }

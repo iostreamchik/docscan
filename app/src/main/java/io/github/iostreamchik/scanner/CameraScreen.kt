@@ -12,8 +12,6 @@ import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,8 +24,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,7 +37,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.TextStyle
@@ -52,9 +47,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import org.opencv.core.MatOfPoint
-import java.util.concurrent.Executors
-import kotlin.math.max
+import io.github.iostreamchik.scanner.opencv.MockMatBundle
 
 @Composable
 fun CameraScreen(
@@ -65,7 +58,8 @@ fun CameraScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
 
-    val contourState = remember { mutableStateOf<io.github.iostreamchik.scanner.ContourData?>(null) }
+    val contourState =
+        remember { mutableStateOf<ContourData?>(null) }
 
     val pickMediaLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -75,6 +69,17 @@ fun CameraScreen(
             viewModel.processPickedDocument(context, uri)
         }
     }
+
+    // Hoist state reads above Box to limit recomposition scope
+    val exposure by viewModel.exposureStateFlow.collectAsStateWithLifecycle()
+    val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
+    val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
+    val errorState by viewModel.errorState.collectAsStateWithLifecycle()
+    val cornerRadius = rememberDeviceCornerRadiusDp()
+
+    // Throttle for contourState updates (matches ViewModel's UI_UPDATE_THROTTLE_MS)
+    val lastContourUpdateTime = remember { mutableStateOf(0L) }
+    val CONTOUR_UPDATE_THROTTLE_MS = 30L
 
     Box(modifier = modifier) {
 
@@ -87,8 +92,7 @@ fun CameraScreen(
         } else {
             Box(modifier = Modifier.fillMaxSize())
         }
-        val cornerRadius = rememberDeviceCornerRadiusDp()
-        
+
         Button(
             onClick = {
                 pickMediaLauncher.launch(
@@ -102,12 +106,26 @@ fun CameraScreen(
             Text("Scan from file")
         }
 
+        errorState?.let { state ->
+            Surface(
+                color = Color.Red.copy(alpha = 0.8f),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = state,
+                    color = Color.White,
+                    modifier = Modifier.padding(8.dp)
+                )
+            }
+        }
+
         Column(
             modifier = Modifier
                 .padding(horizontal = 16.dp)
                 .align(Alignment.BottomStart)
         ) {
-            val exposure by viewModel.exposureStateFlow.collectAsStateWithLifecycle()
             Text(
                 text = exposure, fontWeight = FontWeight.Bold, style = TextStyle(
                     fontSize = 30.sp,
@@ -124,106 +142,24 @@ fun CameraScreen(
                     .height(260.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                val bmp by viewModel.filteredBitmap.collectAsStateWithLifecycle()
-                bmp?.let {
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(cornerRadius),
-                        elevation = CardDefaults.cardElevation(8.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = Color.Transparent,
-                        ),
-                    ) {
-                        Image(
-                            bitmap = it.asImageBitmap(),
-                            contentDescription = null,
-                        )
-                    }
-                }
+                BitmapCard(
+                    bitmap = filteredBitmap,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(cornerRadius)
+                )
                 Spacer(modifier = Modifier.width(16.dp))
-                val resultBmp by viewModel.resultBitmap.collectAsStateWithLifecycle()
-                resultBmp?.let {
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(4.dp),
-                        elevation = CardDefaults.cardElevation(8.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = Color.Transparent,
-                        ),
-                    ) {
-                        Image(
-                            bitmap = it.asImageBitmap(),
-                            contentDescription = null,
-                        )
-                    }
-                }
+                BitmapCard(
+                    bitmap = resultBitmap,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(4.dp)
+                )
 
             }
         }
-        Canvas(modifier = Modifier.matchParentSize()) {
-
-            val data = contourState.value ?: return@Canvas
-
-            val originalW = data.frameWidth.toFloat()
-            val originalH = data.frameHeight.toFloat()
-
-            val previewW = size.width
-            val previewH = size.height
-
-            // Determine rotated dimensions
-            val rotatedW =
-                if (data.rotation == 90 || data.rotation == 270) originalH else originalW
-
-            val rotatedH =
-                if (data.rotation == 90 || data.rotation == 270) originalW else originalH
-
-            val scale = max(previewW / rotatedW, previewH / rotatedH)
-
-            val scaledW = rotatedW * scale
-            val scaledH = rotatedH * scale
-
-            val dx = (previewW - scaledW) / 2f
-            val dy = (previewH - scaledH) / 2f
-
-            fun rotatePoint(x: Float, y: Float): Offset {
-                return when (data.rotation) {
-                    90 -> Offset(originalH - y, x)
-                    180 -> Offset(originalW - x, originalH - y)
-                    270 -> Offset(y, originalW - x)
-                    else -> Offset(x, y)
-                }
-            }
-            data.contours.forEach { contour ->
-                val points = contour.toArray()
-
-                for (i in points.indices) {
-
-                    val p1 = rotatePoint(
-                        points[i].x.toFloat(),
-                        points[i].y.toFloat()
-                    )
-
-                    val p2 = rotatePoint(
-                        points[(i + 1) % points.size].x.toFloat(),
-                        points[(i + 1) % points.size].y.toFloat()
-                    )
-
-                    drawLine(
-                        color = Color.Red.copy(alpha = 0.5f),
-                        start = Offset(
-                            p1.x * scale + dx,
-                            p1.y * scale + dy
-                        ),
-                        end = Offset(
-                            p2.x * scale + dx,
-                            p2.y * scale + dy
-                        ),
-                        strokeWidth = 8f
-                    )
-                }
-            }
-        }
-        val context = LocalContext.current
+        ContourCanvas(
+            contourState = contourState,
+            modifier = Modifier.matchParentSize()
+        )
         LaunchedEffect(Unit) {
             val cameraProvider = ProcessCameraProvider
                 .getInstance(context)
@@ -258,19 +194,23 @@ fun CameraScreen(
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
 
-            imageAnalyzer.setAnalyzer(Executors.newSingleThreadExecutor()) { imageProxy ->
+            imageAnalyzer.setAnalyzer(viewModel.cameraExecutor) { imageProxy ->
                 val contours = viewModel.processFrame(imageProxy)
 
-                val newContourData = io.github.iostreamchik.scanner.ContourData(
-                    contours = contours,
-                    frameWidth = imageProxy.width,
-                    frameHeight = imageProxy.height,
-                    rotation = imageProxy.imageInfo.rotationDegrees
-                )
-                
-                contourState.value?.release()
-                contourState.value = newContourData
-                
+                val now = System.currentTimeMillis()
+                if (now - lastContourUpdateTime.value >= CONTOUR_UPDATE_THROTTLE_MS) {
+                    contourState.value?.release()
+                    contourState.value = io.github.iostreamchik.scanner.ContourData(
+                        contours = contours,
+                        frameWidth = imageProxy.width,
+                        frameHeight = imageProxy.height,
+                        rotation = imageProxy.imageInfo.rotationDegrees
+                    )
+                    lastContourUpdateTime.value = now
+                } else {
+                    contours.forEach { it.release() }
+                }
+
                 imageProxy.close()
             }
 
@@ -286,9 +226,10 @@ fun CameraScreen(
                 Log.e("CameraX", "Use case binding failed", e)
                 // Release any existing contour data to prevent memory leak on error
                 contourState.value?.release()
+                viewModel.setError("Camera initialization failed")
             }
         }
-        
+
         // Release contour data when the composable is disposed to prevent memory leaks
         DisposableEffect(Unit) {
             onDispose {
@@ -304,7 +245,7 @@ fun CameraScreen(
 private fun CameraScreenPreview() {
     Surface() {
         CameraScreen(
-            viewModel = viewModel() { CameraViewModel() }
+            viewModel = viewModel() { CameraViewModel(MockMatBundle()) }
         )
     }
 }
