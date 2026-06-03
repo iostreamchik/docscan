@@ -68,7 +68,6 @@ class CameraViewModel(
     private var lastUiUpdateTime = 0L
     private val UI_UPDATE_THROTTLE_MS = 100L
 
-
     fun setError(message: String?) {
         _errorState.value = message
     }
@@ -559,7 +558,7 @@ class CameraViewModel(
         return MatOfPoint(*originalPoints.toTypedArray())
     }
 
-    fun processPickedDocument(context: Context, uri: Uri) {
+    fun processPickedDocument(context: Context, uri: Uri, onScanComplete: () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -588,6 +587,9 @@ class CameraViewModel(
 
                 mat.release()
                 bitmap.recycle()
+
+                // Notify UI that scan is complete — navigation is handled by callback
+                onScanComplete()
 
             } catch (e: Exception) {
                 Log.e("CameraViewModel", "Error processing picked document", e)

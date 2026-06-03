@@ -3,8 +3,7 @@ package io.github.iostreamchik.scanner
 import android.util.Log
 import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -18,12 +17,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,7 +55,8 @@ import io.github.iostreamchik.scanner.opencv.MockMatBundle
 @Composable
 fun CameraScreen(
     modifier: Modifier = Modifier,
-    viewModel: CameraViewModel = viewModel()
+    viewModel: CameraViewModel,
+    toScanFromFile: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -62,11 +66,10 @@ fun CameraScreen(
         remember { mutableStateOf<ContourData?>(null) }
 
     val pickMediaLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
+        contract = PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            // Offload heavy decoding and vision processing to a background thread
-            viewModel.processPickedDocument(context, uri)
+            viewModel.processPickedDocument(context, uri) {}
         }
     }
 
@@ -91,19 +94,6 @@ fun CameraScreen(
             )
         } else {
             Box(modifier = Modifier.fillMaxSize())
-        }
-
-        Button(
-            onClick = {
-                pickMediaLauncher.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                )
-            },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 40.dp, end = 16.dp)
-        ) {
-            Text("Scan from file")
         }
 
         errorState?.let { state ->
@@ -139,22 +129,33 @@ fun CameraScreen(
             Row(
                 Modifier
                     .navigationBarsPadding()
+                    .fillMaxWidth()
                     .height(260.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 BitmapCard(
                     bitmap = filteredBitmap,
-                    modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(cornerRadius)
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 BitmapCard(
                     bitmap = resultBitmap,
-                    modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(4.dp)
                 )
 
             }
+        }
+        FloatingActionButton(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(16.dp),
+            onClick = toScanFromFile
+        ) {
+            Icon(
+                imageVector = Icons.Default.Image,
+                contentDescription = "Scan from file"
+            )
         }
         ContourCanvas(
             contourState = contourState,

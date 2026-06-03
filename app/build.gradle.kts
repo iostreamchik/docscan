@@ -19,22 +19,7 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-//        externalNativeBuild {
-//            cmake {
-//                cppFlags += "-std=c++17"
-//            }
-//        }
-//        ndk {
-//            abiFilters += listOf("arm64-v8a")
-//        }
     }
-
-//    externalNativeBuild {
-//        cmake {
-//            path = file("src/main/cpp/CMakeLists.txt")
-//        }
-//    }
 
     buildTypes {
         release {
@@ -63,7 +48,9 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.navigation.compose)
 
     implementation(libs.camerax.core)
     implementation(libs.camerax.camera2)
