@@ -266,12 +266,12 @@ class CameraViewModel(
             Imgproc.resize(mat, smallMat, Size(scaledWidth, scaledHeight))
 
             // 1️⃣ Grayscale
-            Imgproc.cvtColor(smallMat, matBundle.gray, Imgproc.COLOR_RGBA2GRAY)
+            Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
             smallMat.release()
 
-            Core.meanStdDev(matBundle.gray, matBundle.mean, matBundle.std)
-            val avgBrightness = matBundle.mean.toArray()[0]
-            val contrast = matBundle.std.toArray()[0]
+            Core.meanStdDev(matBundle.getGray(), matBundle.getMean(), matBundle.getStd())
+            val avgBrightness = matBundle.getMean().toArray()[0]
+            val contrast = matBundle.getStd().toArray()[0]
             
             val exposureTime = System.currentTimeMillis()
             if (exposureTime - lastUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
@@ -282,7 +282,7 @@ class CameraViewModel(
             // 2️⃣ Blur
             var ksize = (3.0 * scale).toInt()
             if (ksize % 2 == 0) ksize += 1
-            Imgproc.medianBlur(matBundle.gray, matBundle.blurred, ksize)
+            Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), ksize)
 
             val clipLimit = when {
                 avgBrightness < 40 -> 2.0
@@ -296,7 +296,7 @@ class CameraViewModel(
                 else -> 1.0
             }
             val clahe = Imgproc.createCLAHE(clipLimit, Size(tileSize, tileSize))
-            clahe.apply(matBundle.blurred, matBundle.enhanced)
+            clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
 
             // 3️⃣ Adaptive Morph Close
             val kernelSize = when {
@@ -308,15 +308,15 @@ class CameraViewModel(
                 Imgproc.MORPH_RECT,
                 Size(kernelSize, kernelSize)
             ).also { kernel ->
-                matBundle.kernel.release()
-                kernel.copyTo(matBundle.kernel)
+                matBundle.getKernel().release()
+                kernel.copyTo(matBundle.getKernel())
             }
-            Imgproc.morphologyEx(matBundle.enhanced, matBundle.morph, Imgproc.MORPH_CLOSE, matBundle.kernel)
+            Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
 
             // 4️⃣ Otsu
             val otsu = Imgproc.threshold(
-                matBundle.morph,
-                matBundle.temp,
+                matBundle.getMorph(),
+                matBundle.getTemp(),
                 0.0,
                 255.0,
                 Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
@@ -325,7 +325,7 @@ class CameraViewModel(
             val low = (high * 0.45).coerceAtLeast(35.0)
 
             // 5️⃣ Canny
-            Imgproc.Canny(matBundle.enhanced, matBundle.edges, low, high)
+            Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), low, high)
 
             // 6️⃣ Strong closing
             val size = Size(
@@ -333,23 +333,23 @@ class CameraViewModel(
                 (5 * scale).coerceAtLeast(3.0)
             )
             Imgproc.getStructuringElement(Imgproc.MORPH_RECT, size).also { kernel2 ->
-                matBundle.kernel2.release()
-                kernel2.copyTo(matBundle.kernel2)
+                matBundle.getKernel2().release()
+                kernel2.copyTo(matBundle.getKernel2())
             }
-            Imgproc.morphologyEx(matBundle.edges, matBundle.morph, Imgproc.MORPH_CLOSE, matBundle.kernel2)
+            Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
 
             val filterTime = System.currentTimeMillis()
             if (filterTime - lastUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
-                _filteredBitmap.value = matBundle.morph.fixRotation(rotation).toBitmap()
+                _filteredBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
                 lastUiUpdateTime = filterTime
             }
 
             // 7️⃣ Find contours
             val contours = mutableListOf<MatOfPoint>()
             Imgproc.findContours(
-                matBundle.morph,
+                matBundle.getMorph(),
                 contours,
-                matBundle.hierarchy,
+                matBundle.getHierarchy(),
                 Imgproc.RETR_LIST,
                 Imgproc.CHAIN_APPROX_SIMPLE
             )
@@ -364,18 +364,18 @@ class CameraViewModel(
                 val area = Imgproc.contourArea(contour)
                 if (area < minArea) continue
 
-                val hull = matBundle.hull
-                matBundle.hullPoints.release()
-                matBundle.hullPoints.create(0, 1, CvType.CV_32FC2)
-                val approx = matBundle.approx
+                val hull = matBundle.getHull()
+                matBundle.getHullPoints().release()
+                matBundle.getHullPoints().create(0, 1, CvType.CV_32FC2)
+                val approx = matBundle.getApprox()
                 Imgproc.convexHull(contour, hull)
                 val contourArray = contour.toArray()
                 val hullPointList = hull.toArray().map { contourArray[it] }
-                matBundle.hullPoints.fromList(hullPointList.map { Point(it.x, it.y) })
+                matBundle.getHullPoints().fromList(hullPointList.map { Point(it.x, it.y) })
 
-                val peri = Imgproc.arcLength(matBundle.hullPoints, true)
+                val peri = Imgproc.arcLength(matBundle.getHullPoints(), true)
                 Imgproc.approxPolyDP(
-                    matBundle.hullPoints,
+                    matBundle.getHullPoints(),
                     approx,
                     0.02 * peri,
                     true

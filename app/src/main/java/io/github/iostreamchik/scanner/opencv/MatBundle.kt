@@ -6,61 +6,78 @@ import org.opencv.core.MatOfInt
 import org.opencv.core.MatOfPoint2f
 
 interface IMatBundle {
-    var gray: Mat
-    var blurred: Mat
-    var enhanced: Mat
-    var morph: Mat
-    var temp: Mat
-    var edges: Mat
-    var morphAdd: Mat
-    var hierarchy: Mat
+    fun getGray(): Mat
+    fun getBlurred(): Mat
+    fun getEnhanced(): Mat
+    fun getMorph(): Mat
+    fun getTemp(): Mat
+    fun getEdges(): Mat
+    fun getMorphAdd(): Mat
+    fun getHierarchy(): Mat
 
-    var mean: MatOfDouble
-    var std: MatOfDouble
-    var kernel: Mat
-    var kernel2: Mat
-    var hull: MatOfInt
-    var hullPoints: MatOfPoint2f
-    var approx: MatOfPoint2f
+    fun getMean(): MatOfDouble
+    fun getStd(): MatOfDouble
+    fun getKernel(): Mat
+    fun getKernel2(): Mat
+    fun getHull(): MatOfInt
+    fun getHullPoints(): MatOfPoint2f
+    fun getApprox(): MatOfPoint2f
 
     fun releaseAll()
 }
 
 class MatBundle : IMatBundle {
-    override var gray: Mat = Mat()
-    override var blurred: Mat = Mat()
-    override var enhanced: Mat = Mat()
-    override var morph: Mat = Mat()
-    override var temp: Mat = Mat()
-    override var edges: Mat = Mat()
-    override var morphAdd: Mat = Mat()
-    override var hierarchy: Mat = Mat()
+    private var _gray: Mat = Mat()
+    private var _blurred: Mat = Mat()
+    private var _enhanced: Mat = Mat()
+    private var _morph: Mat = Mat()
+    private var _temp: Mat = Mat()
+    private var _edges: Mat = Mat()
+    private var _morphAdd: Mat = Mat()
+    private var _hierarchy: Mat = Mat()
 
     // Pooled per-frame temporaries (reused, not reallocated each frame)
-    override var mean: MatOfDouble = MatOfDouble()
-    override var std: MatOfDouble = MatOfDouble()
-    override var kernel: Mat = Mat()
-    override var kernel2: Mat = Mat()
-    override var hull: MatOfInt = MatOfInt()
-    override var hullPoints: MatOfPoint2f = MatOfPoint2f()
-    override var approx: MatOfPoint2f = MatOfPoint2f()
+    private var _mean: MatOfDouble = MatOfDouble()
+    private var _std: MatOfDouble = MatOfDouble()
+    private var _kernel: Mat = Mat()
+    private var _kernel2: Mat = Mat()
+    private var _hull: MatOfInt = MatOfInt()
+    private var _hullPoints: MatOfPoint2f = MatOfPoint2f()
+    private var _approx: MatOfPoint2f = MatOfPoint2f()
+
+    override fun getGray(): Mat = _gray
+    override fun getBlurred(): Mat = _blurred
+    override fun getEnhanced(): Mat = _enhanced
+    override fun getMorph(): Mat = _morph
+    override fun getTemp(): Mat = _temp
+    override fun getEdges(): Mat = _edges
+    override fun getMorphAdd(): Mat = _morphAdd
+    override fun getHierarchy(): Mat = _hierarchy
+
+    override fun getMean(): MatOfDouble = _mean
+    override fun getStd(): MatOfDouble = _std
+    override fun getKernel(): Mat = _kernel
+    override fun getKernel2(): Mat = _kernel2
+    override fun getHull(): MatOfInt = _hull
+    override fun getHullPoints(): MatOfPoint2f = _hullPoints
+    override fun getApprox(): MatOfPoint2f = _approx
 
     override fun releaseAll() {
-        gray.release()
-        blurred.release()
-        enhanced.release()
-        morph.release()
-        temp.release()
-        edges.release()
-        morphAdd.release()
-        hierarchy.release()
+        _gray.release()
+        _blurred.release()
+        _enhanced.release()
+        _morph.release()
+        _temp.release()
+        _edges.release()
+        _morphAdd.release()
+        _hierarchy.release()
 
-        mean.release()
-        std.release()
-        kernel.release()
-        kernel2.release()
-        hull.release()
-        hullPoints.release()
-        approx.release()
+        _mean.release()
+        _std.release()
+        _kernel.release()
+        _kernel2.release()
+        _hull.release()
+        _hullPoints.release()
+        _approx.release()
     }
 }

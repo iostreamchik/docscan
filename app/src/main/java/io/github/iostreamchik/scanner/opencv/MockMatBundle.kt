@@ -7,27 +7,28 @@ import org.opencv.core.MatOfPoint2f
 
 /**
  * No-op MatBundle for Compose preview. All Mats are empty (0x0) and
- * releaseAll() is a safe no-op.
+ * releaseAll() is a safe no-op. Lazily initialized to avoid
+ * UnsatisfiedLinkError when OpenCV native libs aren't loaded (preview).
  */
 class MockMatBundle : IMatBundle {
-    private val emptyMat = Mat()
+    private val emptyMat: Mat by lazy { Mat() }
 
-    override var gray: Mat = emptyMat
-    override var blurred: Mat = emptyMat
-    override var enhanced: Mat = emptyMat
-    override var morph: Mat = emptyMat
-    override var temp: Mat = emptyMat
-    override var edges: Mat = emptyMat
-    override var morphAdd: Mat = emptyMat
-    override var hierarchy: Mat = emptyMat
+    override fun getGray(): Mat = emptyMat
+    override fun getBlurred(): Mat = emptyMat
+    override fun getEnhanced(): Mat = emptyMat
+    override fun getMorph(): Mat = emptyMat
+    override fun getTemp(): Mat = emptyMat
+    override fun getEdges(): Mat = emptyMat
+    override fun getMorphAdd(): Mat = emptyMat
+    override fun getHierarchy(): Mat = emptyMat
 
-    override var mean: MatOfDouble = MatOfDouble()
-    override var std: MatOfDouble = MatOfDouble()
-    override var kernel: Mat = emptyMat
-    override var kernel2: Mat = emptyMat
-    override var hull: MatOfInt = MatOfInt()
-    override var hullPoints: MatOfPoint2f = MatOfPoint2f()
-    override var approx: MatOfPoint2f = MatOfPoint2f()
+    override fun getMean(): MatOfDouble = MatOfDouble()
+    override fun getStd(): MatOfDouble = MatOfDouble()
+    override fun getKernel(): Mat = emptyMat
+    override fun getKernel2(): Mat = emptyMat
+    override fun getHull(): MatOfInt = MatOfInt()
+    override fun getHullPoints(): MatOfPoint2f = MatOfPoint2f()
+    override fun getApprox(): MatOfPoint2f = MatOfPoint2f()
 
     override fun releaseAll() {
         // No-op for preview — empty Mats have no native resources
