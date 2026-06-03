@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -28,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
@@ -36,6 +38,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.iostreamchik.scanner.opencv.MockMatBundle
 
 /**
  * Displays the original image with contour overlay, filtered preview, and warped result
@@ -61,6 +65,11 @@ fun FileScanResultScreen(
         }
     }
 
+    // Auto-show file picker when the screen opens for the first time
+    LaunchedEffect(Unit) {
+        pickMediaLauncher.launch(PickVisualMediaRequest(ImageOnly))
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -83,6 +92,18 @@ fun FileScanResultScreen(
                     fontWeight = FontWeight.Bold,
                     fontSize = 20.sp,
                     modifier = Modifier.align(Alignment.Center)
+                )
+            }
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = {
+                    pickMediaLauncher.launch(PickVisualMediaRequest(ImageOnly))
+                },
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ImageSearch,
+                    contentDescription = "Scan from file"
                 )
             }
         }
@@ -124,36 +145,6 @@ fun FileScanResultScreen(
                     modifier = Modifier.padding(start = 4.dp)
                 )
             }
-
-            // Scan from file FAB
-            FloatingActionButton(
-                onClick = {
-                    pickMediaLauncher.launch(PickVisualMediaRequest(ImageOnly))
-                },
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(top = 16.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Scan from file"
-                )
-            }
-
-            // Save FAB
-            if (resultBitmap != null) {
-                FloatingActionButton(
-                    onClick = { /* TODO: Save/share */ },
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .padding(top = 8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Save,
-                        contentDescription = "Save result"
-                    )
-                }
-            }
         }
     }
 }
@@ -163,7 +154,9 @@ fun FileScanResultScreen(
 private fun FileScanResultPreview() {
     Surface {
         FileScanResultScreen(
-            viewModel = CameraViewModel(),
+            viewModel = viewModel { CameraViewModel(
+                matBundle = MockMatBundle()
+            ) },
             onBack = {}
         )
     }
