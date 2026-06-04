@@ -26,9 +26,15 @@ class MockMatBundle : IMatBundle {
     override fun getStd(): MatOfDouble = MatOfDouble()
     override fun getKernel(): Mat = emptyMat
     override fun getKernel2(): Mat = emptyMat
+    override fun getHorizontalKernel(): Mat = emptyMat
+    override fun getVerticalKernel(): Mat = emptyMat
     override fun getHull(): MatOfInt = MatOfInt()
     override fun getHullPoints(): MatOfPoint2f = MatOfPoint2f()
     override fun getApprox(): MatOfPoint2f = MatOfPoint2f()
+
+    override fun getGrayGaussian(): Mat = emptyMat
+    override fun getHorizontalClose(): Mat = emptyMat
+    override fun getVerticalClose(): Mat = emptyMat
 
     override fun releaseAll() {
         // No-op for preview — empty Mats have no native resources

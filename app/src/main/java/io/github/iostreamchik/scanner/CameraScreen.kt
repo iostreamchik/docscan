@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -81,7 +82,7 @@ fun CameraScreen(
     val cornerRadius = rememberDeviceCornerRadiusDp()
 
     // Throttle for contourState updates (matches ViewModel's UI_UPDATE_THROTTLE_MS)
-    val lastContourUpdateTime = remember { mutableStateOf(0L) }
+    val lastContourUpdateTime = remember { mutableLongStateOf(0L) }
     val CONTOUR_UPDATE_THROTTLE_MS = 30L
 
     Box(modifier = modifier) {

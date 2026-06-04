@@ -18,6 +18,7 @@ import org.opencv.android.Utils
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.MatOfDouble
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
@@ -290,12 +291,12 @@ class CameraViewModel(
                 avgBrightness < 40 -> 2.0
                 avgBrightness < 80 -> 1.5
                 avgBrightness < 120 -> 1.2
-                else -> 1.0
+                else -> 1.2
             }
             val tileSize = when {
                 avgBrightness < 80 -> 8.0
                 avgBrightness < 120 -> 16.0
-                else -> 1.0
+                else -> 16.0
             }
             val clahe = Imgproc.createCLAHE(clipLimit, Size(tileSize, tileSize))
             clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
@@ -304,7 +305,7 @@ class CameraViewModel(
             val kernelSize = when {
                 avgBrightness < 70 -> 11.0
                 avgBrightness < 100 -> 9.0
-                else -> 5.0
+                else -> 9.0
             }
             Imgproc.getStructuringElement(
                 Imgproc.MORPH_RECT,
@@ -315,36 +316,89 @@ class CameraViewModel(
             }
             Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
 
-            // 4️⃣ Otsu
-            val otsu = Imgproc.threshold(
+            // 4️⃣ Gaussian blur before Canny (smooth fine texture noise)
+            val gaussSigma = when {
+                avgBrightness < 80 -> 1.0
+                else -> 1.0
+            }
+            Imgproc.GaussianBlur(
                 matBundle.getMorph(),
+                matBundle.getGrayGaussian(),
+                Size(0.0, 0.0),
+                gaussSigma
+            )
+
+            // 5️⃣ Otsu threshold (for edge density analysis)
+            Imgproc.threshold(
+                matBundle.getGrayGaussian(),
                 matBundle.getTemp(),
                 0.0,
                 255.0,
                 Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
             )
-            val high = otsu.coerceIn(70.0, 160.0)
-            val low = (high * 0.45).coerceAtLeast(35.0)
 
-            // 5️⃣ Canny
-            Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), low, high)
+            // Adaptive Canny thresholds based on edge map statistics
+            val edgeMean = MatOfDouble()
+            val edgeStd = MatOfDouble()
+            Core.meanStdDev(matBundle.getGrayGaussian(), edgeMean, edgeStd)
+            val meanEdge = edgeMean.toArray()[0]
+            val cannyHigh = (meanEdge * 3.0).coerceIn(50.0, 200.0)
+            val cannyLow = (cannyHigh * 0.33).coerceAtLeast(20.0)
+            Imgproc.Canny(matBundle.getGrayGaussian(), matBundle.getEdges(), cannyLow, cannyHigh)
 
-            // 6️⃣ Strong closing
-            val size = Size(
+            // 6️⃣ Strong closing (bridge small gaps in document edges)
+            val closeSize = Size(
                 (5 * scale).coerceAtLeast(3.0),
                 (5 * scale).coerceAtLeast(3.0)
             )
-            Imgproc.getStructuringElement(Imgproc.MORPH_RECT, size).also { kernel2 ->
+            Imgproc.getStructuringElement(Imgproc.MORPH_RECT, closeSize).also { kernel2 ->
                 matBundle.getKernel2().release()
                 kernel2.copyTo(matBundle.getKernel2())
             }
             Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
 
+            // 7️⃣ Directional line suppression (bright environments)
+            // Specifically targets wood-grain and similar horizontal texture patterns
+            if (avgBrightness > 120) {
+                // Horizontal close: solidify horizontal texture lines into continuous bars
+                Imgproc.getStructuringElement(
+                    Imgproc.MORPH_RECT,
+                    Size(7.0 * scale, 1.0)
+                ).also { kernel ->
+                    matBundle.getHorizontalKernel().release()
+                    kernel.copyTo(matBundle.getHorizontalKernel())
+                }
+                Imgproc.morphologyEx(
+                    matBundle.getMorph(),
+                    matBundle.getHorizontalClose(),
+                    Imgproc.MORPH_CLOSE,
+                    matBundle.getHorizontalKernel()
+                )
+
+                // Vertical close: preserve vertical document edges, suppress horizontal noise
+                Imgproc.getStructuringElement(
+                    Imgproc.MORPH_RECT,
+                    Size(1.0, 7.0 * scale)
+                ).also { kernel ->
+                    matBundle.getVerticalKernel().release()
+                    kernel.copyTo(matBundle.getVerticalKernel())
+                }
+                Imgproc.morphologyEx(
+                    matBundle.getHorizontalClose(),
+                    matBundle.getVerticalClose(),
+                    Imgproc.MORPH_CLOSE,
+                    matBundle.getVerticalKernel()
+                )
+
+                // Use the directionally-suppressed edges
+                matBundle.getVerticalClose().copyTo(matBundle.getMorph())
+            }
+
             // Always set filtered bitmap — camera screen doesn't display it, so no throttle needed.
             // File scan screen needs it and the shared throttle blocks it when exposure update runs first.
             _filteredBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
 
-            // 7️⃣ Find contours
+            // 8️⃣ Find contours
             val contours = mutableListOf<MatOfPoint>()
             Imgproc.findContours(
                 matBundle.getMorph(),
@@ -357,7 +411,9 @@ class CameraViewModel(
             if (contours.isEmpty()) return emptyList()
 
             val frameArea = scaledWidth * scaledHeight
-            val minArea = frameArea * 0.015
+            // Increase min area in bright scenes to filter out small texture noise
+            val minAreaFraction = if (avgBrightness > 120) 0.025 else 0.015
+            val minArea = frameArea * minAreaFraction
             val documentCandidates = mutableListOf<MatOfPoint>()
 
             for (contour in contours) {
@@ -444,7 +500,13 @@ class CameraViewModel(
 
         val centerScore = 1.0 - (centerDist / maxDist)
 
-        return area * 0.7 + centerScore * 0.3 * width * height
+        // Area ratio: penalize if contour fills too much of the frame
+        // (likely background texture rather than a document)
+        val frameArea = width * height.toDouble()
+        val areaRatio = area / frameArea
+        val areaRatioScore = if (areaRatio > 0.5) 0.2 else 1.0
+
+        return area * 0.5 + centerScore * 0.3 * width * height + areaRatioScore * 0.2 * width * height
     }
 
     private fun isRectangle(approx: MatOfPoint2f): Boolean {
