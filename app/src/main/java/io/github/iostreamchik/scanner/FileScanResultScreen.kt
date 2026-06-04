@@ -8,9 +8,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -30,6 +31,7 @@ import androidx.compose.material3.Text
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
@@ -55,6 +57,7 @@ fun FileScanResultScreen(
 
     // Collect state from ViewModel
     val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
+    val originalBitmap by viewModel.originalBitmap.collectAsStateWithLifecycle()
     val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
 
     val pickMediaLauncher = rememberLauncherForActivityResult(
@@ -112,38 +115,75 @@ fun FileScanResultScreen(
             modifier = modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
         ) {
-            // Filtered preview
-            filteredBitmap?.let { bmp ->
-                BitmapCard(
-                    bitmap = bmp,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Text(
-                    text = "Filtered Preview",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(start = 4.dp)
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Filtered",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    filteredBitmap?.let { bmp ->
+                        BitmapCard(
+                            bitmap = bmp,
+                            shape = RoundedCornerShape(8.dp),
+                        )
+                    }
+                }
             }
 
-            // Warped result
-            resultBitmap?.let { bmp ->
-                BitmapCard(
-                    bitmap = bmp,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Text(
-                    text = "Warped Result",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(start = 4.dp)
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                // Original image
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Original",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    originalBitmap?.let { bmp ->
+                        BitmapCard(
+                            bitmap = bmp,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
+                // Detected (warped) result
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Detected",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    resultBitmap?.let { bmp ->
+                        BitmapCard(
+                            bitmap = bmp,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
             }
         }
     }

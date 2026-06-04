@@ -56,6 +56,9 @@ class CameraViewModel(
     private val _filteredBitmap = MutableStateFlow<Bitmap?>(null)
     val filteredBitmap = _filteredBitmap.asStateFlow()
 
+    private val _originalBitmap = MutableStateFlow<Bitmap?>(null)
+    val originalBitmap = _originalBitmap.asStateFlow()
+
     private val _resultBitmap = MutableStateFlow<Bitmap?>(null)
     val resultBitmap = _resultBitmap.asStateFlow()
 
@@ -337,11 +340,9 @@ class CameraViewModel(
             }
             Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
 
-            val filterTime = System.currentTimeMillis()
-            if (filterTime - lastUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
-                _filteredBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
-                lastUiUpdateTime = filterTime
-            }
+            // Always set filtered bitmap — camera screen doesn't display it, so no throttle needed.
+            // File scan screen needs it and the shared throttle blocks it when exposure update runs first.
+            _filteredBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
 
             // 7️⃣ Find contours
             val contours = mutableListOf<MatOfPoint>()
@@ -561,7 +562,11 @@ class CameraViewModel(
     fun processPickedDocument(context: Context, uri: Uri, onScanComplete: () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                // Clear stale filtered bitmap from camera scanner
+                _filteredBitmap.value?.recycle()
+                _filteredBitmap.value = null
+
+                val sourceBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, _, _ ->
                         decoder.isMutableRequired = true
                     }
@@ -569,13 +574,20 @@ class CameraViewModel(
                     MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
                 }
 
+                // Capture original before processing
+                _originalBitmap.value?.recycle()
+                _originalBitmap.value = sourceBitmap.copy(Bitmap.Config.ARGB_8888, false)
+
                 val mat = Mat()
-                Utils.bitmapToMat(bitmap, mat)
+                Utils.bitmapToMat(sourceBitmap, mat)
 
                 // Picked documents usually have 0 rotation
                 val rotation = 0
 
-                val result = detectDocument(mat, rotation)
+                // Clone mat for detectDocument since it modifies the input in-place.
+                // The original mat must stay intact for warpDocumentHighQuality.
+                val matForDetection = mat.clone()
+                val result = detectDocument(matForDetection, rotation)
 
                 if (result.isNotEmpty()) {
                     val bestQuad = result.first()
@@ -585,8 +597,9 @@ class CameraViewModel(
                     _resultBitmap.value = mat.enhanceDocument().toBitmap()
                 }
 
+                matForDetection.release()
                 mat.release()
-                bitmap.recycle()
+                sourceBitmap.recycle()
 
                 // Notify UI that scan is complete — navigation is handled by callback
                 onScanComplete()
@@ -601,13 +614,19 @@ class CameraViewModel(
         super.onCleared()
         cameraExecutor.shutdown()
         cameraExecutor.awaitTermination(5, TimeUnit.SECONDS)
+        clearBitmaps()
+        lastWarpedQuadHash = 0
+    }
+
+    private fun clearBitmaps() {
         _filteredBitmap.value?.recycle()
         _filteredBitmap.value = null
+        _originalBitmap.value?.recycle()
+        _originalBitmap.value = null
         _resultBitmap.value?.recycle()
         _resultBitmap.value = null
         lastWarpedBitmap?.recycle()
         lastWarpedBitmap = null
-        lastWarpedQuadHash = 0
     }
 
 }

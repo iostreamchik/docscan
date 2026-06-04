@@ -128,8 +128,18 @@ fun Mat.fixRotation(rotationDegrees: Int): Mat {
 }
 
 fun Mat.toBitmap(): Bitmap {
-    val bmp = createBitmap(this.cols(), this.rows())
-    Utils.matToBitmap(this, bmp)
+    // Utils.matToBitmap only works with 3-channel (RGB) or 4-channel (RGBA) mats.
+    // Single-channel (grayscale) mats need to be converted first.
+    val source = if (this.channels() == 1) {
+        val rgb = Mat()
+        Imgproc.cvtColor(this, rgb, Imgproc.COLOR_GRAY2RGB)
+        rgb
+    } else {
+        this
+    }
+    val bmp = createBitmap(source.cols(), source.rows())
+    Utils.matToBitmap(source, bmp)
+    if (source !== this) source.release()
     return bmp
 }
 
