@@ -153,10 +153,10 @@ class CameraViewModel(
         for (i in 1 until quads.size) {
             val prevSorted = quads[i - 1].toSortedQuad()
             val currSorted = quads[i].toSortedQuad()
-            
+
             // Skip if either quad is invalid
             if (prevSorted.isEmpty() || currSorted.isEmpty()) continue
-            
+
             totalMovement += quadDistance(
                 prevSorted,
                 currSorted,
@@ -275,7 +275,7 @@ class CameraViewModel(
             Core.meanStdDev(matBundle.getGray(), matBundle.getMean(), matBundle.getStd())
             val avgBrightness = matBundle.getMean().toArray()[0]
             val contrast = matBundle.getStd().toArray()[0]
-            
+
             val exposureTime = System.currentTimeMillis()
             if (exposureTime - lastUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
                 _exposureStateFlow.value = "${avgBrightness.toInt()}"
@@ -291,7 +291,7 @@ class CameraViewModel(
                 avgBrightness < 40 -> 2.0
                 avgBrightness < 80 -> 1.5
                 avgBrightness < 120 -> 1.2
-                else -> 1.2
+                else -> 0.8
             }
             val tileSize = when {
                 avgBrightness < 80 -> 8.0
@@ -343,7 +343,7 @@ class CameraViewModel(
                 // Horizontal close: solidify horizontal texture lines into continuous bars
                 Imgproc.getStructuringElement(
                     Imgproc.MORPH_RECT,
-                    Size(9.0 * scale, 1.0)
+                    Size(15.0 * scale, 1.0)
                 ).also { kernel ->
                     matBundle.getHorizontalKernel().release()
                     kernel.copyTo(matBundle.getHorizontalKernel())
@@ -358,7 +358,7 @@ class CameraViewModel(
                 // Vertical close: preserve vertical document edges, suppress horizontal noise
                 Imgproc.getStructuringElement(
                     Imgproc.MORPH_RECT,
-                    Size(1.0, 9.0 * scale)
+                    Size(1.0, 15.0 * scale)
                 ).also { kernel ->
                     matBundle.getVerticalKernel().release()
                     kernel.copyTo(matBundle.getVerticalKernel())
@@ -413,7 +413,7 @@ class CameraViewModel(
                 Imgproc.approxPolyDP(
                     matBundle.getHullPoints(),
                     approx,
-                    0.02 * peri,
+                    0.015 * peri,
                     true
                 )
 
