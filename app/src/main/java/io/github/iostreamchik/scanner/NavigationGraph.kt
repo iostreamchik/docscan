@@ -15,6 +15,7 @@ import io.github.iostreamchik.scanner.CameraViewModel
 object NavigationDestination {
     const val Camera = "camera"
     const val FileScanResult = "file_scan_result"
+    const val PipelineSettings = "pipeline_settings"
 }
 
 @Composable
@@ -36,12 +37,25 @@ fun AppNavGraph(
                 viewModel = viewModel(viewModelStoreOwner = (context as? ComponentActivity) ?: it),
                 toScanFromFile = {
                     navController.navigate(NavigationDestination.FileScanResult)
+                },
+                toOpenSettings = {
+                    navController.navigate(NavigationDestination.PipelineSettings)
                 }
             )
         }
         composable(NavigationDestination.FileScanResult) {
             val context = LocalContext.current
             FileScanResultScreen(
+                modifier = Modifier.fillMaxSize(),
+                viewModel = viewModel(viewModelStoreOwner = (context as? ComponentActivity) ?: it),
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+        composable(NavigationDestination.PipelineSettings) {
+            val context = LocalContext.current
+            PipelineSettingsScreen(
                 modifier = Modifier.fillMaxSize(),
                 viewModel = viewModel(viewModelStoreOwner = (context as? ComponentActivity) ?: it),
                 onBack = {

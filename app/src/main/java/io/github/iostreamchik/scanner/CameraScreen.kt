@@ -21,13 +21,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
+import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -58,6 +62,7 @@ fun CameraScreen(
     modifier: Modifier = Modifier,
     viewModel: CameraViewModel,
     toScanFromFile: () -> Unit = {},
+    toOpenSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -112,6 +117,19 @@ fun CameraScreen(
             }
         }
 
+        IconButton(
+            modifier = Modifier
+                .statusBarsPadding()
+                .align(Alignment.TopEnd),
+            onClick = toOpenSettings,
+        ) {
+            Icon(
+                imageVector = Icons.Default.Settings,
+                contentDescription = "Pipeline settings"
+            )
+        }
+
+
         Column(
             modifier = Modifier
                 .padding(horizontal = 16.dp)
@@ -149,9 +167,9 @@ fun CameraScreen(
         FloatingActionButton(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
                 .padding(16.dp),
-            onClick = toScanFromFile
+            onClick = toScanFromFile,
+            elevation = FloatingActionButtonDefaults.elevation(8.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Image,

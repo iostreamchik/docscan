@@ -1,0 +1,620 @@
+package io.github.iostreamchik.scanner
+
+import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ImageSearch
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.iostreamchik.scanner.opencv.MockMatBundle
+
+/**
+ * Pipeline Settings screen — pick an image, tweak detection parameters,
+ * and see real-time previews at every stage of the OpenCV pipeline.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PipelineSettingsScreen(
+    modifier: Modifier = Modifier,
+    onBack: () -> Unit,
+    viewModel: PipelineSettingsViewModel,
+) {
+    val context = LocalContext.current
+
+    // Collect state
+    val originalBitmap by viewModel.originalBitmap.collectAsStateWithLifecycle()
+    val previewBitmaps by viewModel.previewBitmaps.collectAsStateWithLifecycle()
+    val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
+    val isProcessing by viewModel.isProcessing.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val detectedQuad by viewModel.detectedQuad.collectAsStateWithLifecycle()
+    val currentParams by viewModel.currentParams.collectAsStateWithLifecycle()
+
+    // File picker
+    val pickMediaLauncher = rememberLauncherForActivityResult(
+        contract = PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.loadImage(context, uri)
+        }
+    }
+
+    // Auto-open file picker on first launch
+    LaunchedEffect(Unit) {
+        pickMediaLauncher.launch(PickVisualMediaRequest(ImageOnly))
+    }
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Pipeline Settings",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        )
+                        if (isProcessing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = {
+                        viewModel.resetParams(context)
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Reset to defaults"
+                        )
+                    }
+                }
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = {
+                    pickMediaLauncher.launch(PickVisualMediaRequest(ImageOnly))
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ImageSearch,
+                    contentDescription = "Pick another image"
+                )
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Error banner
+            error?.let { msg ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                ) {
+                    Text(
+                        text = msg,
+                        color = Color.Red,
+                        modifier = Modifier
+                            .background(Color.Red.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    )
+                }
+            }
+
+            // Original image
+            originalBitmap?.let { bmp ->
+                PipelineStageCard(
+                    title = "Original Image",
+                    bitmap = bmp,
+                    isReadonly = true
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Pipeline stage previews with parameter controls
+            val stageOrder = listOf(
+                "Grayscale",
+                "Median Blur",
+                "CLAHE",
+                "Morph Close",
+                "Canny Edges",
+                "Strong Close",
+                "Directional Suppression",
+                "Contour Map",
+                "Detected Quad",
+                "Detected Document"
+            )
+
+            stageOrder.forEach { stageName ->
+                previewBitmaps[stageName]?.let { bmp ->
+                    val isReadonly = stageName in setOf(
+                        "Contour Map",
+                        "Detected Quad",
+                        "Detected Document"
+                    )
+                    PipelineStageCard(
+                        title = stageName,
+                        bitmap = bmp,
+                        isReadonly = isReadonly,
+                        parameters = getParametersForStage(stageName, currentParams, viewModel, context)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+
+            // Bottom padding for FAB
+            Spacer(modifier = Modifier.height(80.dp))
+        }
+    }
+}
+
+/**
+ * Returns the parameter controls for a given pipeline stage.
+ * Each control uses its own local state and debounces to the ViewModel.
+ */
+@Composable
+private fun getParametersForStage(
+    stageName: String,
+    currentParams: PipelineParams,
+    viewModel: PipelineSettingsViewModel,
+    context: android.content.Context
+): @Composable () -> Unit {
+    return {
+        when (stageName) {
+            "Grayscale" -> {}
+
+            "Median Blur" -> {
+                var kernelSize by remember { mutableIntStateOf(currentParams.medianBlurKsize) }
+                val debouncedKernel = debounceInt(kernelSize, 300)
+                LaunchedEffect(debouncedKernel) {
+                    if (debouncedKernel != currentParams.medianBlurKsize) {
+                        viewModel.updateParamSafely(
+                            currentParams.copy(medianBlurKsize = debouncedKernel)
+                        ) { context }
+                    }
+                }
+                ParameterSlider(
+                    label = "Kernel Size",
+                    value = kernelSize.toFloat(),
+                    valueRange = 3f..21f,
+                    step = 2f,
+                    valueFormatter = { "${it.toInt()}" },
+                    onValueChange = {
+                        val v = it.toInt().coerceIn(3, 21)
+                        if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
+                    }
+                )
+            }
+
+            "CLAHE" -> {
+                var clipLimit by remember { mutableFloatStateOf(currentParams.claheClipLimit) }
+                var tileSize by remember { mutableIntStateOf(currentParams.claheTileSize) }
+
+                val debouncedClip = debounceFloat(clipLimit, 300)
+                val debouncedTile = debounceInt(tileSize, 300)
+                LaunchedEffect(debouncedClip, debouncedTile) {
+                    if (debouncedClip != currentParams.claheClipLimit ||
+                        debouncedTile != currentParams.claheTileSize
+                    ) {
+                        viewModel.updateParamSafely(
+                            currentParams.copy(
+                                claheClipLimit = debouncedClip,
+                                claheTileSize = debouncedTile
+                            )
+                        ) { context }
+                    }
+                }
+
+                ParameterSlider(
+                    label = "Clip Limit",
+                    value = clipLimit,
+                    valueRange = 0.1f..5.0f,
+                    step = 0.1f,
+                    valueFormatter = { "%.1f".format(it) },
+                    onValueChange = { clipLimit = it }
+                )
+                ParameterSlider(
+                    label = "Tile Size",
+                    value = tileSize.toFloat(),
+                    valueRange = 8f..64f,
+                    step = 8f,
+                    valueFormatter = { "${it.toInt()}" },
+                    onValueChange = { tileSize = it.toInt() }
+                )
+            }
+
+            "Morph Close" -> {
+                var kernelSize by remember { mutableIntStateOf(currentParams.morphCloseSize) }
+                val debouncedKernel = debounceInt(kernelSize, 300)
+                LaunchedEffect(debouncedKernel) {
+                    if (debouncedKernel != currentParams.morphCloseSize) {
+                        viewModel.updateParamSafely(
+                            currentParams.copy(morphCloseSize = debouncedKernel)
+                        ) { context }
+                    }
+                }
+                ParameterSlider(
+                    label = "Kernel Size",
+                    value = kernelSize.toFloat(),
+                    valueRange = 3f..21f,
+                    step = 2f,
+                    valueFormatter = { "${it.toInt()}" },
+                    onValueChange = {
+                        val v = it.toInt().coerceIn(3, 21)
+                        if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
+                    }
+                )
+            }
+
+            "Canny Edges" -> {
+                var lowThreshold by remember { mutableFloatStateOf(currentParams.cannyLow) }
+                var highThreshold by remember { mutableFloatStateOf(currentParams.cannyHigh) }
+
+                val debouncedLow = debounceFloat(lowThreshold, 300)
+                val debouncedHigh = debounceFloat(highThreshold, 300)
+                LaunchedEffect(debouncedLow, debouncedHigh) {
+                    if (debouncedLow != currentParams.cannyLow ||
+                        debouncedHigh != currentParams.cannyHigh
+                    ) {
+                        viewModel.updateParamSafely(
+                            currentParams.copy(
+                                cannyLow = debouncedLow,
+                                cannyHigh = debouncedHigh
+                            )
+                        ) { context }
+                    }
+                }
+
+                ParameterSlider(
+                    label = "Low Threshold",
+                    value = lowThreshold,
+                    valueRange = 10f..100f,
+                    step = 5f,
+                    valueFormatter = { "%.0f".format(it) },
+                    onValueChange = { lowThreshold = it }
+                )
+                ParameterSlider(
+                    label = "High Threshold",
+                    value = highThreshold,
+                    valueRange = 30f..300f,
+                    step = 10f,
+                    valueFormatter = { "%.0f".format(it) },
+                    onValueChange = { highThreshold = it }
+                )
+            }
+
+            "Strong Close" -> {
+                var kernelSize by remember { mutableIntStateOf(currentParams.strongCloseSize) }
+                val debouncedKernel = debounceInt(kernelSize, 300)
+                LaunchedEffect(debouncedKernel) {
+                    if (debouncedKernel != currentParams.strongCloseSize) {
+                        viewModel.updateParamSafely(
+                            currentParams.copy(strongCloseSize = debouncedKernel)
+                        ) { context }
+                    }
+                }
+                ParameterSlider(
+                    label = "Kernel Size",
+                    value = kernelSize.toFloat(),
+                    valueRange = 3f..15f,
+                    step = 2f,
+                    valueFormatter = { "${it.toInt()}" },
+                    onValueChange = {
+                        val v = it.toInt().coerceIn(3, 15)
+                        if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
+                    }
+                )
+            }
+
+            "Directional Suppression" -> {
+                var enabled by remember { mutableStateOf(currentParams.directionalEnabled) }
+                var kernelSize by remember { mutableIntStateOf(currentParams.directionalKernelSize) }
+
+                val debouncedEnabled = debounceBoolean(enabled, 300)
+                val debouncedKernel = debounceInt(kernelSize, 300)
+                LaunchedEffect(debouncedEnabled, debouncedKernel) {
+                    if (debouncedEnabled != currentParams.directionalEnabled ||
+                        debouncedKernel != currentParams.directionalKernelSize
+                    ) {
+                        viewModel.updateParamSafely(
+                            currentParams.copy(
+                                directionalEnabled = debouncedEnabled,
+                                directionalKernelSize = debouncedKernel
+                            )
+                        ) { context }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Enabled",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = { enabled = it }
+                    )
+                }
+
+                ParameterSlider(
+                    label = "Kernel Size",
+                    value = kernelSize.toFloat(),
+                    valueRange = 1f..31f,
+                    step = 2f,
+                    valueFormatter = { "${it.toInt()}" },
+                    onValueChange = { kernelSize = it.toInt().coerceIn(1, 31) },
+                    enabled = enabled
+                )
+            }
+
+            "Contour Map" -> {}
+            "Detected Quad" -> {}
+            "Detected Document" -> {}
+        }
+    }
+}
+
+/**
+ * Debounces an integer value for the given number of milliseconds.
+ * Returns the most recent value after the delay period.
+ */
+@Composable
+private fun debounceInt(value: Int, delayMs: Long): Int {
+    var debouncedValue by remember { mutableIntStateOf(value) }
+    LaunchedEffect(value) {
+        kotlinx.coroutines.delay(delayMs)
+        debouncedValue = value
+    }
+    return debouncedValue
+}
+
+/**
+ * Debounces a float value for the given number of milliseconds.
+ */
+@Composable
+private fun debounceFloat(value: Float, delayMs: Long): Float {
+    var debouncedValue by remember { mutableFloatStateOf(value) }
+    LaunchedEffect(value) {
+        kotlinx.coroutines.delay(delayMs)
+        debouncedValue = value
+    }
+    return debouncedValue
+}
+
+/**
+ * Debounces a boolean value for the given number of milliseconds.
+ */
+@Composable
+private fun debounceBoolean(value: Boolean, delayMs: Long): Boolean {
+    var debouncedValue by remember { mutableStateOf(value) }
+    LaunchedEffect(value) {
+        kotlinx.coroutines.delay(delayMs)
+        debouncedValue = value
+    }
+    return debouncedValue
+}
+
+/**
+ * A single pipeline stage card showing a preview bitmap and optional parameter controls.
+ * Collapsible: tap the header to expand/collapse.
+ */
+@Composable
+private fun PipelineStageCard(
+    title: String,
+    bitmap: Bitmap,
+    isReadonly: Boolean = false,
+    parameters: @Composable () -> Unit = {},
+) {
+    var isExpanded by remember { mutableStateOf(!isReadonly) }
+
+    androidx.compose.material3.Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        elevation = androidx.compose.material3.CardDefaults.cardElevation(4.dp)
+    ) {
+        Column {
+            // Collapsible header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 16.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "Collapse $title" else "Expand $title",
+                    modifier = Modifier
+                        .size(24.dp)
+                        .graphicsLayer { rotationZ = if (isExpanded) 180f else 0f }
+                )
+            }
+
+            // Expandable content
+            if (isExpanded) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    // Preview bitmap
+                    val imageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
+                    androidx.compose.foundation.Image(
+                        bitmap = imageBitmap,
+                        contentDescription = "$title preview",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                            .background(Color.Black.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                    )
+
+                    // Parameter controls
+                    if (parameters != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            parameters()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A parameter slider with label, value display, and a Material 3 slider.
+ * The value is formatted by [valueFormatter] and displayed next to the label.
+ */
+@Composable
+private fun ParameterSlider(
+    label: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    step: Float,
+    valueFormatter: (Float) -> String,
+    onValueChange: (Float) -> Unit,
+    enabled: Boolean = true,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.Gray
+            )
+            Text(
+                text = valueFormatter(value),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            steps = if (step > 0) ((valueRange.endInclusive - valueRange.start) / step).toInt() else 0,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = enabled,
+            colors = SliderDefaults.colors(
+                activeTickColor = MaterialTheme.colorScheme.primary,
+                inactiveTickColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+            )
+        )
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview
+@Composable
+private fun PipelineSettingsPreview() {
+    Surface {
+        PipelineSettingsScreen(
+            onBack = {},
+            viewModel = viewModel { PipelineSettingsViewModel(
+                matBundle = MockMatBundle()
+            ) }
+        )
+    }
+}
