@@ -316,35 +316,15 @@ class CameraViewModel(
             }
             Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
 
-            // 4️⃣ Gaussian blur before Canny (smooth fine texture noise)
-            val gaussSigma = when {
-                avgBrightness < 80 -> 1.0
-                else -> 1.0
-            }
-            Imgproc.GaussianBlur(
-                matBundle.getMorph(),
-                matBundle.getGrayGaussian(),
-                Size(0.0, 0.0),
-                gaussSigma
-            )
-
-            // 5️⃣ Otsu threshold (for edge density analysis)
-            Imgproc.threshold(
-                matBundle.getGrayGaussian(),
-                matBundle.getTemp(),
-                0.0,
-                255.0,
-                Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
-            )
-
-            // Adaptive Canny thresholds based on edge map statistics
+            // 4️⃣ Adaptive Canny thresholds based on enhanced image statistics
             val edgeMean = MatOfDouble()
             val edgeStd = MatOfDouble()
-            Core.meanStdDev(matBundle.getGrayGaussian(), edgeMean, edgeStd)
+            Core.meanStdDev(matBundle.getEnhanced(), edgeMean, edgeStd)
             val meanEdge = edgeMean.toArray()[0]
             val cannyHigh = (meanEdge * 3.0).coerceIn(50.0, 200.0)
             val cannyLow = (cannyHigh * 0.33).coerceAtLeast(20.0)
-            Imgproc.Canny(matBundle.getGrayGaussian(), matBundle.getEdges(), cannyLow, cannyHigh)
+            // Apply Canny to enhanced image (not heavily-blurred morph) to preserve edges
+            Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), cannyLow, cannyHigh)
 
             // 6️⃣ Strong closing (bridge small gaps in document edges)
             val closeSize = Size(
@@ -363,7 +343,7 @@ class CameraViewModel(
                 // Horizontal close: solidify horizontal texture lines into continuous bars
                 Imgproc.getStructuringElement(
                     Imgproc.MORPH_RECT,
-                    Size(7.0 * scale, 1.0)
+                    Size(9.0 * scale, 1.0)
                 ).also { kernel ->
                     matBundle.getHorizontalKernel().release()
                     kernel.copyTo(matBundle.getHorizontalKernel())
@@ -378,7 +358,7 @@ class CameraViewModel(
                 // Vertical close: preserve vertical document edges, suppress horizontal noise
                 Imgproc.getStructuringElement(
                     Imgproc.MORPH_RECT,
-                    Size(1.0, 7.0 * scale)
+                    Size(1.0, 9.0 * scale)
                 ).also { kernel ->
                     matBundle.getVerticalKernel().release()
                     kernel.copyTo(matBundle.getVerticalKernel())
