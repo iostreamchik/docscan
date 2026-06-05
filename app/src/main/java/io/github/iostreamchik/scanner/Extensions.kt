@@ -128,14 +128,22 @@ fun Mat.fixRotation(rotationDegrees: Int): Mat {
 }
 
 fun Mat.toBitmap(): Bitmap {
-    // Utils.matToBitmap only works with 3-channel (RGB) or 4-channel (RGBA) mats.
-    // Single-channel (grayscale) mats need to be converted first.
-    val source = if (this.channels() == 1) {
-        val rgb = Mat()
-        Imgproc.cvtColor(this, rgb, Imgproc.COLOR_GRAY2RGB)
-        rgb
-    } else {
-        this
+    // Utils.matToBitmap only works reliably with 3-channel (RGB) or 1-channel (grayscale) mats.
+    // For 4-channel (RGBA/BGRA) mats, convert to RGB first — Android Bitmap.Config.ARGB_8888
+    // handles alpha natively, and Utils.matToBitmap with CV_8UC4 often produces transparent/corrupt results.
+    val source = when (this.channels()) {
+        1 -> {
+            val rgb = Mat()
+            Imgproc.cvtColor(this, rgb, Imgproc.COLOR_GRAY2RGB)
+            rgb
+        }
+        4 -> {
+            // Convert RGBA/BGRA (OpenCV order) → RGB for Android bitmap
+            val rgb = Mat()
+            Imgproc.cvtColor(this, rgb, Imgproc.COLOR_RGBA2RGB)
+            rgb
+        }
+        else -> this
     }
     val bmp = createBitmap(source.cols(), source.rows())
     Utils.matToBitmap(source, bmp)

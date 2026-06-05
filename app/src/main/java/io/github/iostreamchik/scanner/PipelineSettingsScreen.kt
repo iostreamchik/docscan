@@ -52,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -85,6 +86,8 @@ fun PipelineSettingsScreen(
     val detectedQuad by viewModel.detectedQuad.collectAsStateWithLifecycle()
     val hasDetectedDocument by viewModel.hasDetectedDocument.collectAsStateWithLifecycle()
     val currentParams by viewModel.currentParams.collectAsStateWithLifecycle()
+    val avgBrightness by viewModel.avgBrightness.collectAsStateWithLifecycle()
+    val contrast by viewModel.contrast.collectAsStateWithLifecycle()
 
     // File picker
     val pickMediaLauncher = rememberLauncherForActivityResult(
@@ -133,11 +136,19 @@ fun PipelineSettingsScreen(
                 },
                 actions = {
                     if (hasDetectedDocument) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Document recognized",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                        if (resultBitmap != null) {
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .padding(2.dp)
+                            ) {
+                                androidx.compose.foundation.Image(
+                                    bitmap = resultBitmap!!.asImageBitmap(),
+                                    contentDescription = "Recognized document",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.width(4.dp))
                     }
                     IconButton(onClick = {
@@ -189,12 +200,36 @@ fun PipelineSettingsScreen(
                 }
             }
 
+            // Brightness & Contrast info row
+            if (avgBrightness != null && contrast != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    InfoChip(label = "Brightness", value = avgBrightness!!.toInt().toString())
+                    InfoChip(label = "Contrast", value = "${contrast!!.toInt()}")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             // Original image
             originalBitmap?.let { bmp ->
                 PipelineStageCard(
                     title = "Original Image",
                     bitmap = bmp,
                     isReadonly = true
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Quad overlay — original image with detected quad, shown as a prominent card
+            previewBitmaps["Quad"]?.let { bmp ->
+                QuadCard(
+                    bitmap = bmp,
+                    hasDocument = hasDetectedDocument,
                 )
                 Spacer(modifier = Modifier.height(16.dp))
             }
@@ -208,8 +243,7 @@ fun PipelineSettingsScreen(
                 "Canny Edges",
                 "Strong Close",
                 "Directional Suppression",
-                "Contour Map",
-                "Detected Quad"
+                "Quad"
             )
 
             stageOrder.forEach { stageName ->
@@ -452,8 +486,7 @@ private fun getParametersForStage(
                 )
             }
 
-            "Contour Map" -> {}
-            "Detected Quad" -> {}
+            "Quad" -> {}
         }
     }
 }
@@ -496,6 +529,74 @@ private fun debounceBoolean(value: Boolean, delayMs: Long): Boolean {
         debouncedValue = value
     }
     return debouncedValue
+}
+
+/**
+ * Prominent card showing the original image with the detected quad overlaid.
+ * Always expanded, with a green border and fill highlighting the document region.
+ */
+@Composable
+private fun QuadCard(
+    bitmap: Bitmap,
+    hasDocument: Boolean,
+) {
+    androidx.compose.material3.Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        elevation = androidx.compose.material3.CardDefaults.cardElevation(6.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            // Header with status
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ImageSearch,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "Quad",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
+                if (hasDocument) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Document recognized",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Preview bitmap — original image with detected quad drawn on top
+            androidx.compose.foundation.Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "Detected quad overlay",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .background(Color.Black.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+            )
+        }
+    }
 }
 
 /**
@@ -716,6 +817,36 @@ private fun ParameterSlider(
                 inactiveTickColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
             )
         )
+    }
+}
+
+/**
+ * Small chip showing a label and numeric value (e.g. brightness/contrast).
+ */
+@Composable
+private fun InfoChip(label: String, value: String) {
+    Surface(
+        modifier = Modifier.padding(horizontal = 4.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+        ) {
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                color = Color.Gray
+            )
+            Text(
+                text = value,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
     }
 }
 

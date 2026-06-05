@@ -107,6 +107,12 @@ class PipelineSettingsViewModel(
     private var _currentParams = MutableStateFlow(PipelineParams.Default)
     val currentParams: StateFlow<PipelineParams> = _currentParams.asStateFlow()
 
+    private val _avgBrightness = MutableStateFlow<Double?>(null)
+    val avgBrightness: StateFlow<Double?> = _avgBrightness.asStateFlow()
+
+    private val _contrast = MutableStateFlow<Double?>(null)
+    val contrast: StateFlow<Double?> = _contrast.asStateFlow()
+
     private var lastImageUri: Uri? = null
 
     fun updateParams(newParams: PipelineParams, context: Context) {
@@ -220,6 +226,11 @@ class PipelineSettingsViewModel(
             // --- Step 1: Grayscale ---
             Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
             previews["Grayscale"] = matBundle.getGray().toBitmap()
+            Core.meanStdDev(matBundle.getGray(), matBundle.getMean(), matBundle.getStd())
+            val avgBrightness = matBundle.getMean().toArray()[0]
+            val contrast = matBundle.getStd().toArray()[0]
+            _avgBrightness.value = avgBrightness
+            _contrast.value = contrast
             smallMat.release()
 
             // --- Step 2: Median Blur ---
@@ -333,14 +344,6 @@ class PipelineSettingsViewModel(
                 candidates.add(quad)
             }
 
-            // Visualize contours on a black canvas
-            val contourCanvas = Mat(scaledHeight, scaledWidth, CvType.CV_8UC3, org.opencv.core.Scalar(0.0, 0.0, 0.0))
-            for (c in contours) {
-                Imgproc.drawContours(contourCanvas, listOf(c), -1, org.opencv.core.Scalar(255.0, 255.0, 255.0), 1)
-            }
-            previews["Contour Map"] = contourCanvas.toBitmap()
-            contourCanvas.release()
-
             if (candidates.isNotEmpty()) {
                 val best = candidates.maxByOrNull { contour ->
                     scoreContour(contour, scaledWidth, scaledHeight, params)
@@ -354,15 +357,55 @@ class PipelineSettingsViewModel(
                     _resultBitmap.value = warped
                     previews["Detected Document"] = warped
 
-                    // Draw detected quad on a black canvas
-                    val quadCanvas = Mat(scaledHeight, scaledWidth, CvType.CV_8UC3, org.opencv.core.Scalar(0.0, 0.0, 0.0))
+                    // Create quad overlay: original image (scaled) with detected quad drawn on top
+                    val originalScaled = Mat()
+                    Imgproc.resize(mat, originalScaled, Size(scaledWidth.toDouble(), scaledHeight.toDouble()))
+
                     val sorted = sortQuadPoints(best.toArray().toList())
-                    val pts = sorted.map { Point(it.x * scaledWidth / originalWidth.toDouble(), it.y * scaledHeight / originalHeight.toDouble()) }
+                    val scaleX = scaledWidth / originalWidth.toDouble()
+                    val scaleY = scaledHeight / originalHeight.toDouble()
+                    val pts = sorted.map { Point(it.x * scaleX, it.y * scaleY) }
                     val quadMatPts = MatOfPoint(*pts.toTypedArray())
-                    Imgproc.drawContours(quadCanvas, listOf(quadMatPts), -1, org.opencv.core.Scalar(0.0, 255.0, 0.0), 3)
-                    previews["Detected Quad"] = quadCanvas.toBitmap()
-                    quadCanvas.release()
+
+                    // Create a mask of the quad (white inside, black outside)
+                    val mask = Mat(scaledHeight, scaledWidth, CvType.CV_8UC1, org.opencv.core.Scalar(0.0))
+                    Imgproc.fillPoly(mask, listOf(quadMatPts), org.opencv.core.Scalar(255.0))
+
+                    // Create a green-blended version: original * 0.8 + green * 0.2 (masked to quad only)
+                    val greenOverlay = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4, org.opencv.core.Scalar(0.0, 255.0, 0.0, 255.0))
+                    val greenBlended = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
+                    val originalMasked = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
+                    val greenMasked = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
+
+                    originalScaled.copyTo(originalMasked, mask)
+                    greenOverlay.copyTo(greenMasked, mask)
+                    Core.addWeighted(originalMasked, 0.8, greenMasked, 0.2, 0.0, greenBlended)
+
+                    // Start with full original image as base
+                    val quadOverlay = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
+                    originalScaled.copyTo(quadOverlay)
+
+                    // Keep original outside quad, green-blended inside quad
+                    val invMask = Mat()
+                    Core.bitwise_not(mask, invMask)
+                    val originalOutside = Mat()
+                    val greenInside = Mat()
+                    Core.bitwise_and(quadOverlay, quadOverlay, originalOutside, invMask)
+                    Core.bitwise_and(greenBlended, greenBlended, greenInside, mask)
+                    Core.add(originalOutside, greenInside, quadOverlay)
+
+                    // Draw solid green outline on top
+                    Imgproc.drawContours(quadOverlay, listOf(quadMatPts), -1, org.opencv.core.Scalar(0.0, 255.0, 0.0, 255.0), 3)
+
                     quadMatPts.release()
+                    mask.release()
+                    greenOverlay.release()
+                    greenBlended.release()
+                    originalMasked.release()
+                    greenMasked.release()
+                    originalScaled.release()
+                    previews["Quad"] = quadOverlay.toBitmap()
+                    quadOverlay.release()
 
                     best.release()
                 }
