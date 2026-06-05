@@ -101,6 +101,9 @@ class PipelineSettingsViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _hasDetectedDocument = MutableStateFlow(false)
+    val hasDetectedDocument: StateFlow<Boolean> = _hasDetectedDocument.asStateFlow()
+
     private var _currentParams = MutableStateFlow(PipelineParams.Default)
     val currentParams: StateFlow<PipelineParams> = _currentParams.asStateFlow()
 
@@ -150,12 +153,14 @@ class PipelineSettingsViewModel(
     }
 
     /**
-     * Safely replace preview bitmaps while recycling old ones to prevent memory leaks.
+     * Replace preview bitmaps with the new set.
+     * Old bitmaps are NOT recycled here to avoid a race condition with Compose:
+     * if we recycle while Compose is still reading the old refs during composition,
+     * we get "Canvas: trying to use a recycled bitmap" crashes.
+     * Old bitmaps are naturally collected by GC once Compose releases its references.
      */
     private fun setPreviewBitmaps(newPreviews: Map<String, Bitmap?>) {
-        val oldPreviews = _previewBitmaps.value
         _previewBitmaps.value = newPreviews
-        oldPreviews.values.forEach { it?.recycle() }
     }
 
     fun loadImage(context: Context, uri: Uri) {
@@ -171,7 +176,8 @@ class PipelineSettingsViewModel(
                     MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
                 }
 
-                _originalBitmap.value?.recycle()
+                // Don't recycle the old bitmap here — let GC handle it to avoid a race
+                // condition with Compose composition (same issue as setPreviewBitmaps).
                 _originalBitmap.value = sourceBitmap.copy(Bitmap.Config.ARGB_8888, false)
 
                 lastImageUri = uri
@@ -342,6 +348,7 @@ class PipelineSettingsViewModel(
 
                 if (best != null) {
                     _detectedQuad.value = best.toArray().toList()
+                    _hasDetectedDocument.value = true
 
                     val warped = warpDocument(mat, best)
                     _resultBitmap.value = warped
@@ -363,6 +370,10 @@ class PipelineSettingsViewModel(
 
             candidates.forEach { it.release() }
             contours.forEach { it.release() }
+
+            if (candidates.isEmpty()) {
+                _hasDetectedDocument.value = false
+            }
 
             setPreviewBitmaps(previews)
 

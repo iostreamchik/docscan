@@ -54,9 +54,14 @@ fun BitmapCard(
                 containerColor = Color.Transparent,
             ),
         ) {
-            val imageBitmap = remember(it) { it.asImageBitmap() }
+            // Don't use remember here — the Android framework caches ImageBitmap internally.
+            // Using remember(it) with a Bitmap object as key is unsafe: if the underlying
+            // Bitmap is recycled (e.g., lastWarpedBitmap recycled in CameraViewModel while
+            // the composable still holds a cached ImageBitmap from a previous composition),
+            // the stale ImageBitmap wrapper causes "Canvas: trying to use a recycled bitmap".
+            // Creating a fresh ImageBitmap each composition avoids this race condition.
             Image(
-                bitmap = imageBitmap,
+                bitmap = it.asImageBitmap(),
                 contentDescription = null,
             )
         }

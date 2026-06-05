@@ -18,12 +18,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ImageSearch
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
@@ -81,6 +83,7 @@ fun PipelineSettingsScreen(
     val isProcessing by viewModel.isProcessing.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val detectedQuad by viewModel.detectedQuad.collectAsStateWithLifecycle()
+    val hasDetectedDocument by viewModel.hasDetectedDocument.collectAsStateWithLifecycle()
     val currentParams by viewModel.currentParams.collectAsStateWithLifecycle()
 
     // File picker
@@ -129,6 +132,14 @@ fun PipelineSettingsScreen(
                     }
                 },
                 actions = {
+                    if (hasDetectedDocument) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Document recognized",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
                     IconButton(onClick = {
                         viewModel.resetParams(context)
                     }) {
@@ -198,16 +209,14 @@ fun PipelineSettingsScreen(
                 "Strong Close",
                 "Directional Suppression",
                 "Contour Map",
-                "Detected Quad",
-                "Detected Document"
+                "Detected Quad"
             )
 
             stageOrder.forEach { stageName ->
                 previewBitmaps[stageName]?.let { bmp ->
                     val isReadonly = stageName in setOf(
                         "Contour Map",
-                        "Detected Quad",
-                        "Detected Document"
+                        "Detected Quad"
                     )
                     PipelineStageCard(
                         title = stageName,
@@ -217,6 +226,18 @@ fun PipelineSettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
+            }
+
+            // Recognized (cropped) document preview — at the end
+            if (hasDetectedDocument && resultBitmap != null) {
+                RecognizedDocumentCard(
+                    bitmap = resultBitmap,
+                    isProcessing = isProcessing,
+                    onReprocess = {
+                        viewModel.resetParams(context)
+                    }
+                )
+                Spacer(modifier = Modifier.height(16.dp))
             }
 
             // Bottom padding for FAB
@@ -433,7 +454,6 @@ private fun getParametersForStage(
 
             "Contour Map" -> {}
             "Detected Quad" -> {}
-            "Detected Document" -> {}
         }
     }
 }
@@ -529,9 +549,14 @@ private fun PipelineStageCard(
                         .padding(horizontal = 12.dp, vertical = 4.dp)
                 ) {
                     // Preview bitmap
-                    val imageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
+                    // Don't use remember — the Android framework caches ImageBitmap internally.
+                    // Using remember(bitmap) with a Bitmap object as key is unsafe: if the
+                    // underlying Bitmap is recycled (e.g., setPreviewBitmaps recycles old
+                    // bitmaps), the stale ImageBitmap wrapper causes "Canvas: trying to use
+                    // a recycled bitmap". Creating a fresh ImageBitmap each composition
+                    // avoids this race condition.
                     androidx.compose.foundation.Image(
-                        bitmap = imageBitmap,
+                        bitmap = bitmap.asImageBitmap(),
                         contentDescription = "$title preview",
                         modifier = Modifier
                             .fillMaxWidth()
@@ -549,6 +574,94 @@ private fun PipelineStageCard(
                             parameters()
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Prominent card showing the recognized (cropped/straightened) document.
+ * Always expanded, with a reprocess button when processing is active.
+ */
+@Composable
+private fun RecognizedDocumentCard(
+    bitmap: Bitmap?,
+    isProcessing: Boolean,
+    onReprocess: () -> Unit,
+) {
+    androidx.compose.material3.Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        elevation = androidx.compose.material3.CardDefaults.cardElevation(6.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            // Header with status
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ImageSearch,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "Recognized Document",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
+                if (isProcessing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Preview bitmap
+            // Don't use remember — see BitmapCard comment for rationale.
+            bitmap?.let { bmp ->
+                androidx.compose.foundation.Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = "Recognized document preview",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .background(Color.Black.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                )
+            }
+
+            // Reprocess button
+            if (isProcessing) {
+                Spacer(modifier = Modifier.height(8.dp))
+                androidx.compose.material3.Button(
+                    onClick = onReprocess,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Reprocess")
                 }
             }
         }
