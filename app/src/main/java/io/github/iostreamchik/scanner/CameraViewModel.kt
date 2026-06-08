@@ -18,7 +18,6 @@ import org.opencv.android.Utils
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
-import org.opencv.core.MatOfDouble
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
@@ -35,6 +34,7 @@ import kotlin.math.max
 import kotlin.math.sqrt
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
+import org.opencv.core.MatOfDouble
 
 class CameraViewModel(
     private val matBundle: IMatBundle = MatBundle()
@@ -275,6 +275,7 @@ class CameraViewModel(
             Core.meanStdDev(matBundle.getGray(), matBundle.getMean(), matBundle.getStd())
             val avgBrightness = matBundle.getMean().toArray()[0]
             val contrast = matBundle.getStd().toArray()[0]
+            Log.d("Pipeline", "--- Pipeline start: brightness=$avgBrightness contrast=$contrast scale=$scale (${scaledWidth.toInt()}x${scaledHeight.toInt()}) ---")
 
             val exposureTime = System.currentTimeMillis()
             if (exposureTime - lastUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
@@ -282,34 +283,19 @@ class CameraViewModel(
                 lastUiUpdateTime = exposureTime
             }
 
-            // 2️⃣ Blur
-            var ksize = (3.0 * scale).toInt()
-            if (ksize % 2 == 0) ksize += 1
-            Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), ksize)
+            // 2️⃣ Median Blur (fixed ksize=5)
+            Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), 5)
+            Log.d("Pipeline", "medianBlur: ksize=5")
 
-            val clipLimit = when {
-                avgBrightness < 40 -> 2.0
-                avgBrightness < 80 -> 1.5
-                avgBrightness < 120 -> 1.2
-                else -> 0.8
-            }
-            val tileSize = when {
-                avgBrightness < 80 -> 8.0
-                avgBrightness < 120 -> 16.0
-                else -> 16.0
-            }
-            val clahe = Imgproc.createCLAHE(clipLimit, Size(tileSize, tileSize))
+            // 3️⃣ CLAHE (clipLimit=0.1, tileSize=8)
+            val clahe = Imgproc.createCLAHE(0.1, Size(8.0, 8.0))
             clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
+            Log.d("Pipeline", "CLAHE: clipLimit=0.1 tileSize=8")
 
-            // 3️⃣ Adaptive Morph Close
-            val kernelSize = when {
-                avgBrightness < 70 -> 11.0
-                avgBrightness < 100 -> 9.0
-                else -> 9.0
-            }
+            // 4️⃣ Morph Close (kernelSize=3)
             Imgproc.getStructuringElement(
                 Imgproc.MORPH_RECT,
-                Size(kernelSize, kernelSize)
+                Size(3.0, 3.0)
             ).also { kernel ->
                 matBundle.getKernel().release()
                 kernel.copyTo(matBundle.getKernel())
@@ -321,58 +307,54 @@ class CameraViewModel(
             val edgeStd = MatOfDouble()
             Core.meanStdDev(matBundle.getEnhanced(), edgeMean, edgeStd)
             val meanEdge = edgeMean.toArray()[0]
-            val cannyHigh = (meanEdge * 3.0).coerceIn(50.0, 200.0)
-            val cannyLow = (cannyHigh * 0.33).coerceAtLeast(20.0)
+            var cannyHigh = (meanEdge * 3.0).coerceIn(50.0, 200.0)
+            var cannyLow = (cannyHigh * 0.33).coerceAtLeast(20.0)
+            Log.d("Pipeline", "cannyHigh: $cannyHigh cannyLow: $cannyLow")
             // Apply Canny to enhanced image (not heavily-blurred morph) to preserve edges
             Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), cannyLow, cannyHigh)
 
-            // 6️⃣ Strong closing (bridge small gaps in document edges)
-            val closeSize = Size(
-                (5 * scale).coerceAtLeast(3.0),
-                (5 * scale).coerceAtLeast(3.0)
-            )
-            Imgproc.getStructuringElement(Imgproc.MORPH_RECT, closeSize).also { kernel2 ->
+            // 6️⃣ Strong Closing (kernelSize=7)
+            var closeKsize = (7 * scale).coerceAtLeast(3.0).toInt()
+            if (closeKsize % 2 == 0) closeKsize++
+            Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(closeKsize.toDouble(), closeKsize.toDouble())).also { kernel2 ->
                 matBundle.getKernel2().release()
                 kernel2.copyTo(matBundle.getKernel2())
             }
             Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
+            Log.d("Pipeline", "Strong Close: kernel=$closeKsize")
 
-            // 7️⃣ Directional line suppression (bright environments)
-            // Specifically targets wood-grain and similar horizontal texture patterns
-            if (avgBrightness > 120) {
-                // Horizontal close: solidify horizontal texture lines into continuous bars
-                Imgproc.getStructuringElement(
-                    Imgproc.MORPH_RECT,
-                    Size(15.0 * scale, 1.0)
-                ).also { kernel ->
-                    matBundle.getHorizontalKernel().release()
-                    kernel.copyTo(matBundle.getHorizontalKernel())
-                }
-                Imgproc.morphologyEx(
-                    matBundle.getMorph(),
-                    matBundle.getHorizontalClose(),
-                    Imgproc.MORPH_CLOSE,
-                    matBundle.getHorizontalKernel()
-                )
-
-                // Vertical close: preserve vertical document edges, suppress horizontal noise
-                Imgproc.getStructuringElement(
-                    Imgproc.MORPH_RECT,
-                    Size(1.0, 15.0 * scale)
-                ).also { kernel ->
-                    matBundle.getVerticalKernel().release()
-                    kernel.copyTo(matBundle.getVerticalKernel())
-                }
-                Imgproc.morphologyEx(
-                    matBundle.getHorizontalClose(),
-                    matBundle.getVerticalClose(),
-                    Imgproc.MORPH_CLOSE,
-                    matBundle.getVerticalKernel()
-                )
-
-                // Use the directionally-suppressed edges
-                matBundle.getVerticalClose().copyTo(matBundle.getMorph())
+            // 7️⃣ Directional Suppression (kernelSize=10)
+            val dirKsize = (10 * scale).coerceAtLeast(3.0).toInt()
+            Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT,
+                Size(dirKsize.toDouble(), 1.0)
+            ).also { kernel ->
+                matBundle.getHorizontalKernel().release()
+                kernel.copyTo(matBundle.getHorizontalKernel())
             }
+            Imgproc.morphologyEx(
+                matBundle.getMorph(),
+                matBundle.getHorizontalClose(),
+                Imgproc.MORPH_CLOSE,
+                matBundle.getHorizontalKernel()
+            )
+
+            Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT,
+                Size(1.0, dirKsize.toDouble())
+            ).also { kernel ->
+                matBundle.getVerticalKernel().release()
+                kernel.copyTo(matBundle.getVerticalKernel())
+            }
+            Imgproc.morphologyEx(
+                matBundle.getHorizontalClose(),
+                matBundle.getVerticalClose(),
+                Imgproc.MORPH_CLOSE,
+                matBundle.getVerticalKernel()
+            )
+
+            matBundle.getVerticalClose().copyTo(matBundle.getMorph())
+            Log.d("Pipeline", "DirectionalSuppression: kernel=$dirKsize")
 
             // Always set filtered bitmap — camera screen doesn't display it, so no throttle needed.
             // File scan screen needs it and the shared throttle blocks it when exposure update runs first.
@@ -391,8 +373,7 @@ class CameraViewModel(
             if (contours.isEmpty()) return emptyList()
 
             val frameArea = scaledWidth * scaledHeight
-            // Increase min area in bright scenes to filter out small texture noise
-            val minAreaFraction = if (avgBrightness > 120) 0.025 else 0.015
+            val minAreaFraction = 0.025
             val minArea = frameArea * minAreaFraction
             val documentCandidates = mutableListOf<MatOfPoint>()
 

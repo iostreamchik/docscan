@@ -228,7 +228,8 @@ fun PipelineSettingsScreen(
             // Quad overlay — original image with detected quad, shown as a prominent card
             previewBitmaps["Quad"]?.let { bmp ->
                 QuadCard(
-                    bitmap = bmp,
+                    quadBitmap = bmp,
+                    resultBitmap = resultBitmap,
                     hasDocument = hasDetectedDocument,
                 )
                 Spacer(modifier = Modifier.height(16.dp))
@@ -242,8 +243,7 @@ fun PipelineSettingsScreen(
                 "Morph Close",
                 "Canny Edges",
                 "Strong Close",
-                "Directional Suppression",
-                "Quad"
+                "Directional Suppression"
             )
 
             stageOrder.forEach { stageName ->
@@ -262,16 +262,23 @@ fun PipelineSettingsScreen(
                 }
             }
 
-            // Recognized (cropped) document preview — at the end
-            if (hasDetectedDocument && resultBitmap != null) {
-                RecognizedDocumentCard(
-                    bitmap = resultBitmap,
-                    isProcessing = isProcessing,
-                    onReprocess = {
+            // Reprocess button — shown inside QuadCard when processing
+            if (isProcessing) {
+                androidx.compose.material3.Button(
+                    onClick = {
                         viewModel.resetParams(context)
-                    }
-                )
-                Spacer(modifier = Modifier.height(16.dp))
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Reprocess")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
             }
 
             // Bottom padding for FAB
@@ -532,12 +539,13 @@ private fun debounceBoolean(value: Boolean, delayMs: Long): Boolean {
 }
 
 /**
- * Prominent card showing the original image with the detected quad overlaid.
- * Always expanded, with a green border and fill highlighting the document region.
+ * Prominent card showing the original image with the detected quad overlaid,
+ * alongside the recognized (cropped) document preview.
  */
 @Composable
 private fun QuadCard(
-    bitmap: Bitmap,
+    quadBitmap: Bitmap,
+    resultBitmap: Bitmap?,
     hasDocument: Boolean,
 ) {
     androidx.compose.material3.Card(
@@ -586,15 +594,55 @@ private fun QuadCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Preview bitmap — original image with detected quad drawn on top
-            androidx.compose.foundation.Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = "Detected quad overlay",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp)
-                    .background(Color.Black.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
-            )
+            // Two-column layout: Quad overlay + Recognized document
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Quad overlay
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Quad",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.Gray
+                    )
+                    androidx.compose.foundation.Image(
+                        bitmap = quadBitmap.asImageBitmap(),
+                        contentDescription = "Detected quad overlay",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp)
+                            .background(Color.Black.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                    )
+                }
+
+                // Recognized document
+                if (resultBitmap != null) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "Recognized Document",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.Gray
+                        )
+                        androidx.compose.foundation.Image(
+                            bitmap = resultBitmap.asImageBitmap(),
+                            contentDescription = "Recognized document preview",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(160.dp)
+                                .background(Color.Black.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                        )
+                    }
+                }
+            }
         }
     }
 }

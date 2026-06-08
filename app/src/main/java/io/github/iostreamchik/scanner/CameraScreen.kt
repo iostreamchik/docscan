@@ -28,10 +28,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
 import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -71,15 +71,6 @@ fun CameraScreen(
     val contourState =
         remember { mutableStateOf<ContourData?>(null) }
 
-    val pickMediaLauncher = rememberLauncherForActivityResult(
-        contract = PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
-            viewModel.processPickedDocument(context, uri) {}
-        }
-    }
-
-    // Hoist state reads above Box to limit recomposition scope
     val exposure by viewModel.exposureStateFlow.collectAsStateWithLifecycle()
     val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
     val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
@@ -218,7 +209,7 @@ fun CameraScreen(
                 val contours = viewModel.processFrame(imageProxy)
 
                 val now = System.currentTimeMillis()
-                if (now - lastContourUpdateTime.value >= CONTOUR_UPDATE_THROTTLE_MS) {
+                if (now - lastContourUpdateTime.longValue >= CONTOUR_UPDATE_THROTTLE_MS) {
                     contourState.value?.release()
                     contourState.value = io.github.iostreamchik.scanner.ContourData(
                         contours = contours,
@@ -226,7 +217,7 @@ fun CameraScreen(
                         frameHeight = imageProxy.height,
                         rotation = imageProxy.imageInfo.rotationDegrees
                     )
-                    lastContourUpdateTime.value = now
+                    lastContourUpdateTime.longValue = now
                 } else {
                     contours.forEach { it.release() }
                 }
