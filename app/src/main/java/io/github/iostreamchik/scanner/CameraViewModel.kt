@@ -35,6 +35,7 @@ import kotlin.math.sqrt
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
 import org.opencv.core.MatOfDouble
+import kotlin.math.min
 
 class CameraViewModel(
     private val matBundle: IMatBundle = MatBundle()
@@ -107,7 +108,12 @@ class CameraViewModel(
                         scaledWidth,
                         scaledHeight
                     )
-                    Log.d("CameraViewModel", "\nFused Quad: ${fusedQuad.toArray().joinToString(", ")},\n Original Quad: ${originalQuad.toArray().joinToString(", ")}")
+                    Log.d(
+                        "CameraViewModel",
+                        "\nFused Quad: ${
+                            fusedQuad.toArray().joinToString(", ")
+                        },\n Original Quad: ${originalQuad.toArray().joinToString(", ")}"
+                    )
                     // Warp only if the quad has changed — skip expensive op when hash matches
                     val warped = if (quadHash != lastWarpedQuadHash) {
                         warpDocumentHighQuality(mat, fusedQuad, rotation).also {
@@ -120,7 +126,8 @@ class CameraViewModel(
                     }
                     // Clone the bitmap before emitting to state flow so Compose gets
                     // its own independent copy that won't be affected by recycling.
-                    _resultBitmap.value = warped?.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+                    _resultBitmap.value =
+                        warped?.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
                     // Clone: fusedQuad lives in quadHistory, caller owns the clone
                     return listOf(MatOfPoint(*fusedQuad.toArray()))
                 }
@@ -173,7 +180,10 @@ class CameraViewModel(
     private fun MatOfPoint.toSortedQuad(): List<Point> {
         val points = this.toArray().toList()
         if (points.size != 4) {
-            Log.w("CameraViewModel", "toSortedQuad: Invalid quad with ${points.size} points, returning empty list")
+            Log.w(
+                "CameraViewModel",
+                "toSortedQuad: Invalid quad with ${points.size} points, returning empty list"
+            )
             return emptyList()
         }
         return sortQuadPoints(points)
@@ -206,7 +216,10 @@ class CameraViewModel(
 
     fun sortQuadPoints(points: List<Point>): List<Point> {
         if (points.size != 4) {
-            Log.w("CameraViewModel", "sortQuadPoints: Invalid quad with ${points.size} points, returning empty list")
+            Log.w(
+                "CameraViewModel",
+                "sortQuadPoints: Invalid quad with ${points.size} points, returning empty list"
+            )
             return emptyList()
         }
 
@@ -275,11 +288,14 @@ class CameraViewModel(
             Core.meanStdDev(matBundle.getGray(), matBundle.getMean(), matBundle.getStd())
             val avgBrightness = matBundle.getMean().toArray()[0]
             val contrast = matBundle.getStd().toArray()[0]
-            Log.d("Pipeline", "--- Pipeline start: brightness=$avgBrightness contrast=$contrast scale=$scale (${scaledWidth.toInt()}x${scaledHeight.toInt()}) ---")
+            Log.d(
+                "Pipeline",
+                "--- Pipeline start: brightness=$avgBrightness contrast=$contrast scale=$scale (${scaledWidth.toInt()}x${scaledHeight.toInt()}) ---"
+            )
 
             val exposureTime = System.currentTimeMillis()
             if (exposureTime - lastUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
-                _exposureStateFlow.value = "${avgBrightness.toInt()}"
+                _exposureStateFlow.value = "br: ${avgBrightness.toInt()} ct: ${contrast.toInt()}"
                 lastUiUpdateTime = exposureTime
             }
 
@@ -302,14 +318,13 @@ class CameraViewModel(
             }
             Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
 
-            // 4️⃣ Adaptive Canny thresholds based on enhanced image statistics
-            val edgeMean = MatOfDouble()
-            val edgeStd = MatOfDouble()
-            Core.meanStdDev(matBundle.getEnhanced(), edgeMean, edgeStd)
-            val meanEdge = edgeMean.toArray()[0]
-            var cannyHigh = (meanEdge * 3.0).coerceIn(50.0, 200.0)
-            var cannyLow = (cannyHigh * 0.33).coerceAtLeast(20.0)
-            Log.d("Pipeline", "cannyHigh: $cannyHigh cannyLow: $cannyLow")
+            // 4️⃣ Automatic Canny thresholds via Otsu/σ-based method
+            // Adapted from PyImageSearch: zero-parameter automatic Canny edge detection
+            // Uses image intensity + σ multiplier instead of hardcoded brightness breakpoints
+            val sigma = 0.33
+            val cannyHigh = min(255.0, max(30.0, avgBrightness * (1.0 + sigma)))
+            val cannyLow = max(10.0, cannyHigh * 0.5)
+            Log.d("Pipeline", "Auto Canny: High=$cannyHigh, Low=$cannyLow intensity=$avgBrightness sigma: $sigma")
             // Apply Canny to enhanced image (not heavily-blurred morph) to preserve edges
             Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), cannyLow, cannyHigh)
 
@@ -590,7 +605,12 @@ class CameraViewModel(
                 _filteredBitmap.value = null
 
                 val sourceBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, _, _ ->
+                    ImageDecoder.decodeBitmap(
+                        ImageDecoder.createSource(
+                            context.contentResolver,
+                            uri
+                        )
+                    ) { decoder, _, _ ->
                         decoder.isMutableRequired = true
                     }
                 } else {

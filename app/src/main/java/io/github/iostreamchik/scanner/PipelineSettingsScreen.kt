@@ -38,7 +38,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -446,40 +445,17 @@ private fun getParametersForStage(
             }
 
             "Directional Suppression" -> {
-                var enabled by remember { mutableStateOf(currentParams.directionalEnabled) }
                 var kernelSize by remember { mutableIntStateOf(currentParams.directionalKernelSize) }
 
-                val debouncedEnabled = debounceBoolean(enabled, 300)
                 val debouncedKernel = debounceInt(kernelSize, 300)
-                LaunchedEffect(debouncedEnabled, debouncedKernel) {
-                    if (debouncedEnabled != currentParams.directionalEnabled ||
-                        debouncedKernel != currentParams.directionalKernelSize
-                    ) {
+                LaunchedEffect(debouncedKernel) {
+                    if (debouncedKernel != currentParams.directionalKernelSize) {
                         viewModel.updateParamSafely(
                             currentParams.copy(
-                                directionalEnabled = debouncedEnabled,
                                 directionalKernelSize = debouncedKernel
                             )
                         ) { context }
                     }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Enabled",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = { enabled = it }
-                    )
                 }
 
                 ParameterSlider(
@@ -488,8 +464,7 @@ private fun getParametersForStage(
                     valueRange = 1f..31f,
                     step = 2f,
                     valueFormatter = { "${it.toInt()}" },
-                    onValueChange = { kernelSize = it.toInt().coerceIn(1, 31) },
-                    enabled = enabled
+                    onValueChange = { kernelSize = it.toInt().coerceIn(1, 31) }
                 )
             }
 
@@ -518,19 +493,6 @@ private fun debounceInt(value: Int, delayMs: Long): Int {
 @Composable
 private fun debounceFloat(value: Float, delayMs: Long): Float {
     var debouncedValue by remember { mutableFloatStateOf(value) }
-    LaunchedEffect(value) {
-        kotlinx.coroutines.delay(delayMs)
-        debouncedValue = value
-    }
-    return debouncedValue
-}
-
-/**
- * Debounces a boolean value for the given number of milliseconds.
- */
-@Composable
-private fun debounceBoolean(value: Boolean, delayMs: Long): Boolean {
-    var debouncedValue by remember { mutableStateOf(value) }
     LaunchedEffect(value) {
         kotlinx.coroutines.delay(delayMs)
         debouncedValue = value
@@ -714,14 +676,12 @@ private fun PipelineStageCard(
                     )
 
                     // Parameter controls
-                    if (parameters != null) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            parameters()
-                        }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        parameters()
                     }
                 }
             }

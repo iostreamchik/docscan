@@ -127,11 +127,13 @@ fun CameraScreen(
                 .align(Alignment.BottomStart)
         ) {
             Text(
-                text = exposure, fontWeight = FontWeight.Bold, style = TextStyle(
-                    fontSize = 30.sp,
+                text = exposure,
+                fontWeight = FontWeight.Bold, style = TextStyle(
+                    color = Color.White,
+                    fontSize = 20.sp,
                     shadow = Shadow(
                         color = Color.Black.copy(alpha = 0.5f),
-                        offset = Offset(5f, 5f),
+                        offset = Offset(0f, 0f),
                         blurRadius = 8f
                     )
                 )

@@ -57,7 +57,6 @@ data class PipelineParams(
     val strongCloseSize: Int = 5,
 
     // Directional Suppression
-    val directionalEnabled: Boolean = true,
     val directionalKernelSize: Int = 15,
 
     // Contour Detection
@@ -265,7 +264,7 @@ class PipelineSettingsViewModel(
             previews["Strong Close"] = matBundle.getMorph().toBitmap()
 
             // --- Step 7: Directional Suppression ---
-            if (params.directionalEnabled && params.directionalKernelSize > 0) {
+            if (params.directionalKernelSize > 0) {
                 val dirKsize = (params.directionalKernelSize * scale).coerceAtLeast(3.0).toInt()
                 Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(dirKsize.toDouble(), 1.0)).also { k ->
                     matBundle.getHorizontalKernel().release()
