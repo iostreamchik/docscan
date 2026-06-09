@@ -51,6 +51,14 @@ class CameraViewModel(
 
     private val PROCESS_WIDTH = 640.0
 
+    // Sigma cycling for adaptive Canny edge detection
+    private var currentSigmaValue = 3000.0
+    private var consecutiveDetectionFailures = 0
+    private val MAX_FAILURES_BEFORE_INCREASE = 10
+    private val SIGMA_MIN = 3000.0
+    private val SIGMA_MAX = 9000.0
+    private val SIGMA_STEP = 500.0
+
     // Cache: skip re-warping when the same quad is detected repeatedly
     private var lastWarpedQuadHash: Long = 0
     private var lastWarpedBitmap: Bitmap? = null
@@ -88,6 +96,7 @@ class CameraViewModel(
         val result = detectDocument(mat, rotation)
 
         if (result.isNotEmpty()) {
+            onDocumentDetected()
             if (isStable()) {
                 val fusedQuad = getFusedQuad()
                 if (fusedQuad != null) {
@@ -135,6 +144,8 @@ class CameraViewModel(
                 // Accumulate during pre-stability bootstrapping
                 result.forEach { updateHistory(it) }
             }
+        } else {
+            onDetectionFailure()
         }
         // Clone each result: objects also live in quadHistory, caller owns the clones
         return result.map { MatOfPoint(*it.toArray()) }
@@ -293,12 +304,6 @@ class CameraViewModel(
                 "--- Pipeline start: brightness=$avgBrightness contrast=$contrast scale=$scale (${scaledWidth.toInt()}x${scaledHeight.toInt()}) ---"
             )
 
-            val exposureTime = System.currentTimeMillis()
-            if (exposureTime - lastUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
-                _exposureStateFlow.value = "br: ${avgBrightness.toInt()} ct: ${contrast.toInt()}"
-                lastUiUpdateTime = exposureTime
-            }
-
             // 2️⃣ Median Blur (fixed ksize=5)
             Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), 5)
             Log.d("Pipeline", "medianBlur: ksize=5")
@@ -321,11 +326,14 @@ class CameraViewModel(
             // 4️⃣ Automatic Canny thresholds via Otsu/σ-based method
             // Adapted from PyImageSearch: zero-parameter automatic Canny edge detection
             // Uses image intensity + σ multiplier instead of hardcoded brightness breakpoints
-//            val sigma = 0.17
-            val sigma = 6000 / avgBrightness
+            val sigma = calculateAdaptiveSigma(avgBrightness)
             val cannyHigh = min(255.0, max(30.0, sigma))
-//            val cannyHigh = min(255.0, sigma)
             val cannyLow = max(10.0, cannyHigh * 0.5)
+            val exposureTime = System.currentTimeMillis()
+            if (exposureTime - lastUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
+                _exposureStateFlow.value = "br: ${avgBrightness.toInt()} ct: ${contrast.toInt()} sigma: $currentSigmaValue"
+                lastUiUpdateTime = exposureTime
+            }
             Log.d("Pipeline", "Auto Canny: High=$cannyHigh, Low=$cannyLow intensity=$avgBrightness sigma: $sigma")
             // Apply Canny to enhanced image (not heavily-blurred morph) to preserve edges
             Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), cannyLow, cannyHigh)
@@ -446,7 +454,19 @@ class CameraViewModel(
                 scoreContour(it, scaledWidth.toInt(), scaledHeight.toInt())
             }
 
-            return best?.let { listOf(it) } ?: emptyList()
+            if (best == null) return emptyList()
+
+            // Validate document size — a quad filling the entire frame is likely a false positive
+            val bestRect = Imgproc.boundingRect(best)
+            val bestArea = bestRect.width * bestRect.height
+            val frameOriginalArea = originalWidth * originalHeight
+            if (bestArea > frameOriginalArea * 0.95) {
+                // Detected "document" equals the full image — treat as no detection
+                best.release()
+                return emptyList()
+            }
+
+            return listOf(best)
 
         } catch (e: Exception) {
             e.printStackTrace()
@@ -520,6 +540,38 @@ class CameraViewModel(
         val dx = p1.x - p2.x
         val dy = p1.y - p2.y
         return sqrt(dx * dx + dy * dy)
+    }
+
+    /**
+     * Calculate adaptive sigma for Canny edge detection using cycling logic.
+     * Returns the current sigma value for the given brightness level.
+     */
+    private fun calculateAdaptiveSigma(avgBrightness: Double): Double {
+        return currentSigmaValue / avgBrightness
+    }
+
+    /**
+     * Called when a valid document is successfully detected.
+     * Resets the failure counter but keeps the current sigma value intact.
+     */
+    private fun onDocumentDetected() {
+        consecutiveDetectionFailures = 0
+    }
+
+    /**
+     * Called when no document is detected or the detected document is invalid.
+     * Increments the failure counter and cycles sigma when threshold is reached.
+     */
+    private fun onDetectionFailure() {
+        consecutiveDetectionFailures++
+        if (consecutiveDetectionFailures >= MAX_FAILURES_BEFORE_INCREASE) {
+            consecutiveDetectionFailures = 0
+            currentSigmaValue = if (currentSigmaValue >= SIGMA_MAX) {
+                SIGMA_MIN
+            } else {
+                (currentSigmaValue + SIGMA_STEP).coerceAtMost(SIGMA_MAX)
+            }
+        }
     }
 
     private fun quadHash(quad: MatOfPoint): Long {
