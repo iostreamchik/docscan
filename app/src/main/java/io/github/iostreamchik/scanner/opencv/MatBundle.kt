@@ -30,6 +30,9 @@ interface IMatBundle {
     fun getHullPoints(): MatOfPoint2f
     fun getApprox(): MatOfPoint2f
 
+    // Adaptive threshold pipeline
+    fun getAdaptiveBinary(): Mat
+
     fun releaseAll()
 }
 
@@ -59,6 +62,9 @@ class MatBundle : IMatBundle {
     private var _hullPoints: MatOfPoint2f = MatOfPoint2f()
     private var _approx: MatOfPoint2f = MatOfPoint2f()
 
+    // Adaptive threshold pipeline
+    private var _adaptiveBinary: Mat = Mat()
+
     override fun getGray(): Mat = _gray
     override fun getBlurred(): Mat = _blurred
     override fun getEnhanced(): Mat = _enhanced
@@ -77,6 +83,8 @@ class MatBundle : IMatBundle {
     override fun getHull(): MatOfInt = _hull
     override fun getHullPoints(): MatOfPoint2f = _hullPoints
     override fun getApprox(): MatOfPoint2f = _approx
+
+    override fun getAdaptiveBinary(): Mat = _adaptiveBinary
 
     override fun getGrayGaussian(): Mat = _grayGaussian
     override fun getHorizontalClose(): Mat = _horizontalClose
@@ -105,5 +113,7 @@ class MatBundle : IMatBundle {
         _hull.release()
         _hullPoints.release()
         _approx.release()
+
+        _adaptiveBinary.release()
     }
 }

@@ -32,6 +32,8 @@ class MockMatBundle : IMatBundle {
     override fun getHullPoints(): MatOfPoint2f = MatOfPoint2f()
     override fun getApprox(): MatOfPoint2f = MatOfPoint2f()
 
+    override fun getAdaptiveBinary(): Mat = emptyMat
+
     override fun getGrayGaussian(): Mat = emptyMat
     override fun getHorizontalClose(): Mat = emptyMat
     override fun getVerticalClose(): Mat = emptyMat

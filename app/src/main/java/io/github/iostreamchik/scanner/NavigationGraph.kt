@@ -57,7 +57,10 @@ fun AppNavGraph(
             val context = LocalContext.current
             PipelineSettingsScreen(
                 modifier = Modifier.fillMaxSize(),
-                viewModel = viewModel(viewModelStoreOwner = (context as? ComponentActivity) ?: it),
+                viewModel = androidx.lifecycle.viewmodel.compose.viewModel<PipelineSettingsViewModel>(
+                    key = "pipelineSettings",
+                    viewModelStoreOwner = (context as? ComponentActivity) ?: it
+                ),
                 onBack = {
                     navController.popBackStack()
                 }

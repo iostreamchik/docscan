@@ -321,8 +321,10 @@ class CameraViewModel(
             // 4️⃣ Automatic Canny thresholds via Otsu/σ-based method
             // Adapted from PyImageSearch: zero-parameter automatic Canny edge detection
             // Uses image intensity + σ multiplier instead of hardcoded brightness breakpoints
-            val sigma = 0.33
-            val cannyHigh = min(255.0, max(30.0, avgBrightness * (1.0 + sigma)))
+//            val sigma = 0.17
+            val sigma = 6000 / avgBrightness
+            val cannyHigh = min(255.0, max(30.0, sigma))
+//            val cannyHigh = min(255.0, sigma)
             val cannyLow = max(10.0, cannyHigh * 0.5)
             Log.d("Pipeline", "Auto Canny: High=$cannyHigh, Low=$cannyLow intensity=$avgBrightness sigma: $sigma")
             // Apply Canny to enhanced image (not heavily-blurred morph) to preserve edges
@@ -498,7 +500,7 @@ class CameraViewModel(
             maxDeviation = max(maxDeviation, abs(90 - angle))
         }
 
-        return maxDeviation < 50
+        return maxDeviation < 15
     }
 
     private fun computeAngle(p1: Point, p2: Point, center: Point): Double {

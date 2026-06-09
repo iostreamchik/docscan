@@ -66,7 +66,14 @@ data class PipelineParams(
     // Scoring weights
     val scoreAreaWeight: Float = 0.5f,
     val scoreCenterWeight: Float = 0.3f,
-    val scoreAreaRatioWeight: Float = 0.2f
+    val scoreAreaRatioWeight: Float = 0.2f,
+
+    // Pipeline selection
+    val pipelineType: PipelineType = PipelineType.CANNY_OTSU,
+
+    // Adaptive thresholding parameters
+    val adaptiveBlockSize: Int = 11,      // Must be odd, 3–51
+    val adaptiveConstant: Float = 2.0f,   // C constant, 0–20
 ) {
     companion object {
         val Default = PipelineParams()
@@ -79,8 +86,18 @@ data class PipelineParams(
  * emitting intermediate preview bitmaps for each stage.
  */
 class PipelineSettingsViewModel(
-    private val matBundle: IMatBundle = MatBundle()
+    private val matBundle: IMatBundle = MatBundle(),
+    private val pipelineConfigurationManager: PipelineConfigurationManager? = null
 ) : ViewModel() {
+
+    companion object {
+        fun Factory(pipelineConfigurationManager: PipelineConfigurationManager? = null) = object : androidx.lifecycle.ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                return PipelineSettingsViewModel(pipelineConfigurationManager = pipelineConfigurationManager) as T
+            }
+        }
+    }
 
     private val _originalBitmap = MutableStateFlow<Bitmap?>(null)
     val originalBitmap: StateFlow<Bitmap?> = _originalBitmap.asStateFlow()
@@ -115,7 +132,12 @@ class PipelineSettingsViewModel(
     private var lastImageUri: Uri? = null
 
     fun updateParams(newParams: PipelineParams, context: Context) {
+        val typeChanged = _currentParams.value.pipelineType != newParams.pipelineType
         _currentParams.value = newParams
+        if (typeChanged && pipelineConfigurationManager != null) {
+            // Update shared configuration instead of directly calling CameraViewModel
+            pipelineConfigurationManager.setPipelineType(newParams.pipelineType)
+        }
         if (lastImageUri != null) {
             viewModelScope.launch {
                 _isProcessing.value = true
@@ -135,7 +157,12 @@ class PipelineSettingsViewModel(
      * for 300ms after the last change before invoking this method.
      */
     fun updateParamSafely(newParams: PipelineParams, contextProvider: suspend () -> Context) {
+        val typeChanged = _currentParams.value.pipelineType != newParams.pipelineType
         _currentParams.value = newParams
+        if (typeChanged && pipelineConfigurationManager != null) {
+            // Update shared configuration instead of directly calling CameraViewModel
+            pipelineConfigurationManager.setPipelineType(newParams.pipelineType)
+        }
         if (lastImageUri != null) {
             viewModelScope.launch {
                 _isProcessing.value = true
@@ -426,6 +453,83 @@ class PipelineSettingsViewModel(
             mat.release()
             sourceBitmap.recycle()
             matBundle.releaseAll()
+        }
+    }
+
+    /**
+     * Shared contour detection — finds document candidates from a morph/edge image.
+     * Returns the best quad or null if none found.
+     */
+    private fun detectQuadFromContours(
+        morphImage: Mat,
+        scaledWidth: Int,
+        scaledHeight: Int,
+        originalWidth: Int,
+        originalHeight: Int,
+        params: PipelineParams
+    ): MatOfPoint? {
+        val contours = mutableListOf<MatOfPoint>()
+        Imgproc.findContours(
+            morphImage,
+            contours,
+            matBundle.getHierarchy(),
+            Imgproc.RETR_LIST,
+            Imgproc.CHAIN_APPROX_SIMPLE
+        )
+
+        val frameArea = scaledWidth * scaledHeight
+        val minArea = frameArea * params.minAreaFraction
+        val candidates = mutableListOf<MatOfPoint>()
+
+        for (contour in contours) {
+            val area = Imgproc.contourArea(contour)
+            if (area < minArea) continue
+
+            val hull = matBundle.getHull()
+            matBundle.getHullPoints().release()
+            matBundle.getHullPoints().create(0, 1, CvType.CV_32FC2)
+            val approx = matBundle.getApprox()
+
+            Imgproc.convexHull(contour, hull)
+            val contourArray = contour.toArray()
+            val hullIndices = IntArray(hull.rows().toInt())
+            hull.get(0, 0, hullIndices)
+            val hullPointList = hullIndices.map { contourArray[it] }
+            matBundle.getHullPoints().fromList(hullPointList.map { Point(it.x, it.y) })
+
+            val peri = Imgproc.arcLength(matBundle.getHullPoints(), true)
+            Imgproc.approxPolyDP(
+                matBundle.getHullPoints(),
+                approx,
+                params.approxPolyDPTolerance * peri,
+                true
+            )
+
+            if (approx.total() != 4L) continue
+
+            val scaleX = originalWidth.toDouble() / scaledWidth
+            val scaleY = originalHeight.toDouble() / scaledHeight
+            val scaledPoints = approx.toArray().map { Point(it.x * scaleX, it.y * scaleY) }
+            val quad = MatOfPoint(*scaledPoints.toTypedArray())
+
+            if (!isRectangle(approx)) {
+                quad.release()
+                continue
+            }
+
+            val scaledArea = area * (scaleX * scaleY)
+            val rect = Imgproc.boundingRect(quad)
+            val solidity = scaledArea / (rect.width * rect.height).toDouble()
+            if (solidity < 0.3) {
+                quad.release()
+                continue
+            }
+
+            candidates.add(quad)
+        }
+
+        return candidates.maxByOrNull { contour ->
+            scoreContour(contour, scaledWidth, scaledHeight, params)
         }
     }
 
