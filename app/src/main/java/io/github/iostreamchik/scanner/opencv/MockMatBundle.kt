@@ -34,6 +34,9 @@ class MockMatBundle : IMatBundle {
 
     override fun getAdaptiveBinary(): Mat = emptyMat
 
+    override fun getOtsuBlur(): Mat = emptyMat
+    override fun getOtsuThreshold(): Mat = emptyMat
+
     override fun getGrayGaussian(): Mat = emptyMat
     override fun getHorizontalClose(): Mat = emptyMat
     override fun getVerticalClose(): Mat = emptyMat

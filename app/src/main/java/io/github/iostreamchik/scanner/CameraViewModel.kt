@@ -12,6 +12,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.opencv.android.Utils
@@ -32,13 +33,16 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.sqrt
+import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
+import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
 import org.opencv.core.MatOfDouble
 import kotlin.math.min
 
 class CameraViewModel(
-    private val matBundle: IMatBundle = MatBundle()
+    private val matBundle: IMatBundle = MatBundle(),
+    private val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculator(matBundle)
 ) : ViewModel() {
 
     val cameraExecutor = Executors.newSingleThreadExecutor()
@@ -51,13 +55,13 @@ class CameraViewModel(
 
     private val PROCESS_WIDTH = 640.0
 
-    // Sigma cycling for adaptive Canny edge detection
-    private var currentSigmaValue = 3000.0
-    private var consecutiveDetectionFailures = 0
-    private val MAX_FAILURES_BEFORE_INCREASE = 10
-    private val SIGMA_MIN = 3000.0
-    private val SIGMA_MAX = 9000.0
-    private val SIGMA_STEP = 500.0
+    // Debug: manual canny high override (0f = auto)
+    private val _manualCannyHigh = MutableStateFlow<Float>(0f)
+    val manualCannyHigh: StateFlow<Float> = _manualCannyHigh.asStateFlow()
+
+    fun setManualCannyHigh(value: Float) {
+        _manualCannyHigh.value = value
+    }
 
     // Cache: skip re-warping when the same quad is detected repeatedly
     private var lastWarpedQuadHash: Long = 0
@@ -96,7 +100,6 @@ class CameraViewModel(
         val result = detectDocument(mat, rotation)
 
         if (result.isNotEmpty()) {
-            onDocumentDetected()
             if (isStable()) {
                 val fusedQuad = getFusedQuad()
                 if (fusedQuad != null) {
@@ -144,8 +147,6 @@ class CameraViewModel(
                 // Accumulate during pre-stability bootstrapping
                 result.forEach { updateHistory(it) }
             }
-        } else {
-            onDetectionFailure()
         }
         // Clone each result: objects also live in quadHistory, caller owns the clones
         return result.map { MatOfPoint(*it.toArray()) }
@@ -323,18 +324,21 @@ class CameraViewModel(
             }
             Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
 
-            // 4️⃣ Automatic Canny thresholds via Otsu/σ-based method
-            // Adapted from PyImageSearch: zero-parameter automatic Canny edge detection
-            // Uses image intensity + σ multiplier instead of hardcoded brightness breakpoints
-            val sigma = calculateAdaptiveSigma(avgBrightness)
-            val cannyHigh = min(255.0, max(30.0, sigma))
-            val cannyLow = max(10.0, cannyHigh * 0.5)
+            // 4️⃣ Automatic Canny thresholds via Otsu + EMA
+            // Manual override: 0f = auto, any other value = manual threshold
+            val (cannyHigh, cannyLow) = if (_manualCannyHigh.value == 0f) {
+                thresholdCalculator.computeThreshold(matBundle.getGray())
+            } else {
+                val h = _manualCannyHigh.value.toDouble()
+                Pair(h, h * 0.5)
+            }
             val exposureTime = System.currentTimeMillis()
             if (exposureTime - lastUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
-                _exposureStateFlow.value = "br: ${avgBrightness.toInt()} ct: ${contrast.toInt()} sigma: $currentSigmaValue"
+                val modeSuffix = if (_manualCannyHigh.value != 0f) " (MAN)" else ""
+                _exposureStateFlow.value = "br: ${avgBrightness.toInt()} ct: ${contrast.toInt()}"
                 lastUiUpdateTime = exposureTime
             }
-            Log.d("Pipeline", "Auto Canny: High=$cannyHigh, Low=$cannyLow intensity=$avgBrightness sigma: $sigma")
+            Log.d("Pipeline", "Auto Canny: High=$cannyHigh, Low=$cannyLow intensity=$avgBrightness")
             // Apply Canny to enhanced image (not heavily-blurred morph) to preserve edges
             Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), cannyLow, cannyHigh)
 
@@ -542,38 +546,6 @@ class CameraViewModel(
         return sqrt(dx * dx + dy * dy)
     }
 
-    /**
-     * Calculate adaptive sigma for Canny edge detection using cycling logic.
-     * Returns the current sigma value for the given brightness level.
-     */
-    private fun calculateAdaptiveSigma(avgBrightness: Double): Double {
-        return currentSigmaValue / avgBrightness
-    }
-
-    /**
-     * Called when a valid document is successfully detected.
-     * Resets the failure counter but keeps the current sigma value intact.
-     */
-    private fun onDocumentDetected() {
-        consecutiveDetectionFailures = 0
-    }
-
-    /**
-     * Called when no document is detected or the detected document is invalid.
-     * Increments the failure counter and cycles sigma when threshold is reached.
-     */
-    private fun onDetectionFailure() {
-        consecutiveDetectionFailures++
-        if (consecutiveDetectionFailures >= MAX_FAILURES_BEFORE_INCREASE) {
-            consecutiveDetectionFailures = 0
-            currentSigmaValue = if (currentSigmaValue >= SIGMA_MAX) {
-                SIGMA_MIN
-            } else {
-                (currentSigmaValue + SIGMA_STEP).coerceAtMost(SIGMA_MAX)
-            }
-        }
-    }
-
     private fun quadHash(quad: MatOfPoint): Long {
         val points = quad.toArray()
         var hash: Long = 1
@@ -678,7 +650,7 @@ class CameraViewModel(
                 val mat = Mat()
                 Utils.bitmapToMat(sourceBitmap, mat)
 
-                // Picked documents usually have 0 rotation
+                // Use 0 rotation for picked images (no camera rotation)
                 val rotation = 0
 
                 // Clone mat for detectDocument since it modifies the input in-place.
@@ -687,10 +659,15 @@ class CameraViewModel(
                 val result = detectDocument(matForDetection, rotation)
 
                 if (result.isNotEmpty()) {
+                    // Use the best quad directly (no fusion needed for single image)
+                    // Unlike live camera, we don't have multiple frames to average
                     val bestQuad = result.first()
+                    
+                    // Warp using the detected quad
                     val warped = warpDocumentHighQuality(mat, bestQuad, rotation)
                     _resultBitmap.value = warped ?: mat.enhanceDocument().toBitmap()
                 } else {
+                    // No document detected — show enhanced original
                     _resultBitmap.value = mat.enhanceDocument().toBitmap()
                 }
 

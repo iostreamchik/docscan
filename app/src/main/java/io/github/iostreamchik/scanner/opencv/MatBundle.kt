@@ -33,6 +33,10 @@ interface IMatBundle {
     // Adaptive threshold pipeline
     fun getAdaptiveBinary(): Mat
 
+    // Otsu threshold pipeline
+    fun getOtsuBlur(): Mat
+    fun getOtsuThreshold(): Mat
+
     fun releaseAll()
 }
 
@@ -65,6 +69,10 @@ class MatBundle : IMatBundle {
     // Adaptive threshold pipeline
     private var _adaptiveBinary: Mat = Mat()
 
+    // Otsu threshold pipeline
+    private var _otsuBlur: Mat = Mat()
+    private var _otsuThreshold: Mat = Mat()
+
     override fun getGray(): Mat = _gray
     override fun getBlurred(): Mat = _blurred
     override fun getEnhanced(): Mat = _enhanced
@@ -85,6 +93,9 @@ class MatBundle : IMatBundle {
     override fun getApprox(): MatOfPoint2f = _approx
 
     override fun getAdaptiveBinary(): Mat = _adaptiveBinary
+
+    override fun getOtsuBlur(): Mat = _otsuBlur
+    override fun getOtsuThreshold(): Mat = _otsuThreshold
 
     override fun getGrayGaussian(): Mat = _grayGaussian
     override fun getHorizontalClose(): Mat = _horizontalClose
@@ -115,5 +126,8 @@ class MatBundle : IMatBundle {
         _approx.release()
 
         _adaptiveBinary.release()
+
+        _otsuBlur.release()
+        _otsuThreshold.release()
     }
 }

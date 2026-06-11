@@ -37,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +57,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 
 @Composable
 fun CameraScreen(
@@ -75,6 +78,7 @@ fun CameraScreen(
     val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
     val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
     val errorState by viewModel.errorState.collectAsStateWithLifecycle()
+    val manualCannyHigh by viewModel.manualCannyHigh.collectAsStateWithLifecycle()
     val cornerRadius = rememberDeviceCornerRadiusDp()
 
     // Throttle for contourState updates (matches ViewModel's UI_UPDATE_THROTTLE_MS)
@@ -138,6 +142,45 @@ fun CameraScreen(
                     )
                 )
             )
+            
+            // Debug: Canny High threshold slider (hidden when auto = 0f)
+            if (manualCannyHigh != 0f) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Canny High",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White.copy(alpha = 0.7f)
+                        )
+                        Text(
+                            text = "${manualCannyHigh.toInt()}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                    Slider(
+                        value = manualCannyHigh,
+                        onValueChange = {
+                            viewModel.setManualCannyHigh(it)
+                        },
+                        valueRange = 1f..255f,
+                        steps = 22,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = SliderDefaults.colors()
+                    )
+                }
+            }
+            
             Row(
                 Modifier
                     .navigationBarsPadding()
