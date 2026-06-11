@@ -1,4 +1,4 @@
-package io.github.iostreamchik.scanner
+package io.github.iostreamchik.scanner.pipeline
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -8,7 +8,9 @@ import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import io.github.iostreamchik.scanner.fixRotation
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,7 +22,6 @@ import org.opencv.android.Utils
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
-import org.opencv.core.MatOfDouble
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
@@ -33,6 +34,9 @@ import kotlin.math.atan2
 import kotlin.math.max
 import kotlin.math.sqrt
 import io.github.iostreamchik.scanner.opencv.MatBundle
+import io.github.iostreamchik.scanner.sharpen
+import io.github.iostreamchik.scanner.toBitmap
+import org.opencv.core.Scalar
 
 /**
  * Data class holding all adjustable pipeline parameters.
@@ -91,7 +95,7 @@ class PipelineSettingsViewModel(
 ) : ViewModel() {
 
     companion object {
-        fun Factory(pipelineConfigurationManager: PipelineConfigurationManager? = null) = object : androidx.lifecycle.ViewModelProvider.Factory {
+        fun Factory(pipelineConfigurationManager: PipelineConfigurationManager? = null) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 return PipelineSettingsViewModel(pipelineConfigurationManager = pipelineConfigurationManager) as T
@@ -394,11 +398,13 @@ class PipelineSettingsViewModel(
                     val quadMatPts = MatOfPoint(*pts.toTypedArray())
 
                     // Create a mask of the quad (white inside, black outside)
-                    val mask = Mat(scaledHeight, scaledWidth, CvType.CV_8UC1, org.opencv.core.Scalar(0.0))
-                    Imgproc.fillPoly(mask, listOf(quadMatPts), org.opencv.core.Scalar(255.0))
+                    val mask = Mat(scaledHeight, scaledWidth, CvType.CV_8UC1, Scalar(0.0))
+                    Imgproc.fillPoly(mask, listOf(quadMatPts), Scalar(255.0))
 
                     // Create a green-blended version: original * 0.8 + green * 0.2 (masked to quad only)
-                    val greenOverlay = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4, org.opencv.core.Scalar(0.0, 255.0, 0.0, 255.0))
+                    val greenOverlay = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4,
+                        Scalar(0.0, 255.0, 0.0, 255.0)
+                    )
                     val greenBlended = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
                     val originalMasked = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
                     val greenMasked = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
@@ -421,7 +427,8 @@ class PipelineSettingsViewModel(
                     Core.add(originalOutside, greenInside, quadOverlay)
 
                     // Draw solid green outline on top
-                    Imgproc.drawContours(quadOverlay, listOf(quadMatPts), -1, org.opencv.core.Scalar(0.0, 255.0, 0.0, 255.0), 3)
+                    Imgproc.drawContours(quadOverlay, listOf(quadMatPts), -1,
+                        Scalar(0.0, 255.0, 0.0, 255.0), 3)
 
                     quadMatPts.release()
                     mask.release()

@@ -1,4 +1,4 @@
-package io.github.iostreamchik.scanner
+package io.github.iostreamchik.scanner.pipeline
 
 /**
  * Document detection pipeline type.

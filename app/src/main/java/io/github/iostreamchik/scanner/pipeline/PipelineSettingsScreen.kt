@@ -1,10 +1,12 @@
-package io.github.iostreamchik.scanner
+package io.github.iostreamchik.scanner.pipeline
 
+import android.content.Context
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,6 +30,9 @@ import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -42,7 +47,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -51,17 +55,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
+import kotlinx.coroutines.delay
 
 /**
  * Pipeline Settings screen — pick an image, tweak detection parameters,
@@ -141,7 +145,7 @@ fun PipelineSettingsScreen(
                                     .size(24.dp)
                                     .padding(2.dp)
                             ) {
-                                androidx.compose.foundation.Image(
+                                Image(
                                     bitmap = resultBitmap!!.asImageBitmap(),
                                     contentDescription = "Recognized document",
                                     modifier = Modifier.fillMaxSize()
@@ -263,7 +267,7 @@ fun PipelineSettingsScreen(
 
             // Reprocess button — shown inside QuadCard when processing
             if (isProcessing) {
-                androidx.compose.material3.Button(
+                Button(
                     onClick = {
                         viewModel.resetParams(context)
                     },
@@ -295,7 +299,7 @@ private fun getParametersForStage(
     stageName: String,
     currentParams: PipelineParams,
     viewModel: PipelineSettingsViewModel,
-    context: android.content.Context
+    context: Context
 ): @Composable () -> Unit {
     return {
         when (stageName) {
@@ -481,7 +485,7 @@ private fun getParametersForStage(
 private fun debounceInt(value: Int, delayMs: Long): Int {
     var debouncedValue by remember { mutableIntStateOf(value) }
     LaunchedEffect(value) {
-        kotlinx.coroutines.delay(delayMs)
+        delay(delayMs)
         debouncedValue = value
     }
     return debouncedValue
@@ -494,7 +498,7 @@ private fun debounceInt(value: Int, delayMs: Long): Int {
 private fun debounceFloat(value: Float, delayMs: Long): Float {
     var debouncedValue by remember { mutableFloatStateOf(value) }
     LaunchedEffect(value) {
-        kotlinx.coroutines.delay(delayMs)
+        delay(delayMs)
         debouncedValue = value
     }
     return debouncedValue
@@ -510,11 +514,11 @@ private fun QuadCard(
     resultBitmap: Bitmap?,
     hasDocument: Boolean,
 ) {
-    androidx.compose.material3.Card(
+    Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        elevation = androidx.compose.material3.CardDefaults.cardElevation(6.dp),
-        colors = androidx.compose.material3.CardDefaults.cardColors(
+        elevation = CardDefaults.cardElevation(6.dp),
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
         )
     ) {
@@ -572,7 +576,7 @@ private fun QuadCard(
                         fontWeight = FontWeight.Medium,
                         color = Color.Gray
                     )
-                    androidx.compose.foundation.Image(
+                    Image(
                         bitmap = quadBitmap.asImageBitmap(),
                         contentDescription = "Detected quad overlay",
                         modifier = Modifier
@@ -594,7 +598,7 @@ private fun QuadCard(
                             fontWeight = FontWeight.Medium,
                             color = Color.Gray
                         )
-                        androidx.compose.foundation.Image(
+                        Image(
                             bitmap = resultBitmap.asImageBitmap(),
                             contentDescription = "Recognized document preview",
                             modifier = Modifier
@@ -622,10 +626,10 @@ private fun PipelineStageCard(
 ) {
     var isExpanded by remember { mutableStateOf(!isReadonly) }
 
-    androidx.compose.material3.Card(
+    Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        elevation = androidx.compose.material3.CardDefaults.cardElevation(4.dp)
+        elevation = CardDefaults.cardElevation(4.dp)
     ) {
         Column {
             // Collapsible header
@@ -666,7 +670,7 @@ private fun PipelineStageCard(
                     // bitmaps), the stale ImageBitmap wrapper causes "Canvas: trying to use
                     // a recycled bitmap". Creating a fresh ImageBitmap each composition
                     // avoids this race condition.
-                    androidx.compose.foundation.Image(
+                    Image(
                         bitmap = bitmap.asImageBitmap(),
                         contentDescription = "$title preview",
                         modifier = Modifier
@@ -699,11 +703,11 @@ private fun RecognizedDocumentCard(
     isProcessing: Boolean,
     onReprocess: () -> Unit,
 ) {
-    androidx.compose.material3.Card(
+    Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        elevation = androidx.compose.material3.CardDefaults.cardElevation(6.dp),
-        colors = androidx.compose.material3.CardDefaults.cardColors(
+        elevation = CardDefaults.cardElevation(6.dp),
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
         )
     ) {
@@ -747,7 +751,7 @@ private fun RecognizedDocumentCard(
             // Preview bitmap
             // Don't use remember — see BitmapCard comment for rationale.
             bitmap?.let { bmp ->
-                androidx.compose.foundation.Image(
+                Image(
                     bitmap = bmp.asImageBitmap(),
                     contentDescription = "Recognized document preview",
                     modifier = Modifier
@@ -760,7 +764,7 @@ private fun RecognizedDocumentCard(
             // Reprocess button
             if (isProcessing) {
                 Spacer(modifier = Modifier.height(8.dp))
-                androidx.compose.material3.Button(
+                Button(
                     onClick = onReprocess,
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -858,7 +862,7 @@ private fun InfoChip(label: String, value: String) {
     }
 }
 
-@androidx.compose.ui.tooling.preview.Preview
+@Preview
 @Composable
 private fun PipelineSettingsPreview() {
     Surface {

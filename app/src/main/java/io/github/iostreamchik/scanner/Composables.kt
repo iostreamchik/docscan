@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.iostreamchik.scanner.camera.ContourData
 import kotlin.math.max
 
 @Composable
@@ -70,7 +71,7 @@ fun BitmapCard(
 
 @Composable
 fun ContourCanvas(
-    contourState: androidx.compose.runtime.State<io.github.iostreamchik.scanner.ContourData?>,
+    contourState: androidx.compose.runtime.State<ContourData?>,
     modifier: Modifier = Modifier
 ) {
     // Pre-calculate rotated points and frame dimensions to avoid heavy math in DrawScope

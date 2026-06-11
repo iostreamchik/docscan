@@ -1,4 +1,4 @@
-package io.github.iostreamchik.scanner
+package io.github.iostreamchik.scanner.camera
 
 import org.opencv.core.MatOfPoint
 

@@ -1,9 +1,7 @@
-package io.github.iostreamchik.scanner
+package io.github.iostreamchik.scanner.camera
 
 import android.util.Log
 import android.util.Size
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -37,7 +35,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +56,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import io.github.iostreamchik.scanner.BitmapCard
+import io.github.iostreamchik.scanner.ContourCanvas
+import io.github.iostreamchik.scanner.rememberDeviceCornerRadiusDp
 
 @Composable
 fun CameraScreen(
@@ -256,7 +256,7 @@ fun CameraScreen(
                 val now = System.currentTimeMillis()
                 if (now - lastContourUpdateTime.longValue >= CONTOUR_UPDATE_THROTTLE_MS) {
                     contourState.value?.release()
-                    contourState.value = io.github.iostreamchik.scanner.ContourData(
+                    contourState.value = ContourData(
                         contours = contours,
                         frameWidth = imageProxy.width,
                         frameHeight = imageProxy.height,

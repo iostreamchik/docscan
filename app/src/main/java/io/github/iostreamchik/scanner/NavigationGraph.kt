@@ -1,6 +1,5 @@
 package io.github.iostreamchik.scanner
 
-import android.app.Activity
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -10,7 +9,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import io.github.iostreamchik.scanner.CameraViewModel
+import io.github.iostreamchik.scanner.camera.CameraScreen
+import io.github.iostreamchik.scanner.local_files.FileScanResultScreen
+import io.github.iostreamchik.scanner.pipeline.PipelineSettingsScreen
+import io.github.iostreamchik.scanner.pipeline.PipelineSettingsViewModel
 
 object NavigationDestination {
     const val Camera = "camera"
@@ -57,7 +59,7 @@ fun AppNavGraph(
             val context = LocalContext.current
             PipelineSettingsScreen(
                 modifier = Modifier.fillMaxSize(),
-                viewModel = androidx.lifecycle.viewmodel.compose.viewModel<PipelineSettingsViewModel>(
+                viewModel = viewModel<PipelineSettingsViewModel>(
                     key = "pipelineSettings",
                     viewModelStoreOwner = (context as? ComponentActivity) ?: it
                 ),

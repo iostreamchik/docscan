@@ -1,4 +1,4 @@
-package io.github.iostreamchik.scanner
+package io.github.iostreamchik.scanner.camera
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -10,6 +10,8 @@ import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.iostreamchik.scanner.enhanceDocument
+import io.github.iostreamchik.scanner.fixRotation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,8 +39,9 @@ import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
-import org.opencv.core.MatOfDouble
-import kotlin.math.min
+import io.github.iostreamchik.scanner.sharpen
+import io.github.iostreamchik.scanner.toBitmap
+import io.github.iostreamchik.scanner.toMatRGBA
 
 class CameraViewModel(
     private val matBundle: IMatBundle = MatBundle(),
@@ -139,7 +142,7 @@ class CameraViewModel(
                     // Clone the bitmap before emitting to state flow so Compose gets
                     // its own independent copy that won't be affected by recycling.
                     _resultBitmap.value =
-                        warped?.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+                        warped?.copy(Bitmap.Config.ARGB_8888, false)
                     // Clone: fusedQuad lives in quadHistory, caller owns the clone
                     return listOf(MatOfPoint(*fusedQuad.toArray()))
                 }
