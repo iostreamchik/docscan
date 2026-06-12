@@ -12,6 +12,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.iostreamchik.scanner.fixRotation
 import io.github.iostreamchik.scanner.opencv.IMatBundle
+import io.github.iostreamchik.scanner.opencv.PipelineParams
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,52 +40,6 @@ import io.github.iostreamchik.scanner.toBitmap
 import org.opencv.core.Scalar
 
 /**
- * Data class holding all adjustable pipeline parameters.
- */
-data class PipelineParams(
-    // Blur
-    val medianBlurKsize: Int = 3,
-    val gaussianSigma: Double = 1.0,
-
-    // CLAHE
-    val claheClipLimit: Float = 0.8f,
-    val claheTileSize: Int = 16,
-
-    // Morph Close (pre-Canny)
-    val morphCloseSize: Int = 9,
-
-    // Canny
-    val cannyLow: Float = 20f,
-    val cannyHigh: Float = 60f,
-
-    // Strong Closing (post-Canny)
-    val strongCloseSize: Int = 5,
-
-    // Directional Suppression
-    val directionalKernelSize: Int = 15,
-
-    // Contour Detection
-    val approxPolyDPTolerance: Float = 0.015f,
-    val minAreaFraction: Float = 0.025f,
-
-    // Scoring weights
-    val scoreAreaWeight: Float = 0.5f,
-    val scoreCenterWeight: Float = 0.3f,
-    val scoreAreaRatioWeight: Float = 0.2f,
-
-    // Pipeline selection
-    val pipelineType: PipelineType = PipelineType.CANNY_OTSU,
-
-    // Adaptive thresholding parameters
-    val adaptiveBlockSize: Int = 11,      // Must be odd, 3–51
-    val adaptiveConstant: Float = 2.0f,   // C constant, 0–20
-) {
-    companion object {
-        val Default = PipelineParams()
-    }
-}
-
-/**
  * ViewModel for the Pipeline Settings screen.
  * Processes a picked image through the detection pipeline with adjustable parameters,
  * emitting intermediate preview bitmaps for each stage.
@@ -93,15 +48,6 @@ class PipelineSettingsViewModel(
     private val matBundle: IMatBundle = MatBundle(),
     private val pipelineConfigurationManager: PipelineConfigurationManager? = null
 ) : ViewModel() {
-
-    companion object {
-        fun Factory(pipelineConfigurationManager: PipelineConfigurationManager? = null) = object : ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return PipelineSettingsViewModel(pipelineConfigurationManager = pipelineConfigurationManager) as T
-            }
-        }
-    }
 
     private val _originalBitmap = MutableStateFlow<Bitmap?>(null)
     val originalBitmap: StateFlow<Bitmap?> = _originalBitmap.asStateFlow()
@@ -247,6 +193,10 @@ class PipelineSettingsViewModel(
         val scaledWidth = (originalWidth * scale).toInt()
         val scaledHeight = (originalHeight * scale).toInt()
 
+        Log.d("PipelineSettings", "=== PipelineSettingsViewModel.processWithParams START ===")
+        Log.d("PipelineSettings", "Input: ${originalWidth}x${originalHeight}, maxDim=$maxDim, scale=${"%.4f".format(scale)}, scaled=${scaledWidth}x${scaledHeight}")
+        Log.d("PipelineSettings", "Params: medianBlur=${params.medianBlurKsize}, claheClip=${params.claheClipLimit}, claheTile=${params.claheTileSize}, morphClose=${params.morphCloseSize}, cannyLow=${params.cannyLow}, cannyHigh=${params.cannyHigh}, strongClose=${params.strongCloseSize}, dirKernel=${params.directionalKernelSize}, approxTol=${params.approxPolyDPTolerance}, minAreaFrac=${params.minAreaFraction}")
+
         val previews = mutableMapOf<String, Bitmap?>()
 
         try {
@@ -255,22 +205,26 @@ class PipelineSettingsViewModel(
 
             // --- Step 1: Grayscale ---
             Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
-            previews["Grayscale"] = matBundle.getGray().toBitmap()
+            previews["Grayscale"] = matBundle.getGray().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
             Core.meanStdDev(matBundle.getGray(), matBundle.getMean(), matBundle.getStd())
             val avgBrightness = matBundle.getMean().toArray()[0]
             val contrast = matBundle.getStd().toArray()[0]
             _avgBrightness.value = avgBrightness
             _contrast.value = contrast
             smallMat.release()
+            Log.d("PipelineSettings", "Step1 Grayscale: brightness=$avgBrightness, contrast=$contrast")
 
             // --- Step 2: Median Blur ---
-            Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), params.medianBlurKsize.coerceAtLeast(3))
-            previews["Median Blur"] = matBundle.getBlurred().toBitmap()
+            val blurKsize = params.medianBlurKsize.coerceAtLeast(3)
+            Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
+            previews["Median Blur"] = matBundle.getBlurred().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+            Log.d("PipelineSettings", "Step2 MedianBlur: ksize=$blurKsize")
 
             // --- Step 3: CLAHE ---
             val clahe = Imgproc.createCLAHE(params.claheClipLimit.toDouble(), Size(params.claheTileSize.toDouble(), params.claheTileSize.toDouble()))
             clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
-            previews["CLAHE"] = matBundle.getEnhanced().toBitmap()
+            previews["CLAHE"] = matBundle.getEnhanced().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+            Log.d("PipelineSettings", "Step3 CLAHE: clipLimit=${params.claheClipLimit}, tileSize=${params.claheTileSize}")
 
             // --- Step 4: Morph Close ---
             Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(params.morphCloseSize.toDouble(), params.morphCloseSize.toDouble())).also { kernel ->
@@ -278,11 +232,13 @@ class PipelineSettingsViewModel(
                 kernel.copyTo(matBundle.getKernel())
             }
             Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
-            previews["Morph Close"] = matBundle.getMorph().toBitmap()
+            previews["Morph Close"] = matBundle.getMorph().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+            Log.d("PipelineSettings", "Step4 MorphClose: ksize=${params.morphCloseSize}")
 
             // --- Step 5: Canny ---
             Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), params.cannyLow.toDouble(), params.cannyHigh.toDouble())
-            previews["Canny Edges"] = matBundle.getEdges().toBitmap()
+            previews["Canny Edges"] = matBundle.getEdges().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+            Log.d("PipelineSettings", "Step5 Canny: low=${params.cannyLow}, high=${params.cannyHigh}")
 
             // --- Step 6: Strong Closing ---
             var closeKsize = (params.strongCloseSize * scale).coerceAtLeast(3.0).toInt()
@@ -292,7 +248,8 @@ class PipelineSettingsViewModel(
                 k2.copyTo(matBundle.getKernel2())
             }
             Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
-            previews["Strong Close"] = matBundle.getMorph().toBitmap()
+            previews["Strong Close"] = matBundle.getMorph().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+            Log.d("PipelineSettings", "Step6 StrongClose: ksize=$closeKsize (params=${params.strongCloseSize}, scale=${"%.4f".format(scale)})")
 
             // --- Step 7: Directional Suppression ---
             if (params.directionalKernelSize > 0) {
@@ -310,7 +267,10 @@ class PipelineSettingsViewModel(
                 Imgproc.morphologyEx(matBundle.getHorizontalClose(), matBundle.getVerticalClose(), Imgproc.MORPH_CLOSE, matBundle.getVerticalKernel())
 
                 matBundle.getVerticalClose().copyTo(matBundle.getMorph())
-                previews["Directional Suppression"] = matBundle.getMorph().toBitmap()
+                previews["Directional Suppression"] = matBundle.getMorph().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+                Log.d("PipelineSettings", "Step7 DirSuppression: ksize=$dirKsize (params=${params.directionalKernelSize})")
+            } else {
+                Log.d("PipelineSettings", "Step7 DirSuppression: SKIPPED (kernelSize=0)")
             }
 
             // --- Step 8: Find Contours & Detect Document ---
@@ -325,6 +285,8 @@ class PipelineSettingsViewModel(
 
             val frameArea = scaledWidth * scaledHeight
             val minArea = frameArea * params.minAreaFraction
+            Log.d("PipelineSettings", "Step8 Contours: total=${contours.size}, minArea=$minArea (frameArea=$frameArea * minAreaFrac=${params.minAreaFraction})")
+
             val candidates = mutableListOf<MatOfPoint>()
 
             for (contour in contours) {
@@ -374,18 +336,29 @@ class PipelineSettingsViewModel(
                 candidates.add(quad)
             }
 
+            Log.d("PipelineSettings", "Step8 Candidates: ${candidates.size} quads passed filters (area>minArea, 4-points, rectangle, solidity>0.3)")
+
             if (candidates.isNotEmpty()) {
                 val best = candidates.maxByOrNull { contour ->
-                    scoreContour(contour, scaledWidth, scaledHeight, params)
+                    val score = scoreContour(contour, scaledWidth, scaledHeight, params)
+                    val area = Imgproc.contourArea(contour)
+                    Log.d("PipelineSettings", "  Candidate score: area=$area, score=$score")
+                    score
                 }
+
+                Log.d("PipelineSettings", "Step8 Best: ${best != null}")
 
                 if (best != null) {
                     _detectedQuad.value = best.toArray().toList()
                     _hasDetectedDocument.value = true
 
                     val warped = warpDocument(mat, best)
-                    _resultBitmap.value = warped
-                    previews["Detected Document"] = warped
+                    // Clone before emitting to StateFlow so Compose gets its own
+                    // independent copy that won't be affected by recycling in
+                    // onCleared() or a subsequent processWithParams call.
+                    val warpedClone = warped.copy(Bitmap.Config.ARGB_8888, false)
+                    _resultBitmap.value = warpedClone
+                    previews["Detected Document"] = warpedClone
 
                     // Create quad overlay: original image (scaled) with detected quad drawn on top
                     val originalScaled = Mat()
@@ -437,10 +410,12 @@ class PipelineSettingsViewModel(
                     originalMasked.release()
                     greenMasked.release()
                     originalScaled.release()
-                    previews["Quad"] = quadOverlay.toBitmap()
+                    previews["Quad"] = quadOverlay.toBitmap().copy(Bitmap.Config.ARGB_8888, false)
                     quadOverlay.release()
 
                     best.release()
+
+                    Log.d("PipelineSettings", "=== PipelineSettingsViewModel.processWithParams SUCCESS: detected quad ===")
                 }
             }
 
@@ -449,6 +424,7 @@ class PipelineSettingsViewModel(
 
             if (candidates.isEmpty()) {
                 _hasDetectedDocument.value = false
+                Log.d("PipelineSettings", "=== PipelineSettingsViewModel.processWithParams NO DETECTION: no candidates ===")
             }
 
             setPreviewBitmaps(previews)
@@ -456,6 +432,7 @@ class PipelineSettingsViewModel(
         } catch (e: Exception) {
             _error.value = "Processing error: ${e.message}"
             Log.e("PipelineSettings", "Error processing", e)
+            Log.d("PipelineSettings", "=== PipelineSettingsViewModel.processWithParams ERROR: ${e.message} ===")
         } finally {
             mat.release()
             sourceBitmap.recycle()

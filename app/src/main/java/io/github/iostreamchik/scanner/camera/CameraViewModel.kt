@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.opencv.android.Utils
 import org.opencv.core.Core
 import org.opencv.core.CvType
@@ -39,13 +40,17 @@ import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
+import io.github.iostreamchik.scanner.opencv.PipelineParams
+import io.github.iostreamchik.scanner.pipeline.PipelineConfigurationManager
+import io.github.iostreamchik.scanner.pipeline.PipelineType
 import io.github.iostreamchik.scanner.sharpen
 import io.github.iostreamchik.scanner.toBitmap
 import io.github.iostreamchik.scanner.toMatRGBA
 
 class CameraViewModel(
     private val matBundle: IMatBundle = MatBundle(),
-    private val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculator(matBundle)
+    private val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculator(matBundle),
+    val pipelineConfigurationManager: PipelineConfigurationManager = PipelineConfigurationManager()
 ) : ViewModel() {
 
     val cameraExecutor = Executors.newSingleThreadExecutor()
@@ -88,8 +93,30 @@ class CameraViewModel(
     private var lastUiUpdateTime = 0L
     private val UI_UPDATE_THROTTLE_MS = 100L
 
+    // Store last picked URI for reprocessing
+    private var lastPickedUri: Uri? = null
+
     fun setError(message: String?) {
         _errorState.value = message
+    }
+
+    // Pipeline parameters — reads from pipelineConfigurationManager
+    private val _currentParams = MutableStateFlow(PipelineParams.Default)
+    val currentParams: StateFlow<PipelineParams> = _currentParams.asStateFlow()
+
+    /**
+     * Update pipeline parameters — called from FileScanResultScreen when parameters change.
+     */
+    fun updateParams(newParams: PipelineParams) {
+        _currentParams.value = newParams
+    }
+
+    init {
+        viewModelScope.launch {
+            pipelineConfigurationManager.pipelineType.collect { pipelineType ->
+                _currentParams.value = PipelineParams.Default.copy(pipelineType = pipelineType)
+            }
+        }
     }
 
     fun processFrame(imageProxy: ImageProxy): List<MatOfPoint> {
@@ -419,7 +446,9 @@ class CameraViewModel(
                 val approx = matBundle.getApprox()
                 Imgproc.convexHull(contour, hull)
                 val contourArray = contour.toArray()
-                val hullPointList = hull.toArray().map { contourArray[it] }
+                val hullIndices = IntArray(hull.rows().toInt())
+                hull.get(0, 0, hullIndices)
+                val hullPointList = hullIndices.map { contourArray[it] }
                 matBundle.getHullPoints().fromList(hullPointList.map { Point(it.x, it.y) })
 
                 val peri = Imgproc.arcLength(matBundle.getHullPoints(), true)
@@ -629,6 +658,7 @@ class CameraViewModel(
     fun processPickedDocument(context: Context, uri: Uri, onScanComplete: () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                lastPickedUri = uri
                 // Clear stale filtered bitmap from camera scanner
                 _filteredBitmap.value?.recycle()
                 _filteredBitmap.value = null
@@ -659,7 +689,8 @@ class CameraViewModel(
                 // Clone mat for detectDocument since it modifies the input in-place.
                 // The original mat must stay intact for warpDocumentHighQuality.
                 val matForDetection = mat.clone()
-                val result = detectDocument(matForDetection, rotation)
+                val params = _currentParams.value
+                val result = detectDocumentWithParams(matForDetection, rotation, params)
 
                 if (result.isNotEmpty()) {
                     // Use the best quad directly (no fusion needed for single image)
@@ -668,10 +699,16 @@ class CameraViewModel(
                     
                     // Warp using the detected quad
                     val warped = warpDocumentHighQuality(mat, bestQuad, rotation)
-                    _resultBitmap.value = warped ?: mat.enhanceDocument().toBitmap()
+                    // Clone before emitting to StateFlow so Compose gets its own
+                    // independent copy that won't be affected by recycling in
+                    // onCleared() or a subsequent processPickedDocument call.
+                    _resultBitmap.value = (warped ?: mat.enhanceDocument().toBitmap())
+                        .copy(Bitmap.Config.ARGB_8888, false)
                 } else {
                     // No document detected — show enhanced original
+                    // Clone before emitting to StateFlow.
                     _resultBitmap.value = mat.enhanceDocument().toBitmap()
+                        .copy(Bitmap.Config.ARGB_8888, false)
                 }
 
                 matForDetection.release()
@@ -685,6 +722,315 @@ class CameraViewModel(
                 Log.e("CameraViewModel", "Error processing picked document", e)
             }
         }
+    }
+
+    /**
+     * Reprocess the last picked document with current pipeline parameters.
+     * Called from FileScanResultScreen when parameters change.
+     */
+    fun reprocessPickedDocument(context: Context) {
+        val uri = lastPickedUri ?: return
+        processPickedDocument(context, uri) {}
+    }
+
+    /**
+     * Compute auto Canny thresholds and reprocess the picked document with them.
+     * Updates currentParams flow so UI picks up new values automatically.
+     */
+    suspend fun enableCannyAuto(context: Context) {
+        val uri = lastPickedUri ?: return
+        withContext(Dispatchers.IO) {
+            try {
+                val sourceBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    ImageDecoder.decodeBitmap(
+                        ImageDecoder.createSource(
+                            context.contentResolver,
+                            uri
+                        )
+                    ) { decoder, _, _ ->
+                        decoder.isMutableRequired = true
+                    }
+                } else {
+                    MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+                }
+
+                val mat = Mat()
+                Utils.bitmapToMat(sourceBitmap, mat)
+
+                val originalWidth = mat.cols()
+                val originalHeight = mat.rows()
+                val maxDimension = max(originalWidth, originalHeight)
+                val scale = PROCESS_WIDTH / maxDimension
+                val scaledWidth = (originalWidth * scale)
+                val scaledHeight = (originalHeight * scale)
+
+                val smallMat = Mat()
+                Imgproc.resize(mat, smallMat, Size(scaledWidth, scaledHeight))
+                Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
+                smallMat.release()
+                mat.release()
+                sourceBitmap.recycle()
+
+                val (cannyHigh, cannyLow) = thresholdCalculator.computeThreshold(matBundle.getGray())
+                updateParams(_currentParams.value.copy(
+                    cannyLow = cannyLow.toFloat(),
+                    cannyHigh = cannyHigh.toFloat(),
+                    cannyAutoDetect = true
+                ))
+                  // Reprocess with newly computed auto-detect thresholds
+                 processPickedDocument(context, uri) {}
+            } catch (e: Exception) {
+                Log.e("CameraViewModel", "Error in enableCannyAuto: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Disable auto Canny detection — set the flag to false so camera pipeline
+     * uses the manual thresholds instead.
+     */
+    fun disableCannyAuto() {
+        _currentParams.value = _currentParams.value.copy(
+            cannyAutoDetect = false
+        )
+    }
+
+    /**
+     * Detect document using configurable pipeline parameters.
+     * Similar to detectDocument() but uses params for all adjustable values.
+     */
+    private fun detectDocumentWithParams(mat: Mat, rotation: Int, params: PipelineParams): List<MatOfPoint> {
+        val originalWidth = mat.cols()
+        val originalHeight = mat.rows()
+        val maxDimension = max(originalWidth, originalHeight)
+        val scale = PROCESS_WIDTH / maxDimension
+        val scaledWidth = (originalWidth * scale)
+        val scaledHeight = (originalHeight * scale)
+
+        Log.d("CameraViewModel", "=== detectDocumentWithParams START ===")
+        Log.d("CameraViewModel", "Input: ${originalWidth}x${originalHeight}, maxDim=$maxDimension, scale=${"%.4f".format(scale)}, scaled=${scaledWidth.toInt()}x${scaledHeight.toInt()}")
+        Log.d("CameraViewModel", "Params: medianBlur=${params.medianBlurKsize}, claheClip=${params.claheClipLimit}, claheTile=${params.claheTileSize}, morphClose=${params.morphCloseSize}, cannyLow=${params.cannyLow}, cannyHigh=${params.cannyHigh}, strongClose=${params.strongCloseSize}, dirKernel=${params.directionalKernelSize}, approxTol=${params.approxPolyDPTolerance}, minAreaFrac=${params.minAreaFraction}")
+
+        try {
+            val smallMat = Mat()
+            Imgproc.resize(mat, smallMat, Size(scaledWidth, scaledHeight))
+
+            // 1️⃣ Grayscale
+            Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
+            smallMat.release()
+
+            // 2️⃣ Median Blur (configurable kernel size)
+            val blurKsize = params.medianBlurKsize.coerceAtLeast(3)
+            Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
+            Log.d("CameraViewModel", "Step2 MedianBlur: ksize=$blurKsize")
+
+            // 3️⃣ CLAHE (configurable clip limit and tile size)
+            val clahe = Imgproc.createCLAHE(params.claheClipLimit.toDouble(), Size(params.claheTileSize.toDouble(), params.claheTileSize.toDouble()))
+            clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
+            Log.d("CameraViewModel", "Step3 CLAHE: clipLimit=${params.claheClipLimit}, tileSize=${params.claheTileSize}")
+
+            // 4️⃣ Morph Close (configurable kernel size)
+            Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT,
+                Size(params.morphCloseSize.toDouble(), params.morphCloseSize.toDouble())
+            ).also { kernel ->
+                matBundle.getKernel().release()
+                kernel.copyTo(matBundle.getKernel())
+            }
+            Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
+            Log.d("CameraViewModel", "Step4 MorphClose: ksize=${params.morphCloseSize}")
+
+            // 5️⃣ Canny thresholds (from params)
+            Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), params.cannyLow.toDouble(), params.cannyHigh.toDouble())
+            Log.d("CameraViewModel", "Step5 Canny: low=${params.cannyLow}, high=${params.cannyHigh}")
+
+            // 6️⃣ Strong Closing (configurable kernel size, scaled)
+            var closeKsize = (params.strongCloseSize * scale).coerceAtLeast(3.0).toInt()
+            if (closeKsize % 2 == 0) closeKsize++
+            Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(closeKsize.toDouble(), closeKsize.toDouble())).also { kernel2 ->
+                matBundle.getKernel2().release()
+                kernel2.copyTo(matBundle.getKernel2())
+            }
+            Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
+            Log.d("CameraViewModel", "Step6 StrongClose: ksize=$closeKsize (params=${params.strongCloseSize}, scale=${"%.4f".format(scale)})")
+
+            // 7️⃣ Directional Suppression (configurable kernel size, scaled)
+            val dirKsize = (params.directionalKernelSize * scale).coerceAtLeast(3.0).toInt()
+            Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT,
+                Size(dirKsize.toDouble(), 1.0)
+            ).also { kernel ->
+                matBundle.getHorizontalKernel().release()
+                kernel.copyTo(matBundle.getHorizontalKernel())
+            }
+            Imgproc.morphologyEx(
+                matBundle.getMorph(),
+                matBundle.getHorizontalClose(),
+                Imgproc.MORPH_CLOSE,
+                matBundle.getHorizontalKernel()
+            )
+
+            Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT,
+                Size(1.0, dirKsize.toDouble())
+            ).also { kernel ->
+                matBundle.getVerticalKernel().release()
+                kernel.copyTo(matBundle.getVerticalKernel())
+            }
+            Imgproc.morphologyEx(
+                matBundle.getHorizontalClose(),
+                matBundle.getVerticalClose(),
+                Imgproc.MORPH_CLOSE,
+                matBundle.getVerticalKernel()
+            )
+
+            matBundle.getVerticalClose().copyTo(matBundle.getMorph())
+            Log.d("CameraViewModel", "Step7 DirSuppression: ksize=$dirKsize (params=${params.directionalKernelSize})")
+
+            // Set filtered bitmap from morph result (directional suppression output)
+            _filteredBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
+
+            // 8️⃣ Find contours
+            val contours = mutableListOf<MatOfPoint>()
+            Imgproc.findContours(
+                matBundle.getMorph(),
+                contours,
+                matBundle.getHierarchy(),
+                Imgproc.RETR_LIST,
+                Imgproc.CHAIN_APPROX_SIMPLE
+            )
+
+            Log.d("CameraViewModel", "Step8 Contours: total=${contours.size}")
+
+            if (contours.isEmpty()) {
+                Log.d("CameraViewModel", "=== detectDocumentWithParams NO DETECTION: no contours ===")
+                return emptyList()
+            }
+
+            val frameArea = scaledWidth * scaledHeight
+            val minArea = frameArea * params.minAreaFraction
+            Log.d("CameraViewModel", "Step8 MinArea: $minArea (frameArea=$frameArea * minAreaFrac=${params.minAreaFraction})")
+            val documentCandidates = mutableListOf<MatOfPoint>()
+
+            for (contour in contours) {
+                val area = Imgproc.contourArea(contour)
+                if (area < minArea) continue
+
+                val hull = matBundle.getHull()
+                matBundle.getHullPoints().release()
+                matBundle.getHullPoints().create(0, 1, CvType.CV_32FC2)
+                val approx = matBundle.getApprox()
+                Imgproc.convexHull(contour, hull)
+                val contourArray = contour.toArray()
+                val hullIndices = IntArray(hull.rows().toInt())
+                hull.get(0, 0, hullIndices)
+                val hullPointList = hullIndices.map { contourArray[it] }
+                matBundle.getHullPoints().fromList(hullPointList.map { Point(it.x, it.y) })
+
+                val peri = Imgproc.arcLength(matBundle.getHullPoints(), true)
+                Imgproc.approxPolyDP(
+                    matBundle.getHullPoints(),
+                    approx,
+                    params.approxPolyDPTolerance * peri,
+                    true
+                )
+
+                if (approx.total() != 4L) continue
+
+                val scaleX = originalWidth.toDouble() / scaledWidth
+                val scaleY = originalHeight.toDouble() / scaledHeight
+                val scaledPoints = approx.toArray().map { point ->
+                    Point(point.x * scaleX, point.y * scaleY)
+                }
+                val quad = MatOfPoint(*scaledPoints.toTypedArray())
+
+                if (!isRectangle(approx)) {
+                    quad.release()
+                    continue
+                }
+
+                val scaledArea = area * (scaleX * scaleY)
+                val rect = Imgproc.boundingRect(quad)
+                val solidity = scaledArea / (rect.width * rect.height).toDouble()
+                if (solidity < 0.3) {
+                    quad.release()
+                    continue
+                }
+
+                documentCandidates.add(quad)
+            }
+
+            Log.d("CameraViewModel", "Step8 Candidates: ${documentCandidates.size} quads passed filters")
+
+            if (documentCandidates.isEmpty()) {
+                Log.d("CameraViewModel", "=== detectDocumentWithParams NO DETECTION: no candidates ===")
+                return emptyList()
+            }
+
+            val best = documentCandidates.maxByOrNull {
+                val score = scoreContourWithParams(it, scaledWidth.toInt(), scaledHeight.toInt(), params)
+                Log.d("CameraViewModel", "  Candidate score: area=${Imgproc.contourArea(it)}, score=$score")
+                score
+            }
+
+            Log.d("CameraViewModel", "Step8 Best detected: ${best != null}")
+
+            if (best == null) {
+                Log.d("CameraViewModel", "=== detectDocumentWithParams NO DETECTION: no best ===")
+                return emptyList()
+            }
+
+            // Validate document size — a quad filling the entire frame is likely a false positive
+            val bestRect = Imgproc.boundingRect(best)
+            val bestArea = bestRect.width * bestRect.height
+            val frameOriginalArea = originalWidth * originalHeight
+            Log.d("CameraViewModel", "Step8 SizeValidation: bestArea=$bestArea, frameArea=$frameOriginalArea, ratio=${"%.4f".format(bestArea.toDouble() / frameOriginalArea)}")
+            if (bestArea > frameOriginalArea * 0.95) {
+                Log.d("CameraViewModel", "Step8 SizeValidation: REJECTED (fills entire frame)")
+                best.release()
+                return emptyList()
+            }
+
+            Log.d("CameraViewModel", "=== detectDocumentWithParams SUCCESS: detected quad ===")
+            return listOf(best)
+
+        } catch (e: Exception) {
+            Log.e("CameraViewModel", "Error in detectDocumentWithParams: ${e.message}")
+            e.printStackTrace()
+            return emptyList()
+        } finally {
+            matBundle.releaseAll()
+        }
+    }
+
+    private fun scoreContourWithParams(
+        contour: MatOfPoint,
+        width: Int,
+        height: Int,
+        params: PipelineParams
+    ): Double {
+        val area = Imgproc.contourArea(contour)
+
+        val center = Imgproc.boundingRect(contour).let {
+            Point(it.x + it.width / 2.0, it.y + it.height / 2.0)
+        }
+
+        val frameCenter = Point(width / 2.0, height / 2.0)
+        val centerDist = hypot(
+            center.x - frameCenter.x,
+            center.y - frameCenter.y
+        )
+
+        val maxDist = hypot(width / 2.0, height / 2.0)
+        val centerScore = 1.0 - (centerDist / maxDist)
+
+        val frameArea = width * height.toDouble()
+        val areaRatio = area / frameArea
+        val areaRatioScore = if (areaRatio > 0.5) 0.2 else 1.0
+
+        return area * params.scoreAreaWeight +
+            centerScore * params.scoreCenterWeight * width * height +
+            areaRatioScore * params.scoreAreaRatioWeight * width * height
     }
 
     override fun onCleared() {
