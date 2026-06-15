@@ -1,5 +1,7 @@
 package io.github.iostreamchik.scanner.opencv
 
+import android.util.Log
+import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
@@ -33,10 +35,10 @@ interface ICannyThresholdCalculator {
 /**
  * Default implementation of ICannyThresholdCalculator.
  *
- * Uses a 7x7 Gaussian blur to collapse text textures while preserving
- * macro document boundaries, then runs Otsu's method to find the optimal
- * global threshold. The result is smoothed over time via EMA to eliminate
- * frame-by-frame jitter.
+ * Uses a 3x3 Gaussian blur to collapse minor high-frequency noise while
+ * preserving the document boundary signal in the histogram, then runs Otsu's
+ * method to find the optimal global threshold. The result is smoothed over
+ * time via EMA to eliminate frame-by-frame jitter.
  *
  * @param matBundle Pre-allocated OpenCV matrix pool for zero-allocation processing
  * @param emaAlpha Exponential moving average alpha (0.0–1.0). Lower = smoother but slower to adapt.
@@ -49,10 +51,11 @@ class CannyThresholdCalculator(
     private var smoothedHigh = -1.0
 
     override fun computeThreshold(grayMat: Mat): Pair<Double, Double> {
-        // Step 1: Structural blur — collapse text and surface noise while keeping
-        // macro document boundaries clean. This ensures Otsu isolates the document
-        // outline rather than reacting to text textures.
-        Imgproc.GaussianBlur(grayMat, matBundle.getOtsuBlur(), Size(7.0, 7.0), 2.0)
+        // Step 1: Light blur — collapse minor high-frequency noise while preserving
+        // the document boundary signal in the histogram. A 3×3 blur is small enough
+        // that Otsu sees accurate contrast levels for both static files and camera
+        // frames, avoiding the inflated thresholds that a 7×7 blur produces.
+        Imgproc.GaussianBlur(grayMat, matBundle.getOtsuBlur(), Size(3.0, 3.0), 1.0)
 
         // Step 2: Extract the optimal global threshold using Otsu's method.
         // We use getOtsuThreshold() as a scratch buffer — only the returned double value matters.
@@ -63,7 +66,13 @@ class CannyThresholdCalculator(
             Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
         )
 
-        // Step 3: Temporal smoothing via Exponential Moving Average (EMA).
+        // Step 3: Compute image contrast (std dev of grayscale) to adapt the
+        // hysteresis ratio. Low-contrast images need a wider gap between low
+        // and high thresholds to capture faint document edges.
+        Core.meanStdDev(grayMat, matBundle.getMean(), matBundle.getStd())
+        val contrast = matBundle.getStd().toArray()[0]
+
+        // Step 4: Temporal smoothing via Exponential Moving Average (EMA).
         // Eliminates micro-flicker caused by sensor noise and minor lighting oscillations.
         smoothedHigh = if (smoothedHigh < 0.0) {
             rawOtsu // Initialize on first frame
@@ -71,8 +80,18 @@ class CannyThresholdCalculator(
             emaAlpha * rawOtsu + (1.0 - emaAlpha) * smoothedHigh
         }
 
-        // Step 4: Standard 2:1 hysteresis ratio for Canny edge detection.
-        return Pair(smoothedHigh, smoothedHigh * 0.5)
+        // Step 5: Contrast-aware hysteresis ratio.
+        // - High contrast (> 40): 2:1 ratio — sharp edges, easy to detect
+        // - Medium contrast (20–40): 3:1 ratio — moderate edges, lower threshold helps
+        // - Low contrast (< 20): 4:1 ratio — faint edges, much lower low threshold
+        val ratio = when {
+            contrast > 40.0 -> 0.5   // 2:1
+            contrast > 20.0 -> 0.33  // 3:1
+            else               -> 0.25 // 4:1
+        }
+
+        Log.d("CannyThreshold", "OtsuHigh=$smoothedHigh contrast=$contrast ratio=$ratio")
+        return Pair(smoothedHigh, smoothedHigh * ratio)
     }
 
     override fun reset() {

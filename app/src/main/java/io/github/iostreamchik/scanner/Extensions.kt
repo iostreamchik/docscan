@@ -217,3 +217,57 @@ fun Mat.sharpen(): Mat {
     blurred.release()
     return sharpened
 }
+
+/**
+ * Draws a green quad outline on the Mat and returns a Bitmap.
+ * @param quadPoints List of 4 points (corners) in image coordinates
+ * @param color Scalar for the quad outline (default: green)
+ * @param thickness Line thickness in pixels
+ */
+fun Mat.drawQuadOverlay(
+    quadPoints: List<org.opencv.core.Point>,
+    color: org.opencv.core.Scalar = org.opencv.core.Scalar(0.0, 255.0, 0.0, 255.0),
+    thickness: Int = 3
+): Bitmap {
+    // Convert to RGBA for drawing
+    val rgba = if (this.channels() == 1) {
+        val rgb = Mat()
+        Imgproc.cvtColor(this, rgb, Imgproc.COLOR_GRAY2RGBA)
+        rgb
+    } else if (this.channels() == 3) {
+        val rgbaMat = Mat()
+        Imgproc.cvtColor(this, rgbaMat, Imgproc.COLOR_RGB2RGBA)
+        rgbaMat
+    } else {
+        this.clone()
+    }
+
+    // Draw quad outline
+    if (quadPoints.size == 4) {
+        for (i in 0..3) {
+            val p1 = quadPoints[i]
+            val p2 = quadPoints[(i + 1) % 4]
+            Imgproc.line(rgba, p1, p2, color, thickness)
+        }
+    }
+
+    // Convert to Bitmap
+    val source = when (rgba.channels()) {
+        1 -> {
+            val rgb = Mat()
+            Imgproc.cvtColor(rgba, rgb, Imgproc.COLOR_GRAY2RGB)
+            rgb
+        }
+        4 -> {
+            val rgb = Mat()
+            Imgproc.cvtColor(rgba, rgb, Imgproc.COLOR_RGBA2RGB)
+            rgb
+        }
+        else -> rgba
+    }
+    val bmp = createBitmap(source.cols(), source.rows())
+    Utils.matToBitmap(source, bmp)
+    if (source !== rgba) source.release()
+    if (rgba !== this) rgba.release()
+    return bmp
+}

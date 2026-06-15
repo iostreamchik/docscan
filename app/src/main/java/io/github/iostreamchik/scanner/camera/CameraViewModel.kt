@@ -41,16 +41,14 @@ import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
-import io.github.iostreamchik.scanner.pipeline.PipelineConfigurationManager
-import io.github.iostreamchik.scanner.pipeline.PipelineType
+import io.github.iostreamchik.scanner.drawQuadOverlay
 import io.github.iostreamchik.scanner.sharpen
 import io.github.iostreamchik.scanner.toBitmap
 import io.github.iostreamchik.scanner.toMatRGBA
 
 class CameraViewModel(
     private val matBundle: IMatBundle = MatBundle(),
-    private val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculator(matBundle),
-    val pipelineConfigurationManager: PipelineConfigurationManager = PipelineConfigurationManager()
+    private val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculator(matBundle)
 ) : ViewModel() {
 
     val cameraExecutor = Executors.newSingleThreadExecutor()
@@ -84,6 +82,9 @@ class CameraViewModel(
     private val _resultBitmap = MutableStateFlow<Bitmap?>(null)
     val resultBitmap = _resultBitmap.asStateFlow()
 
+    private val _quadOverlayBitmap = MutableStateFlow<Bitmap?>(null)
+    val quadOverlayBitmap = _quadOverlayBitmap.asStateFlow()
+
     private val _exposureStateFlow = MutableStateFlow("")
     val exposureStateFlow = _exposureStateFlow.asStateFlow()
 
@@ -111,12 +112,11 @@ class CameraViewModel(
         _currentParams.value = newParams
     }
 
-    init {
-        viewModelScope.launch {
-            pipelineConfigurationManager.pipelineType.collect { pipelineType ->
-                _currentParams.value = PipelineParams.Default.copy(pipelineType = pipelineType)
-            }
-        }
+    /**
+     * Reset all pipeline parameters to defaults.
+     */
+    fun resetToDefaultParams() {
+        _currentParams.value = PipelineParams.Default
     }
 
     fun processFrame(imageProxy: ImageProxy): List<MatOfPoint> {
@@ -704,11 +704,19 @@ class CameraViewModel(
                     // onCleared() or a subsequent processPickedDocument call.
                     _resultBitmap.value = (warped ?: mat.enhanceDocument().toBitmap())
                         .copy(Bitmap.Config.ARGB_8888, false)
+
+                    // Create quad overlay bitmap for FileScanResultScreen
+                    val originalMat = Mat()
+                    Utils.bitmapToMat(_originalBitmap.value ?: sourceBitmap, originalMat)
+                    val quadPoints = bestQuad.toList().map { Point(it.x.toDouble(), it.y.toDouble()) }
+                    _quadOverlayBitmap.value = originalMat.drawQuadOverlay(quadPoints, thickness = 4)
+                    originalMat.release()
                 } else {
                     // No document detected — show enhanced original
                     // Clone before emitting to StateFlow.
                     _resultBitmap.value = mat.enhanceDocument().toBitmap()
                         .copy(Bitmap.Config.ARGB_8888, false)
+                    _quadOverlayBitmap.value = null
                 }
 
                 matForDetection.release()
@@ -829,20 +837,48 @@ class CameraViewModel(
             clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
             Log.d("CameraViewModel", "Step3 CLAHE: clipLimit=${params.claheClipLimit}, tileSize=${params.claheTileSize}")
 
-            // 4️⃣ Morph Close (configurable kernel size)
-            Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT,
-                Size(params.morphCloseSize.toDouble(), params.morphCloseSize.toDouble())
-            ).also { kernel ->
-                matBundle.getKernel().release()
-                kernel.copyTo(matBundle.getKernel())
-            }
-            Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
-            Log.d("CameraViewModel", "Step4 MorphClose: ksize=${params.morphCloseSize}")
+            // 4️⃣ Morph Close (configurable kernel size, gated by contrast)
+            // For low-contrast images, morph close washes out faint document edges.
+            // Skip it when the enhanced image std dev is below threshold.
+            Core.meanStdDev(matBundle.getEnhanced(), matBundle.getMean(), matBundle.getStd())
+            val enhancedContrast = matBundle.getStd().toArray()[0]
+            val skipMorphClose = enhancedContrast < 25.0
 
-            // 5️⃣ Canny thresholds (from params)
-            Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), params.cannyLow.toDouble(), params.cannyHigh.toDouble())
-            Log.d("CameraViewModel", "Step5 Canny: low=${params.cannyLow}, high=${params.cannyHigh}")
+            if (skipMorphClose) {
+                matBundle.getEnhanced().copyTo(matBundle.getMorph())
+                Log.d("CameraViewModel", "Step4 MorphClose: SKIPPED (contrast=$enhancedContrast < 25)")
+            } else {
+                Imgproc.getStructuringElement(
+                    Imgproc.MORPH_RECT,
+                    Size(params.morphCloseSize.toDouble(), params.morphCloseSize.toDouble())
+                ).also { kernel ->
+                    matBundle.getKernel().release()
+                    kernel.copyTo(matBundle.getKernel())
+                }
+                Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
+                Log.d("CameraViewModel", "Step4 MorphClose: ksize=${params.morphCloseSize} (contrast=$enhancedContrast)")
+            }
+
+            // 5️⃣ Canny thresholds (auto or manual)
+            var (cannyHigh, cannyLow) = if (params.cannyLow == 0f) {
+                thresholdCalculator.computeThreshold(matBundle.getGray())
+            } else {
+                Pair(params.cannyHigh.toDouble(), params.cannyLow.toDouble())
+            }
+
+            // Auto-fallback: if Otsu produced thresholds > 100, the document edges
+            // are likely too faint for Canny at those levels. Scale down to a
+            // range that captures weaker edges.
+            if (cannyHigh > 100.0) {
+                val fallbackHigh = 50.0
+                val fallbackLow = fallbackHigh * 0.5
+                Log.d("CameraViewModel", "Step5 Canny: Otsu=$cannyHigh/$cannyLow → FALLBACK to $fallbackLow/$fallbackHigh")
+                cannyHigh = fallbackHigh
+                cannyLow = fallbackLow
+            }
+
+            Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), cannyLow, cannyHigh)
+            Log.d("CameraViewModel", "Step5 Canny: low=$cannyLow, high=$cannyHigh (auto=${params.cannyLow == 0f})")
 
             // 6️⃣ Strong Closing (configurable kernel size, scaled)
             var closeKsize = (params.strongCloseSize * scale).coerceAtLeast(3.0).toInt()
@@ -887,7 +923,7 @@ class CameraViewModel(
             matBundle.getVerticalClose().copyTo(matBundle.getMorph())
             Log.d("CameraViewModel", "Step7 DirSuppression: ksize=$dirKsize (params=${params.directionalKernelSize})")
 
-            // Set filtered bitmap from morph result (directional suppression output)
+            // Set filtered bitmap from morph result
             _filteredBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
 
             // 8️⃣ Find contours

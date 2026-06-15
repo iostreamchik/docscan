@@ -45,8 +45,7 @@ import org.opencv.core.Scalar
  * emitting intermediate preview bitmaps for each stage.
  */
 class PipelineSettingsViewModel(
-    private val matBundle: IMatBundle = MatBundle(),
-    private val pipelineConfigurationManager: PipelineConfigurationManager? = null
+    private val matBundle: IMatBundle = MatBundle()
 ) : ViewModel() {
 
     private val _originalBitmap = MutableStateFlow<Bitmap?>(null)
@@ -82,12 +81,7 @@ class PipelineSettingsViewModel(
     private var lastImageUri: Uri? = null
 
     fun updateParams(newParams: PipelineParams, context: Context) {
-        val typeChanged = _currentParams.value.pipelineType != newParams.pipelineType
         _currentParams.value = newParams
-        if (typeChanged && pipelineConfigurationManager != null) {
-            // Update shared configuration instead of directly calling CameraViewModel
-            pipelineConfigurationManager.setPipelineType(newParams.pipelineType)
-        }
         if (lastImageUri != null) {
             viewModelScope.launch {
                 _isProcessing.value = true
@@ -107,12 +101,7 @@ class PipelineSettingsViewModel(
      * for 300ms after the last change before invoking this method.
      */
     fun updateParamSafely(newParams: PipelineParams, contextProvider: suspend () -> Context) {
-        val typeChanged = _currentParams.value.pipelineType != newParams.pipelineType
         _currentParams.value = newParams
-        if (typeChanged && pipelineConfigurationManager != null) {
-            // Update shared configuration instead of directly calling CameraViewModel
-            pipelineConfigurationManager.setPipelineType(newParams.pipelineType)
-        }
         if (lastImageUri != null) {
             viewModelScope.launch {
                 _isProcessing.value = true

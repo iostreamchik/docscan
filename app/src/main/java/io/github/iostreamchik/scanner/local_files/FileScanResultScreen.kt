@@ -35,8 +35,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.ExperimentalMaterial3Api
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -364,6 +366,23 @@ private fun PipelineParametersSection(
                  }
              }
 
+            // Show auto-threshold values when auto-detect is active
+            if (params.cannyAutoDetect) {
+                Text(
+                    text = "Auto: ${lowThreshold.toInt()} / ${highThreshold.toInt()}",
+                    fontSize = 12.sp,
+                    color = Color(0xFF2196F3),
+                    modifier = Modifier.padding(bottom = 4.dp)
+                 )
+             } else {
+                Text(
+                    text = "Manual thresholds",
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                 )
+             }
+
             ParameterSlider(
                 label = "Low Threshold",
                 value = lowThreshold,
@@ -492,6 +511,7 @@ private fun PipelineStageControls(
 
 @Preview
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun FileScanResultPreview() {
     Surface {
         FileScanResultScreen(

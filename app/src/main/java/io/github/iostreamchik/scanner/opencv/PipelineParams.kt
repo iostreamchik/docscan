@@ -1,7 +1,5 @@
 package io.github.iostreamchik.scanner.opencv
 
-import io.github.iostreamchik.scanner.pipeline.PipelineType
-
 /**
  * Data class holding all adjustable pipeline parameters.
  */
@@ -11,22 +9,23 @@ data class PipelineParams(
     val gaussianSigma: Double = 1.0,
 
     // CLAHE
-    val claheClipLimit: Float = 0.8f,
-    val claheTileSize: Int = 16,
+    val claheClipLimit: Float = 0.1f,
+    val claheTileSize: Int = 8,
 
     // Morph Close (pre-Canny)
-    val morphCloseSize: Int = 9,
+    val morphCloseSize: Int = 3,
 
     // Canny
-    val cannyLow: Float = 20f,
-    val cannyHigh: Float = 60f,
+    // 0f = auto mode (triggers Otsu+EMA threshold calculation)
+    val cannyLow: Float = 0f,
+    val cannyHigh: Float = 0f,
     val cannyAutoDetect: Boolean = false,
 
     // Strong Closing (post-Canny)
-    val strongCloseSize: Int = 5,
+    val strongCloseSize: Int = 7,
 
     // Directional Suppression
-    val directionalKernelSize: Int = 15,
+    val directionalKernelSize: Int = 10,
 
     // Contour Detection
     val approxPolyDPTolerance: Float = 0.015f,
@@ -36,9 +35,6 @@ data class PipelineParams(
     val scoreAreaWeight: Float = 0.5f,
     val scoreCenterWeight: Float = 0.3f,
     val scoreAreaRatioWeight: Float = 0.2f,
-
-    // Pipeline selection
-    val pipelineType: PipelineType = PipelineType.CANNY_OTSU,
 
     // Adaptive thresholding parameters
     val adaptiveBlockSize: Int = 11,      // Must be odd, 3–51
