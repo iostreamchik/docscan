@@ -11,13 +11,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import io.github.iostreamchik.scanner.camera.CameraScreen
 import io.github.iostreamchik.scanner.local_files.FileScanResultScreen
-import io.github.iostreamchik.scanner.pipeline.PipelineSettingsScreen
-import io.github.iostreamchik.scanner.pipeline.PipelineSettingsViewModel
 
 object NavigationDestination {
     const val Camera = "camera"
     const val FileScanResult = "file_scan_result"
-    const val PipelineSettings = "pipeline_settings"
 }
 
 @Composable
@@ -39,9 +36,6 @@ fun AppNavGraph(
                 viewModel = viewModel(viewModelStoreOwner = (context as? ComponentActivity) ?: it),
                 toScanFromFile = {
                     navController.navigate(NavigationDestination.FileScanResult)
-                },
-                toOpenSettings = {
-                    navController.navigate(NavigationDestination.PipelineSettings)
                 }
             )
         }
@@ -50,19 +44,6 @@ fun AppNavGraph(
             FileScanResultScreen(
                 modifier = Modifier.fillMaxSize(),
                 viewModel = viewModel(viewModelStoreOwner = (context as? ComponentActivity) ?: it),
-                onBack = {
-                    navController.popBackStack()
-                }
-            )
-        }
-        composable(NavigationDestination.PipelineSettings) {
-            val context = LocalContext.current
-            PipelineSettingsScreen(
-                modifier = Modifier.fillMaxSize(),
-                viewModel = viewModel<PipelineSettingsViewModel>(
-                    key = "pipelineSettings",
-                    viewModelStoreOwner = (context as? ComponentActivity) ?: it
-                ),
                 onBack = {
                     navController.popBackStack()
                 }

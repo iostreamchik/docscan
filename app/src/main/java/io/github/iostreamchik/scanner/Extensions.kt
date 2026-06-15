@@ -8,12 +8,16 @@ import org.opencv.android.Utils
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
+import android.util.Log
 import java.nio.ByteBuffer
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.sqrt
 
 /**
  * Calculates the correct output dimensions for a perspective-transformed document.
@@ -298,4 +302,103 @@ fun Mat.drawQuadOverlay(
     if (source !== rgba) source.release()
     if (rgba !== this) rgba.release()
     return bmp
+}
+
+/**
+ * Converts a [MatOfPoint] (4 points) into a sorted list of [Point]
+ * in order: [top-left, top-right, bottom-right, bottom-left].
+ *
+ * Returns an empty list if the MatOfPoint doesn't contain exactly 4 points.
+ */
+fun MatOfPoint.toSortedQuad(): List<Point> {
+    val points = this.toArray().toList()
+    if (points.size != 4) {
+        Log.w(
+            "Extensions",
+            "toSortedQuad: Invalid quad with ${points.size} points, returning empty list"
+        )
+        return emptyList()
+    }
+    return sortQuadPoints(points)
+}
+
+/**
+ * Computes the Euclidean distance between two points.
+ */
+fun Point.distanceTo(other: Point): Double {
+    val dx = this.x - other.x
+    val dy = this.y - other.y
+    return sqrt(dx * dx + dy * dy)
+}
+
+/**
+ * Scales a list of 4 points from one coordinate space to another.
+ *
+ * @param fromW Original image width
+ * @param fromH Original image height
+ * @param toW Target image width
+ * @param toH Target image height
+ */
+fun List<Point>.scaleQuad(fromW: Double, fromH: Double, toW: Double, toH: Double): List<Point> {
+    val scaleX = toW / fromW
+    val scaleY = toH / fromH
+
+    return this.map {
+        Point(it.x * scaleX, it.y * scaleY)
+    }
+}
+
+/**
+ * Maps a quad from scaled coordinates back to original image resolution.
+ */
+fun MatOfPoint.scaleToResolution(
+    originalWidth: Int,
+    originalHeight: Int,
+    scaledWidth: Double,
+    scaledHeight: Double
+): MatOfPoint {
+    val scaleX = originalWidth / scaledWidth
+    val scaleY = originalHeight / scaledHeight
+
+    val originalPoints = this.toArray().map { point ->
+        Point(point.x * scaleX, point.y * scaleY)
+    }
+    return MatOfPoint(*originalPoints.toTypedArray())
+}
+
+/**
+ * Warps a document from a source Mat using the detected quad corners.
+ *
+ * Applies perspective transform, rotation fix, and sharpening.
+ * Returns null on error.
+ */
+fun warpDocumentHighQuality(src: Mat, quad: MatOfPoint, rotationDegrees: Int): Bitmap? {
+    return try {
+        val sorted = sortQuadPoints(quad.toArray().toList())
+        val (tl, tr, br, bl) = sorted // Destructuring
+
+        // Use original image dimensions for output size
+        val outputWidth = src.cols().toDouble()
+        val outputHeight = src.rows().toDouble()
+
+        val srcPoints = MatOfPoint2f(tl, tr, br, bl)
+        val dstPoints = MatOfPoint2f(
+            Point(0.0, 0.0),
+            Point(outputWidth, 0.0),
+            Point(outputWidth, outputHeight),
+            Point(0.0, outputHeight)
+        )
+
+        val transform = Imgproc.getPerspectiveTransform(srcPoints, dstPoints)
+        val output = Mat()
+        Imgproc.warpPerspective(src, output, transform, Size(outputWidth, outputHeight))
+        // Convert to Bitmap (applying existing extensions for rotation/enhancement)
+        output
+            .fixRotation(rotationDegrees)
+            .sharpen()
+            .toBitmap()
+    } catch (e: Exception) {
+        Log.e("Extensions", "Warp error: ${e.message}")
+        null
+    }
 }

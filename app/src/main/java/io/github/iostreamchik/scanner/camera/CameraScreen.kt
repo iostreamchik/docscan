@@ -24,11 +24,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -65,7 +63,6 @@ fun CameraScreen(
     modifier: Modifier = Modifier,
     viewModel: CameraViewModel,
     toScanFromFile: () -> Unit = {},
-    toOpenSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -111,19 +108,6 @@ fun CameraScreen(
                 )
             }
         }
-
-        IconButton(
-            modifier = Modifier
-                .statusBarsPadding()
-                .align(Alignment.TopEnd),
-            onClick = toOpenSettings,
-        ) {
-            Icon(
-                imageVector = Icons.Default.Settings,
-                contentDescription = "Pipeline settings"
-            )
-        }
-
 
         Column(
             modifier = Modifier

@@ -10,17 +10,24 @@ import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.github.iostreamchik.scanner.drawQuadOverlay
 import io.github.iostreamchik.scanner.enhanceDocument
 import io.github.iostreamchik.scanner.fixRotation
+import io.github.iostreamchik.scanner.isRectangle
 import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
-import io.github.iostreamchik.scanner.sharpen
+import io.github.iostreamchik.scanner.quadDistance
+import io.github.iostreamchik.scanner.quadHash
+import io.github.iostreamchik.scanner.scaleToResolution
+import io.github.iostreamchik.scanner.scoreContour
+import io.github.iostreamchik.scanner.scoreContourWithParams
+import io.github.iostreamchik.scanner.sortQuadPoints
 import io.github.iostreamchik.scanner.toBitmap
 import io.github.iostreamchik.scanner.toMatRGBA
+import io.github.iostreamchik.scanner.toSortedQuad
+import io.github.iostreamchik.scanner.warpDocumentHighQuality
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,19 +39,12 @@ import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
-import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
-import java.lang.Math.PI
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import kotlin.math.abs
-import kotlin.math.acos
-import kotlin.math.atan2
-import kotlin.math.hypot
 import kotlin.math.max
-import kotlin.math.sqrt
 
 class CameraViewModel(
     private val matBundle: IMatBundle = MatBundle(),
@@ -82,9 +82,6 @@ class CameraViewModel(
     private val _resultBitmap = MutableStateFlow<Bitmap?>(null)
     val resultBitmap = _resultBitmap.asStateFlow()
 
-    private val _quadOverlayBitmap = MutableStateFlow<Bitmap?>(null)
-    val quadOverlayBitmap = _quadOverlayBitmap.asStateFlow()
-
     private val _exposureStateFlow = MutableStateFlow("")
     val exposureStateFlow = _exposureStateFlow.asStateFlow()
 
@@ -112,13 +109,6 @@ class CameraViewModel(
         _currentParams.value = newParams
     }
 
-    /**
-     * Reset all pipeline parameters to defaults.
-     */
-    fun resetToDefaultParams() {
-        _currentParams.value = PipelineParams.Default
-    }
-
     fun processFrame(imageProxy: ImageProxy): List<MatOfPoint> {
         val width = imageProxy.width
         val height = imageProxy.height
@@ -143,8 +133,7 @@ class CameraViewModel(
                     val scaledWidth = width * scale
                     val scaledHeight = height * scale
 
-                    val originalQuad = getOriginalResolutionQuad(
-                        fusedQuad,
+                    val originalQuad = fusedQuad.scaleToResolution(
                         width,
                         height,
                         scaledWidth,
@@ -219,18 +208,6 @@ class CameraViewModel(
         return validPairs > 0 && (totalMovement / validPairs) < 0.02
     }
 
-    private fun MatOfPoint.toSortedQuad(): List<Point> {
-        val points = this.toArray().toList()
-        if (points.size != 4) {
-            Log.w(
-                "CameraViewModel",
-                "toSortedQuad: Invalid quad with ${points.size} points, returning empty list"
-            )
-            return emptyList()
-        }
-        return sortQuadPoints(points)
-    }
-
     private fun getFusedQuad(): MatOfPoint? {
         if (quadHistory.isEmpty()) return null
 
@@ -255,61 +232,6 @@ class CameraViewModel(
 
         return MatOfPoint(*averaged)
     }
-
-    fun sortQuadPoints(points: List<Point>): List<Point> {
-        if (points.size != 4) {
-            Log.w(
-                "CameraViewModel",
-                "sortQuadPoints: Invalid quad with ${points.size} points, returning empty list"
-            )
-            return emptyList()
-        }
-
-        // 1️⃣ Compute centroid
-        val centerX = points.sumOf { it.x } / 4.0
-        val centerY = points.sumOf { it.y } / 4.0
-
-        // 2️⃣ Sort by angle around centroid (clockwise)
-        val sortedByAngle = points.sortedBy {
-            atan2(it.y - centerY, it.x - centerX)
-        }
-
-        // 3️⃣ Now ensure consistent starting point (top-left first)
-        // Top-left = smallest (x + y)
-        val topLeftIndex = sortedByAngle
-            .mapIndexed { index, p -> index to (p.x + p.y) }
-            .minBy { it.second }
-            .first
-
-        // Rotate list so top-left is first
-        return List(4) { i ->
-            sortedByAngle[(topLeftIndex + i) % 4]
-        }
-    }
-
-    fun quadDistance(
-        quad1: List<Point>,
-        quad2: List<Point>,
-        frameWidth: Double,
-        frameHeight: Double
-    ): Double {
-
-        if (quad1.size != 4 || quad2.size != 4) return Double.MAX_VALUE
-
-        val diagonal = sqrt(frameWidth * frameWidth + frameHeight * frameHeight)
-
-        var totalDistance = 0.0
-
-        for (i in 0 until 4) {
-            val dx = quad1[i].x - quad2[i].x
-            val dy = quad1[i].y - quad2[i].y
-            totalDistance += sqrt(dx * dx + dy * dy)
-        }
-
-        // average corner shift normalized by frame diagonal
-        return (totalDistance / 4.0) / diagonal
-    }
-
 
     private fun detectDocument(mat: Mat, rotation: Int): List<MatOfPoint> {
         val originalWidth = mat.cols()
@@ -512,149 +434,6 @@ class CameraViewModel(
         }
     }
 
-    private fun scoreContour(
-        contour: MatOfPoint,
-        width: Int,
-        height: Int
-    ): Double {
-
-        val area = Imgproc.contourArea(contour)
-
-        val center = Imgproc.boundingRect(contour).let {
-            Point(it.x + it.width / 2.0, it.y + it.height / 2.0)
-        }
-
-        val frameCenter = Point(width / 2.0, height / 2.0)
-        val centerDist = hypot(
-            center.x - frameCenter.x,
-            center.y - frameCenter.y
-        )
-
-        val maxDist = hypot(width / 2.0, height / 2.0)
-
-        val centerScore = 1.0 - (centerDist / maxDist)
-
-        // Area ratio: penalize if contour fills too much of the frame
-        // (likely background texture rather than a document)
-        val frameArea = width * height.toDouble()
-        val areaRatio = area / frameArea
-        val areaRatioScore = if (areaRatio > 0.5) 0.2 else 1.0
-
-        return area * 0.5 + centerScore * 0.3 * width * height + areaRatioScore * 0.2 * width * height
-    }
-
-    private fun isRectangle(approx: MatOfPoint2f): Boolean {
-        val pts = approx.toArray()
-        var maxDeviation = 0.0
-
-        for (i in 0..3) {
-            val angle = computeAngle(
-                pts[(i + 1) % 4],
-                pts[(i + 3) % 4],
-                pts[i]
-            )
-            maxDeviation = max(maxDeviation, abs(90 - angle))
-        }
-
-        return maxDeviation < 15
-    }
-
-    private fun computeAngle(p1: Point, p2: Point, center: Point): Double {
-        val dx1 = p1.x - center.x
-        val dy1 = p1.y - center.y
-        val dx2 = p2.x - center.x
-        val dy2 = p2.y - center.y
-
-        val dot = dx1 * dx2 + dy1 * dy2
-        val norm1 = sqrt(dx1 * dx1 + dy1 * dy1)
-        val norm2 = sqrt(dx2 * dx2 + dy2 * dy2)
-
-        return acos(dot / (norm1 * norm2)) * 180.0 / PI
-    }
-
-    private fun distance(p1: Point, p2: Point): Double {
-        val dx = p1.x - p2.x
-        val dy = p1.y - p2.y
-        return sqrt(dx * dx + dy * dy)
-    }
-
-    private fun quadHash(quad: MatOfPoint): Long {
-        val points = quad.toArray()
-        var hash: Long = 1
-        for (p in points) {
-            hash = 31 * hash + p.x.toInt()
-            hash = 31 * hash + p.y.toInt()
-        }
-        return hash
-    }
-
-    fun scaleQuad(
-        quad: List<Point>,
-        fromW: Double,
-        fromH: Double,
-        toW: Double,
-        toH: Double
-    ): List<Point> {
-
-        val scaleX = toW / fromW
-        val scaleY = toH / fromH
-
-        return quad.map {
-            Point(it.x * scaleX, it.y * scaleY)
-        }
-    }
-
-    private fun warpDocumentHighQuality(src: Mat, quad: MatOfPoint, rotationDegrees: Int): Bitmap? {
-        return try {
-            val sorted = sortQuadPoints(quad.toArray().toList())
-            val (tl, tr, br, bl) = sorted // Destructuring
-
-            // Use original image dimensions for output size
-            val outputWidth = src.cols().toDouble()
-            val outputHeight = src.rows().toDouble()
-
-            val srcPoints = MatOfPoint2f(tl, tr, br, bl)
-            val dstPoints = MatOfPoint2f(
-                Point(0.0, 0.0),
-                Point(outputWidth, 0.0),
-                Point(outputWidth, outputHeight),
-                Point(0.0, outputHeight)
-            )
-
-            val transform = Imgproc.getPerspectiveTransform(srcPoints, dstPoints)
-            val output = Mat()
-            Imgproc.warpPerspective(src, output, transform, Size(outputWidth, outputHeight))
-            // 7. Convert to Bitmap (applying your existing extensions for rotation/enhancement)
-            // This ensures the "crop" looks like a real scanned document
-            output
-                .fixRotation(rotationDegrees)
-                .sharpen()
-                .toBitmap()
-        } catch (e: Exception) {
-            Log.e("CameraViewModel", "Warp error: ${e.message}")
-            null
-        }
-    }
-
-    private fun getOriginalResolutionQuad(
-        scaledQuad: MatOfPoint,
-        originalWidth: Int,
-        originalHeight: Int,
-        scaledWidth: Double,
-        scaledHeight: Double
-    ): MatOfPoint {
-
-        // Calculate the ratio used to shrink the image
-        val scaleX = originalWidth / scaledWidth
-        val scaleY = originalHeight / scaledHeight
-
-        // Map each point back to the original coordinate space
-        val originalPoints = scaledQuad.toArray().map { point ->
-            Point(point.x * scaleX, point.y * scaleY)
-        }
-        return MatOfPoint(*originalPoints.toTypedArray())
-    }
-
     fun processPickedDocument(context: Context, uri: Uri, onScanComplete: () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -708,15 +487,12 @@ class CameraViewModel(
                     // Create quad overlay bitmap for FileScanResultScreen
                     val originalMat = Mat()
                     Utils.bitmapToMat(_originalBitmap.value ?: sourceBitmap, originalMat)
-                    val quadPoints = bestQuad.toList().map { Point(it.x.toDouble(), it.y.toDouble()) }
-                    _quadOverlayBitmap.value = originalMat.drawQuadOverlay(quadPoints, thickness = 4)
                     originalMat.release()
                 } else {
                     // No document detected — show enhanced original
                     // Clone before emitting to StateFlow.
                     _resultBitmap.value = mat.enhanceDocument().toBitmap()
                         .copy(Bitmap.Config.ARGB_8888, false)
-                    _quadOverlayBitmap.value = null
                 }
 
                 matForDetection.release()
@@ -1047,41 +823,6 @@ class CameraViewModel(
         } finally {
             matBundle.releaseAll()
         }
-    }
-
-    private fun scoreContourWithParams(
-        contour: MatOfPoint,
-        width: Int,
-        height: Int,
-        params: PipelineParams
-    ): Double {
-        val area = Imgproc.contourArea(contour)
-
-        val center = Imgproc.boundingRect(contour).let {
-            Point(it.x + it.width / 2.0, it.y + it.height / 2.0)
-        }
-
-        val frameCenter = Point(width / 2.0, height / 2.0)
-        val centerDist = hypot(
-            center.x - frameCenter.x,
-            center.y - frameCenter.y
-        )
-
-        val maxDist = hypot(width / 2.0, height / 2.0)
-        val centerScore = 1.0 - (centerDist / maxDist)
-
-        val frameArea = width * height.toDouble()
-        val areaRatio = area / frameArea
-        // Smooth interpolation: 1.0 at areaRatio <= 0.02, linearly down to 0.2 at areaRatio >= 0.5
-        val areaRatioScore = when {
-            areaRatio <= 0.02f -> 1.0
-            areaRatio >= 0.5  -> 0.2
-            else               -> 1.0 - ((areaRatio - 0.02) / 0.48) * 0.8
-        }
-
-        return area * params.scoreAreaWeight +
-            centerScore * params.scoreCenterWeight * width * height +
-            areaRatioScore * params.scoreAreaRatioWeight * width * height
     }
 
     override fun onCleared() {
