@@ -9,7 +9,7 @@ data class PipelineParams(
     val gaussianSigma: Double = 1.0,
 
     // CLAHE
-    val claheClipLimit: Float = 0.1f,
+    val claheClipLimit: Float = 0.5f,
     val claheTileSize: Int = 8,
 
     // Morph Close (pre-Canny)
@@ -19,7 +19,7 @@ data class PipelineParams(
     // 0f = auto mode (triggers Otsu+EMA threshold calculation)
     val cannyLow: Float = 0f,
     val cannyHigh: Float = 0f,
-    val cannyAutoDetect: Boolean = false,
+    val cannyAutoDetect: Boolean = true,
 
     // Strong Closing (post-Canny)
     val strongCloseSize: Int = 7,

@@ -860,7 +860,7 @@ class CameraViewModel(
             }
 
             // 5️⃣ Canny thresholds (auto or manual)
-            var (cannyHigh, cannyLow) = if (params.cannyLow == 0f) {
+            var (cannyHigh, cannyLow) = if (params.cannyAutoDetect) {
                 thresholdCalculator.computeThreshold(matBundle.getGray())
             } else {
                 Pair(params.cannyHigh.toDouble(), params.cannyLow.toDouble())
@@ -868,8 +868,8 @@ class CameraViewModel(
 
             // Auto-fallback: if Otsu produced thresholds > 100, the document edges
             // are likely too faint for Canny at those levels. Scale down to a
-            // range that captures weaker edges.
-            if (cannyHigh > 100.0) {
+            // range that captures weaker edges. Only applies in auto mode.
+            if (params.cannyAutoDetect && cannyHigh > 100.0) {
                 val fallbackHigh = 50.0
                 val fallbackLow = fallbackHigh * 0.5
                 Log.d("CameraViewModel", "Step5 Canny: Otsu=$cannyHigh/$cannyLow → FALLBACK to $fallbackLow/$fallbackHigh")
@@ -878,7 +878,17 @@ class CameraViewModel(
             }
 
             Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), cannyLow, cannyHigh)
-            Log.d("CameraViewModel", "Step5 Canny: low=$cannyLow, high=$cannyHigh (auto=${params.cannyLow == 0f})")
+            Log.d("CameraViewModel", "Step5 Canny: low=$cannyLow, high=$cannyHigh (auto=${params.cannyAutoDetect})")
+
+            // Push auto-computed thresholds back into params so the UI can display them
+            if (params.cannyAutoDetect) {
+                viewModelScope.launch(Dispatchers.Main) {
+                    updateParams(_currentParams.value.copy(
+                        cannyLow = cannyLow.toFloat(),
+                        cannyHigh = cannyHigh.toFloat()
+                    ))
+                }
+            }
 
             // 6️⃣ Strong Closing (configurable kernel size, scaled)
             var closeKsize = (params.strongCloseSize * scale).coerceAtLeast(3.0).toInt()
@@ -1062,7 +1072,12 @@ class CameraViewModel(
 
         val frameArea = width * height.toDouble()
         val areaRatio = area / frameArea
-        val areaRatioScore = if (areaRatio > 0.5) 0.2 else 1.0
+        // Smooth interpolation: 1.0 at areaRatio <= 0.02, linearly down to 0.2 at areaRatio >= 0.5
+        val areaRatioScore = when {
+            areaRatio <= 0.02f -> 1.0
+            areaRatio >= 0.5  -> 0.2
+            else               -> 1.0 - ((areaRatio - 0.02) / 0.48) * 0.8
+        }
 
         return area * params.scoreAreaWeight +
             centerScore * params.scoreCenterWeight * width * height +
