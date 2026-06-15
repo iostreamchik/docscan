@@ -8,9 +8,37 @@ import org.opencv.android.Utils
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.Point
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import java.nio.ByteBuffer
+import kotlin.math.hypot
+import kotlin.math.max
+
+/**
+ * Calculates the correct output dimensions for a perspective-transformed document.
+ *
+ * Takes the four sorted corners (top-left, top-right, bottom-right, bottom-left)
+ * and computes width/height from the maximum edge distances. This handles perspective
+ * distortion where the top edge may appear shorter than the bottom edge (or vice versa).
+ *
+ * @return Pair of (width, height) in pixels for the warped output image
+ */
+fun calculateWarpedDimensions(
+    tl: Point, tr: Point, br: Point, bl: Point
+): Pair<Int, Int> {
+    // Width: max of top edge and bottom edge lengths
+    val widthA = hypot(br.x - bl.x, br.y - bl.y) // bottom edge
+    val widthB = hypot(tr.x - tl.x, tr.y - tl.y) // top edge
+    val outputWidth = max(widthA, widthB).toInt()
+
+    // Height: max of left edge and right edge lengths
+    val heightA = hypot(tl.x - bl.x, tl.y - bl.y) // left edge
+    val heightB = hypot(tr.x - br.x, tr.y - br.y) // right edge
+    val outputHeight = max(heightA, heightB).toInt()
+
+    return Pair(outputWidth, outputHeight)
+}
 
 fun ImageProxy.toMatRGBA(): Mat {
     // Safety check ensuring correct format

@@ -8,11 +8,14 @@ import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import io.github.iostreamchik.scanner.calculateWarpedDimensions
 import io.github.iostreamchik.scanner.fixRotation
 import io.github.iostreamchik.scanner.opencv.IMatBundle
+import io.github.iostreamchik.scanner.opencv.MatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
+import io.github.iostreamchik.scanner.sharpen
+import io.github.iostreamchik.scanner.toBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +29,7 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
+import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import java.lang.Math.PI
@@ -34,10 +38,6 @@ import kotlin.math.acos
 import kotlin.math.atan2
 import kotlin.math.max
 import kotlin.math.sqrt
-import io.github.iostreamchik.scanner.opencv.MatBundle
-import io.github.iostreamchik.scanner.sharpen
-import io.github.iostreamchik.scanner.toBitmap
-import org.opencv.core.Scalar
 
 /**
  * ViewModel for the Pipeline Settings screen.
@@ -558,22 +558,30 @@ class PipelineSettingsViewModel(
     }
 
     private fun warpDocument(src: Mat, quad: MatOfPoint): Bitmap {
-        val sorted = sortQuadPoints(quad.toArray().toList())
-        val (tl, tr, br, bl) = sorted
-        val outputW = src.cols().toDouble()
-        val outputH = src.rows().toDouble()
+        val sorted: List<Point> = sortQuadPoints(quad.toArray().toList())
+        val tl = sorted[0]
+        val tr = sorted[1]
+        val br = sorted[2]
+        val bl = sorted[3]
+
+        // Calculate proper output dimensions from the document's actual edge lengths.
+        // This preserves the document's natural aspect ratio, handling perspective
+        // distortion where edges may appear at different lengths.
+        val dimensions = calculateWarpedDimensions(tl, tr, br, bl)
+        val outputW = dimensions.first
+        val outputH = dimensions.second
 
         val srcPts = MatOfPoint2f(tl, tr, br, bl)
         val dstPts = MatOfPoint2f(
             Point(0.0, 0.0),
-            Point(outputW, 0.0),
-            Point(outputW, outputH),
-            Point(0.0, outputH)
+            Point(outputW.toDouble(), 0.0),
+            Point(outputW.toDouble(), outputH.toDouble()),
+            Point(0.0, outputH.toDouble())
         )
 
         val transform = Imgproc.getPerspectiveTransform(srcPts, dstPts)
         val output = Mat()
-        Imgproc.warpPerspective(src, output, transform, Size(outputW, outputH))
+        Imgproc.warpPerspective(src, output, transform, Size(outputW.toDouble(), outputH.toDouble()))
 
         return output.fixRotation(0).sharpen().toBitmap().also {
             output.release()

@@ -10,8 +10,17 @@ import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.iostreamchik.scanner.drawQuadOverlay
 import io.github.iostreamchik.scanner.enhanceDocument
 import io.github.iostreamchik.scanner.fixRotation
+import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculator
+import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
+import io.github.iostreamchik.scanner.opencv.IMatBundle
+import io.github.iostreamchik.scanner.opencv.MatBundle
+import io.github.iostreamchik.scanner.opencv.PipelineParams
+import io.github.iostreamchik.scanner.sharpen
+import io.github.iostreamchik.scanner.toBitmap
+import io.github.iostreamchik.scanner.toMatRGBA
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,15 +45,6 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.sqrt
-import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
-import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculator
-import io.github.iostreamchik.scanner.opencv.IMatBundle
-import io.github.iostreamchik.scanner.opencv.MatBundle
-import io.github.iostreamchik.scanner.opencv.PipelineParams
-import io.github.iostreamchik.scanner.drawQuadOverlay
-import io.github.iostreamchik.scanner.sharpen
-import io.github.iostreamchik.scanner.toBitmap
-import io.github.iostreamchik.scanner.toMatRGBA
 
 class CameraViewModel(
     private val matBundle: IMatBundle = MatBundle(),

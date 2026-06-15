@@ -29,6 +29,8 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,11 +55,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import io.github.iostreamchik.scanner.opencv.MockMatBundle
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import io.github.iostreamchik.scanner.BitmapCard
 import io.github.iostreamchik.scanner.ContourCanvas
+import io.github.iostreamchik.scanner.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.rememberDeviceCornerRadiusDp
 
 @Composable
