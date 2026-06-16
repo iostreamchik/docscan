@@ -9,6 +9,7 @@ import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FlashlightOn
@@ -30,10 +32,12 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -118,32 +123,40 @@ fun CameraScreen(
         }
 
         // Torch toggle button - top right corner
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(end = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Box(modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
         ) {
-            IconButton(
-
-                onClick = {
-                    viewModel.toggleTorch()
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .statusBarsPadding()
+                    .clip(CircleShape)
+                    .background(color = MaterialTheme.colorScheme.primaryContainer)
+                    .padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = {
+                        viewModel.toggleTorch()
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FlashlightOn,
+                        contentDescription = "Toggle torch",
+                        tint = if (torchOn) Color.Black else Color.Black.copy(alpha = 0.5f)
+                    )
                 }
-            ) {
-                Icon(
-                    imageVector = Icons.Default.FlashlightOn,
-                    contentDescription = "Toggle torch",
-                    tint = if (torchOn) Color.White else Color.White.copy(alpha = 0.5f)
-                )
-            }
-            IconButton(
-                onClick = toOpenSettings,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "Pipeline settings"
-                )
+                VerticalDivider(modifier = Modifier.height(22.dp))
+                IconButton(
+                    onClick = toOpenSettings,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Pipeline settings"
+                    )
+                }
             }
         }
 
