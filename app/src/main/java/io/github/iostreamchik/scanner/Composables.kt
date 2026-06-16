@@ -113,7 +113,7 @@ fun ContourCanvas(
                 val p2 = points[(i + 1) % points.size]
 
                 drawLine(
-                    color = Color.Red.copy(alpha = 0.5f),
+                    color = Color.Red.copy(alpha = 0.9f),
                     start = Offset(p1.x * scale + dx, p1.y * scale + dy),
                     end = Offset(p2.x * scale + dx, p2.y * scale + dy),
                     strokeWidth = 8f

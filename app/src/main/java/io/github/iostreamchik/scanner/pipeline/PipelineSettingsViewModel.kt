@@ -9,12 +9,14 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.iostreamchik.scanner.DocumentDetector
 import io.github.iostreamchik.scanner.calculateWarpedDimensions
 import io.github.iostreamchik.scanner.fixRotation
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import io.github.iostreamchik.scanner.sharpen
+import io.github.iostreamchik.scanner.sortQuadPoints
 import io.github.iostreamchik.scanner.toBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,12 +34,7 @@ import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
-import java.lang.Math.PI
-import kotlin.math.abs
-import kotlin.math.acos
-import kotlin.math.atan2
 import kotlin.math.max
-import kotlin.math.sqrt
 
 /**
  * ViewModel for the Pipeline Settings screen.
@@ -45,7 +42,8 @@ import kotlin.math.sqrt
  * emitting intermediate preview bitmaps for each stage.
  */
 class PipelineSettingsViewModel(
-    private val matBundle: IMatBundle = MatBundle()
+    private val matBundle: IMatBundle = MatBundle(),
+    private val detector: DocumentDetector = DocumentDetector(matBundle)
 ) : ViewModel() {
 
     private val _originalBitmap = MutableStateFlow<Bitmap?>(null)
@@ -262,158 +260,86 @@ class PipelineSettingsViewModel(
                 Log.d("PipelineSettings", "Step7 DirSuppression: SKIPPED (kernelSize=0)")
             }
 
-            // --- Step 8: Find Contours & Detect Document ---
-            val contours = mutableListOf<MatOfPoint>()
-            Imgproc.findContours(
-                matBundle.getMorph(),
-                contours,
-                matBundle.getHierarchy(),
-                Imgproc.RETR_LIST,
-                Imgproc.CHAIN_APPROX_SIMPLE
+            // --- Step 8: Detect Document ---
+            val bestQuad = detector.detectQuad(
+                morphImage = matBundle.getMorph(),
+                scaledWidth = scaledWidth,
+                scaledHeight = scaledHeight,
+                originalWidth = originalWidth,
+                originalHeight = originalHeight
             )
 
-            val frameArea = scaledWidth * scaledHeight
-            val minArea = frameArea * params.minAreaFraction
-            Log.d("PipelineSettings", "Step8 Contours: total=${contours.size}, minArea=$minArea (frameArea=$frameArea * minAreaFrac=${params.minAreaFraction})")
+            if (bestQuad != null) {
+                _detectedQuad.value = bestQuad.toArray().toList()
+                _hasDetectedDocument.value = true
 
-            val candidates = mutableListOf<MatOfPoint>()
+                val warped = warpDocument(mat, bestQuad)
+                // Clone before emitting to StateFlow so Compose gets its own
+                // independent copy that won't be affected by recycling in
+                // onCleared() or a subsequent processWithParams call.
+                val warpedClone = warped.copy(Bitmap.Config.ARGB_8888, false)
+                _resultBitmap.value = warpedClone
+                previews["Detected Document"] = warpedClone
 
-            for (contour in contours) {
-                val area = Imgproc.contourArea(contour)
-                if (area < minArea) continue
+                // Create quad overlay: original image (scaled) with detected quad drawn on top
+                val originalScaled = Mat()
+                Imgproc.resize(mat, originalScaled, Size(scaledWidth.toDouble(), scaledHeight.toDouble()))
 
-                val hull = matBundle.getHull()
-                matBundle.getHullPoints().release()
-                matBundle.getHullPoints().create(0, 1, CvType.CV_32FC2)
-                val approx = matBundle.getApprox()
+                val sorted = sortQuadPoints(bestQuad.toArray().toList())
+                val scaleX = scaledWidth / originalWidth.toDouble()
+                val scaleY = scaledHeight / originalHeight.toDouble()
+                val pts = sorted.map { Point(it.x * scaleX, it.y * scaleY) }
+                val quadMatPts = MatOfPoint(*pts.toTypedArray())
 
-                Imgproc.convexHull(contour, hull)
-                val contourArray = contour.toArray()
-                val hullIndices = IntArray(hull.rows().toInt())
-                hull.get(0, 0, hullIndices)
-                val hullPointList = hullIndices.map { contourArray[it] }
-                matBundle.getHullPoints().fromList(hullPointList.map { Point(it.x, it.y) })
+                // Create a mask of the quad (white inside, black outside)
+                val mask = Mat(scaledHeight, scaledWidth, CvType.CV_8UC1, Scalar(0.0))
+                Imgproc.fillPoly(mask, listOf(quadMatPts), Scalar(255.0))
 
-                val peri = Imgproc.arcLength(matBundle.getHullPoints(), true)
-                Imgproc.approxPolyDP(
-                    matBundle.getHullPoints(),
-                    approx,
-                    params.approxPolyDPTolerance * peri,
-                    true
+                // Create a green-blended version: original * 0.8 + green * 0.2 (masked to quad only)
+                val greenOverlay = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4,
+                    Scalar(0.0, 255.0, 0.0, 255.0)
                 )
+                val greenBlended = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
+                val originalMasked = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
+                val greenMasked = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
 
-                if (approx.total() != 4L) continue
+                originalScaled.copyTo(originalMasked, mask)
+                greenOverlay.copyTo(greenMasked, mask)
+                Core.addWeighted(originalMasked, 0.8, greenMasked, 0.2, 0.0, greenBlended)
 
-                val scaleX = originalWidth.toDouble() / scaledWidth
-                val scaleY = originalHeight.toDouble() / scaledHeight
-                val scaledPoints = approx.toArray().map { Point(it.x * scaleX, it.y * scaleY) }
-                val quad = MatOfPoint(*scaledPoints.toTypedArray())
+                // Start with full original image as base
+                val quadOverlay = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
+                originalScaled.copyTo(quadOverlay)
 
-                if (!isRectangle(approx)) {
-                    quad.release()
-                    continue
-                }
+                // Keep original outside quad, green-blended inside quad
+                val invMask = Mat()
+                Core.bitwise_not(mask, invMask)
+                val originalOutside = Mat()
+                val greenInside = Mat()
+                Core.bitwise_and(quadOverlay, quadOverlay, originalOutside, invMask)
+                Core.bitwise_and(greenBlended, greenBlended, greenInside, mask)
+                Core.add(originalOutside, greenInside, quadOverlay)
 
-                val scaledArea = area * (scaleX * scaleY)
-                val rect = Imgproc.boundingRect(quad)
-                val solidity = scaledArea / (rect.width * rect.height).toDouble()
-                if (solidity < 0.3) {
-                    quad.release()
-                    continue
-                }
+                // Draw solid green outline on top
+                Imgproc.drawContours(quadOverlay, listOf(quadMatPts), -1,
+                    Scalar(0.0, 255.0, 0.0, 255.0), 3)
 
-                candidates.add(quad)
-            }
+                quadMatPts.release()
+                mask.release()
+                greenOverlay.release()
+                greenBlended.release()
+                originalMasked.release()
+                greenMasked.release()
+                originalScaled.release()
+                previews["Quad"] = quadOverlay.toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+                quadOverlay.release()
 
-            Log.d("PipelineSettings", "Step8 Candidates: ${candidates.size} quads passed filters (area>minArea, 4-points, rectangle, solidity>0.3)")
+                bestQuad.release()
 
-            if (candidates.isNotEmpty()) {
-                val best = candidates.maxByOrNull { contour ->
-                    val score = scoreContour(contour, scaledWidth, scaledHeight, params)
-                    val area = Imgproc.contourArea(contour)
-                    Log.d("PipelineSettings", "  Candidate score: area=$area, score=$score")
-                    score
-                }
-
-                Log.d("PipelineSettings", "Step8 Best: ${best != null}")
-
-                if (best != null) {
-                    _detectedQuad.value = best.toArray().toList()
-                    _hasDetectedDocument.value = true
-
-                    val warped = warpDocument(mat, best)
-                    // Clone before emitting to StateFlow so Compose gets its own
-                    // independent copy that won't be affected by recycling in
-                    // onCleared() or a subsequent processWithParams call.
-                    val warpedClone = warped.copy(Bitmap.Config.ARGB_8888, false)
-                    _resultBitmap.value = warpedClone
-                    previews["Detected Document"] = warpedClone
-
-                    // Create quad overlay: original image (scaled) with detected quad drawn on top
-                    val originalScaled = Mat()
-                    Imgproc.resize(mat, originalScaled, Size(scaledWidth.toDouble(), scaledHeight.toDouble()))
-
-                    val sorted = sortQuadPoints(best.toArray().toList())
-                    val scaleX = scaledWidth / originalWidth.toDouble()
-                    val scaleY = scaledHeight / originalHeight.toDouble()
-                    val pts = sorted.map { Point(it.x * scaleX, it.y * scaleY) }
-                    val quadMatPts = MatOfPoint(*pts.toTypedArray())
-
-                    // Create a mask of the quad (white inside, black outside)
-                    val mask = Mat(scaledHeight, scaledWidth, CvType.CV_8UC1, Scalar(0.0))
-                    Imgproc.fillPoly(mask, listOf(quadMatPts), Scalar(255.0))
-
-                    // Create a green-blended version: original * 0.8 + green * 0.2 (masked to quad only)
-                    val greenOverlay = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4,
-                        Scalar(0.0, 255.0, 0.0, 255.0)
-                    )
-                    val greenBlended = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
-                    val originalMasked = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
-                    val greenMasked = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
-
-                    originalScaled.copyTo(originalMasked, mask)
-                    greenOverlay.copyTo(greenMasked, mask)
-                    Core.addWeighted(originalMasked, 0.8, greenMasked, 0.2, 0.0, greenBlended)
-
-                    // Start with full original image as base
-                    val quadOverlay = Mat(scaledHeight, scaledWidth, CvType.CV_8UC4)
-                    originalScaled.copyTo(quadOverlay)
-
-                    // Keep original outside quad, green-blended inside quad
-                    val invMask = Mat()
-                    Core.bitwise_not(mask, invMask)
-                    val originalOutside = Mat()
-                    val greenInside = Mat()
-                    Core.bitwise_and(quadOverlay, quadOverlay, originalOutside, invMask)
-                    Core.bitwise_and(greenBlended, greenBlended, greenInside, mask)
-                    Core.add(originalOutside, greenInside, quadOverlay)
-
-                    // Draw solid green outline on top
-                    Imgproc.drawContours(quadOverlay, listOf(quadMatPts), -1,
-                        Scalar(0.0, 255.0, 0.0, 255.0), 3)
-
-                    quadMatPts.release()
-                    mask.release()
-                    greenOverlay.release()
-                    greenBlended.release()
-                    originalMasked.release()
-                    greenMasked.release()
-                    originalScaled.release()
-                    previews["Quad"] = quadOverlay.toBitmap().copy(Bitmap.Config.ARGB_8888, false)
-                    quadOverlay.release()
-
-                    best.release()
-
-                    Log.d("PipelineSettings", "=== PipelineSettingsViewModel.processWithParams SUCCESS: detected quad ===")
-                }
-            }
-
-            candidates.forEach { it.release() }
-            contours.forEach { it.release() }
-
-            if (candidates.isEmpty()) {
+                Log.d("PipelineSettings", "=== PipelineSettingsViewModel.processWithParams SUCCESS: detected quad ===")
+            } else {
                 _hasDetectedDocument.value = false
-                Log.d("PipelineSettings", "=== PipelineSettingsViewModel.processWithParams NO DETECTION: no candidates ===")
+                Log.d("PipelineSettings", "=== PipelineSettingsViewModel.processWithParams NO DETECTION ===")
             }
 
             setPreviewBitmaps(previews)
@@ -427,134 +353,6 @@ class PipelineSettingsViewModel(
             sourceBitmap.recycle()
             matBundle.releaseAll()
         }
-    }
-
-    /**
-     * Shared contour detection — finds document candidates from a morph/edge image.
-     * Returns the best quad or null if none found.
-     */
-    private fun detectQuadFromContours(
-        morphImage: Mat,
-        scaledWidth: Int,
-        scaledHeight: Int,
-        originalWidth: Int,
-        originalHeight: Int,
-        params: PipelineParams
-    ): MatOfPoint? {
-        val contours = mutableListOf<MatOfPoint>()
-        Imgproc.findContours(
-            morphImage,
-            contours,
-            matBundle.getHierarchy(),
-            Imgproc.RETR_LIST,
-            Imgproc.CHAIN_APPROX_SIMPLE
-        )
-
-        val frameArea = scaledWidth * scaledHeight
-        val minArea = frameArea * params.minAreaFraction
-        val candidates = mutableListOf<MatOfPoint>()
-
-        for (contour in contours) {
-            val area = Imgproc.contourArea(contour)
-            if (area < minArea) continue
-
-            val hull = matBundle.getHull()
-            matBundle.getHullPoints().release()
-            matBundle.getHullPoints().create(0, 1, CvType.CV_32FC2)
-            val approx = matBundle.getApprox()
-
-            Imgproc.convexHull(contour, hull)
-            val contourArray = contour.toArray()
-            val hullIndices = IntArray(hull.rows().toInt())
-            hull.get(0, 0, hullIndices)
-            val hullPointList = hullIndices.map { contourArray[it] }
-            matBundle.getHullPoints().fromList(hullPointList.map { Point(it.x, it.y) })
-
-            val peri = Imgproc.arcLength(matBundle.getHullPoints(), true)
-            Imgproc.approxPolyDP(
-                matBundle.getHullPoints(),
-                approx,
-                params.approxPolyDPTolerance * peri,
-                true
-            )
-
-            if (approx.total() != 4L) continue
-
-            val scaleX = originalWidth.toDouble() / scaledWidth
-            val scaleY = originalHeight.toDouble() / scaledHeight
-            val scaledPoints = approx.toArray().map { Point(it.x * scaleX, it.y * scaleY) }
-            val quad = MatOfPoint(*scaledPoints.toTypedArray())
-
-            if (!isRectangle(approx)) {
-                quad.release()
-                continue
-            }
-
-            val scaledArea = area * (scaleX * scaleY)
-            val rect = Imgproc.boundingRect(quad)
-            val solidity = scaledArea / (rect.width * rect.height).toDouble()
-            if (solidity < 0.3) {
-                quad.release()
-                continue
-            }
-
-            candidates.add(quad)
-        }
-
-        return candidates.maxByOrNull { contour ->
-            scoreContour(contour, scaledWidth, scaledHeight, params)
-        }
-    }
-
-    private fun isRectangle(approx: MatOfPoint2f): Boolean {
-        val pts = approx.toArray()
-        var maxDev = 0.0
-        for (i in 0..3) {
-            val angle = computeAngle(pts[(i + 1) % 4], pts[(i + 3) % 4], pts[i])
-            maxDev = max(maxDev, abs(90.0 - angle))
-        }
-        return maxDev < 50.0
-    }
-
-    private fun computeAngle(p1: Point, p2: Point, center: Point): Double {
-        val dx1 = p1.x - center.x
-        val dy1 = p1.y - center.y
-        val dx2 = p2.x - center.x
-        val dy2 = p2.y - center.y
-        val dot = dx1 * dx2 + dy1 * dy2
-        val n1 = sqrt(dx1 * dx1 + dy1 * dy1)
-        val n2 = sqrt(dx2 * dx2 + dy2 * dy2)
-        return acos(dot / (n1 * n2)) * 180.0 / PI
-    }
-
-    private fun sortQuadPoints(points: List<Point>): List<Point> {
-        if (points.size != 4) return emptyList()
-        val cx = points.sumOf { it.x } / 4.0
-        val cy = points.sumOf { it.y } / 4.0
-        val sorted = points.sortedBy { atan2(it.y - cy, it.x - cx) }
-        val tlp = sorted.mapIndexed { i, p -> i to (p.x + p.y) }.minBy { it.second }.first
-        return List(4) { i -> sorted[(tlp + i) % 4] }
-    }
-
-    private fun scoreContour(
-        contour: MatOfPoint,
-        width: Int,
-        height: Int,
-        params: PipelineParams
-    ): Double {
-        val area = Imgproc.contourArea(contour)
-        val center = Imgproc.boundingRect(contour).let {
-            Point(it.x + it.width / 2.0, it.y + it.height / 2.0)
-        }
-        val frameCenter = Point(width / 2.0, height / 2.0)
-        val centerDist = sqrt((center.x - frameCenter.x) * (center.x - frameCenter.x) + (center.y - frameCenter.y) * (center.y - frameCenter.y))
-        val maxDist = sqrt((width / 2.0) * (width / 2.0) + (height / 2.0) * (height / 2.0))
-        val centerScore = 1.0 - (centerDist / maxDist)
-        val frameArea = width * height.toDouble()
-        val areaRatio = area / frameArea
-        val areaRatioScore = if (areaRatio > 0.5) 0.2 else 1.0
-
-        return area * params.scoreAreaWeight + centerScore * params.scoreCenterWeight * width * height + areaRatioScore * params.scoreAreaRatioWeight * width * height
     }
 
     private fun warpDocument(src: Mat, quad: MatOfPoint): Bitmap {

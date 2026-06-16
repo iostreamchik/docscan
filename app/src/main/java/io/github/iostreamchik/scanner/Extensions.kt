@@ -377,9 +377,12 @@ fun warpDocumentHighQuality(src: Mat, quad: MatOfPoint, rotationDegrees: Int): B
         val sorted = sortQuadPoints(quad.toArray().toList())
         val (tl, tr, br, bl) = sorted // Destructuring
 
-        // Use original image dimensions for output size
-        val outputWidth = src.cols().toDouble()
-        val outputHeight = src.rows().toDouble()
+        // Calculate output dimensions from the document's actual edge lengths.
+        // This avoids creating a full-image-sized output with huge black borders
+        // when the document only fills part of the frame.
+        val dimensions = calculateWarpedDimensions(tl, tr, br, bl)
+        val outputWidth = dimensions.first.toDouble()
+        val outputHeight = dimensions.second.toDouble()
 
         val srcPoints = MatOfPoint2f(tl, tr, br, bl)
         val dstPoints = MatOfPoint2f(

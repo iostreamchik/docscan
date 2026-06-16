@@ -33,8 +33,6 @@ import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
@@ -84,7 +82,6 @@ fun CameraScreen(
     val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
     val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
     val errorState by viewModel.errorState.collectAsStateWithLifecycle()
-    val manualCannyHigh by viewModel.manualCannyHigh.collectAsStateWithLifecycle()
     val torchOn by viewModel.torchOn.collectAsStateWithLifecycle()
     val cornerRadius = rememberDeviceCornerRadiusDp()
 
@@ -121,6 +118,10 @@ fun CameraScreen(
                 )
             }
         }
+        ContourCanvas(
+            contourState = contourState,
+            modifier = Modifier.matchParentSize()
+        )
 
         // Torch toggle button - top right corner
         Box(modifier = Modifier
@@ -179,44 +180,6 @@ fun CameraScreen(
                 )
             )
             
-            // Debug: Canny High threshold slider (hidden when auto = 0f)
-            if (manualCannyHigh != 0f) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Canny High",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.White.copy(alpha = 0.7f)
-                        )
-                        Text(
-                            text = "${manualCannyHigh.toInt()}",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-                    Slider(
-                        value = manualCannyHigh,
-                        onValueChange = {
-                            viewModel.setManualCannyHigh(it)
-                        },
-                        valueRange = 1f..255f,
-                        steps = 22,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = SliderDefaults.colors()
-                    )
-                }
-            }
-            
             Row(
                 Modifier
                     .navigationBarsPadding()
@@ -248,10 +211,6 @@ fun CameraScreen(
                 contentDescription = "Scan from file"
             )
         }
-        ContourCanvas(
-            contourState = contourState,
-            modifier = Modifier.matchParentSize()
-        )
         LaunchedEffect(Unit) {
             val cameraProvider = ProcessCameraProvider
                 .getInstance(context)

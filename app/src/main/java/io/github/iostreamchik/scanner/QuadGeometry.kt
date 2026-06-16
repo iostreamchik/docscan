@@ -12,10 +12,12 @@ import kotlin.math.max
 import kotlin.math.sqrt
 
 /**
- * Sorts 4 corner points into a consistent order:
+ * Sorts 4 corner points into a consistent clockwise order:
  * [top-left, top-right, bottom-right, bottom-left].
  *
- * Uses centroid angle sorting with top-left (smallest x+y) as the anchor.
+ * Uses centroid angle sorting with top-left (smallest x+y) as the anchor,
+ * then verifies clockwise winding via the signed area (shoelace formula)
+ * and reverses if counter-clockwise.
  */
 fun sortQuadPoints(points: List<Point>): List<Point> {
     if (points.size != 4) {
@@ -30,22 +32,31 @@ fun sortQuadPoints(points: List<Point>): List<Point> {
     val centerX = points.sumOf { it.x } / 4.0
     val centerY = points.sumOf { it.y } / 4.0
 
-    // 2️⃣ Sort by angle around centroid (clockwise)
+    // 2️⃣ Sort by angle around centroid — gives a consistent circular order
     val sortedByAngle = points.sortedBy {
         atan2(it.y - centerY, it.x - centerX)
     }
 
-    // 3️⃣ Now ensure consistent starting point (top-left first)
-    // Top-left = smallest (x + y)
+    // 3️⃣ Rotate list so top-left (smallest x+y) is first
     val topLeftIndex = sortedByAngle
         .mapIndexed { index, p -> index to (p.x + p.y) }
         .minBy { it.second }
         .first
 
-    // Rotate list so top-left is first
-    return List(4) { i ->
+    val rotated = List(4) { i ->
         sortedByAngle[(topLeftIndex + i) % 4]
     }
+
+    // 4️⃣ Ensure clockwise winding in image coordinates (positive signed area).
+    // In image coords (y-down), positive signed area = clockwise winding.
+    // If negative, the order is counter-clockwise → reverse the last 3 points.
+    val signedArea = rotated[0].x * rotated[1].y - rotated[1].x * rotated[0].y +
+                     rotated[1].x * rotated[2].y - rotated[2].x * rotated[1].y +
+                     rotated[2].x * rotated[3].y - rotated[3].x * rotated[2].y +
+                     rotated[3].x * rotated[0].y - rotated[0].x * rotated[3].y
+
+    return if (signedArea > 0) rotated
+    else listOf(rotated[0], rotated[3], rotated[2], rotated[1])
 }
 
 /**
