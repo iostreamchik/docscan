@@ -26,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
@@ -97,11 +98,6 @@ fun PipelineSettingsScreen(
         if (uri != null) {
             viewModel.loadImage(context, uri)
         }
-    }
-
-    // Auto-open file picker on first launch
-    LaunchedEffect(Unit) {
-        pickMediaLauncher.launch(PickVisualMediaRequest(ImageOnly))
     }
 
     Scaffold(
@@ -184,106 +180,144 @@ fun PipelineSettingsScreen(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Error banner
-            error?.let { msg ->
-                Box(
+            if (originalBitmap == null) {
+                // Empty state — no image loaded yet
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 16.dp)
-                ) {
-                    Text(
-                        text = msg,
-                        color = Color.Red,
-                        modifier = Modifier
-                            .background(Color.Red.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                            .padding(12.dp)
-                    )
-                }
-            }
-
-            // Brightness & Contrast info row
-            if (avgBrightness != null && contrast != null) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    InfoChip(label = "Brightness", value = avgBrightness!!.toInt().toString())
-                    InfoChip(label = "Contrast", value = "${contrast!!.toInt()}")
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            // Original image
-            originalBitmap?.let { bmp ->
-                PipelineStageCard(
-                    title = "Original Image",
-                    bitmap = bmp,
-                    isReadonly = true
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            // Quad overlay — original image with detected quad, shown as a prominent card
-            previewBitmaps["Quad"]?.let { bmp ->
-                QuadCard(
-                    quadBitmap = bmp,
-                    resultBitmap = resultBitmap,
-                    hasDocument = hasDetectedDocument,
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            // Pipeline stage previews with parameter controls
-            val stageOrder = listOf(
-                "Grayscale",
-                "Median Blur",
-                "CLAHE",
-                "Morph Close",
-                "Canny Edges",
-                "Strong Close",
-                "Directional Suppression"
-            )
-
-            stageOrder.forEach { stageName ->
-                previewBitmaps[stageName]?.let { bmp ->
-                    val isReadonly = stageName in setOf(
-                        "Contour Map",
-                        "Detected Quad"
-                    )
-                    PipelineStageCard(
-                        title = stageName,
-                        bitmap = bmp,
-                        isReadonly = isReadonly,
-                        parameters = getParametersForStage(stageName, currentParams, viewModel, context)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-            }
-
-            // Reprocess button — shown inside QuadCard when processing
-            if (isProcessing) {
-                Button(
-                    onClick = {
-                        viewModel.resetParams(context)
-                    },
-                    modifier = Modifier.fillMaxWidth()
+                        .weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Refresh,
+                        imageVector = Icons.Default.CloudUpload,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(80.dp),
+                        tint = Color(0xFF9E9E9E)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Reprocess")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Select a file",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF757575)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            pickMediaLauncher.launch(PickVisualMediaRequest(ImageOnly))
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ImageSearch,
+                            contentDescription = null,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                        Text("Choose File")
+                    }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-            }
+            } else {
+                // Error banner
+                error?.let { msg ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp)
+                    ) {
+                        Text(
+                            text = msg,
+                            color = Color.Red,
+                            modifier = Modifier
+                                .background(Color.Red.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                                .padding(12.dp)
+                        )
+                    }
+                }
 
-            // Bottom padding for FAB
-            Spacer(modifier = Modifier.height(80.dp))
+                // Brightness & Contrast info row
+                if (avgBrightness != null && contrast != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        InfoChip(label = "Brightness", value = avgBrightness!!.toInt().toString())
+                        InfoChip(label = "Contrast", value = "${contrast!!.toInt()}")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                // Original image
+                originalBitmap?.let { bmp ->
+                    PipelineStageCard(
+                        title = "Original Image",
+                        bitmap = bmp,
+                        isReadonly = true
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                // Quad overlay — original image with detected quad, shown as a prominent card
+                previewBitmaps["Quad"]?.let { bmp ->
+                    QuadCard(
+                        quadBitmap = bmp,
+                        resultBitmap = resultBitmap,
+                        hasDocument = hasDetectedDocument,
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                // Pipeline stage previews with parameter controls
+                val stageOrder = listOf(
+                    "Grayscale",
+                    "Median Blur",
+                    "CLAHE",
+                    "Morph Close",
+                    "Canny Edges",
+                    "Strong Close",
+                    "Directional Suppression"
+                )
+
+                stageOrder.forEach { stageName ->
+                    previewBitmaps[stageName]?.let { bmp ->
+                        val isReadonly = stageName in setOf(
+                            "Contour Map",
+                            "Detected Quad"
+                        )
+                        PipelineStageCard(
+                            title = stageName,
+                            bitmap = bmp,
+                            isReadonly = isReadonly,
+                            parameters = getParametersForStage(stageName, currentParams, viewModel, context)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+
+                // Reprocess button — shown inside QuadCard when processing
+                if (isProcessing) {
+                    Button(
+                        onClick = {
+                            viewModel.resetParams(context)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Reprocess")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                // Bottom padding for FAB
+                Spacer(modifier = Modifier.height(80.dp))
+            }
         }
     }
 }

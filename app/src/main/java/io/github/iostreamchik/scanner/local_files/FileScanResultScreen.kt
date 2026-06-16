@@ -13,17 +13,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Button
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -86,10 +89,7 @@ fun FileScanResultScreen(
          }
      }
 
-     // Auto-show file picker when the screen opens for the first time
-    LaunchedEffect(Unit) {
-        pickMediaLauncher.launch(PickVisualMediaRequest(ImageOnly))
-     }
+
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -135,105 +135,143 @@ fun FileScanResultScreen(
                  .padding(innerPadding)
                  .padding(16.dp),
          ) {
-             // Fixed preview images (not scrollable)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-             ) {
-                 // Filtered image
+             if (originalBitmap == null) {
+                // Empty state — no image loaded yet
                 Column(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                         .fillMaxWidth()
+                         .weight(1f),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.Center,
                  ) {
-                    Text(
-                        text = "Filtered",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
+                    Icon(
+                        imageVector = Icons.Default.CloudUpload,
+                        contentDescription = null,
+                        modifier = Modifier.size(80.dp),
+                        tint = Color(0xFF9E9E9E)
                      )
-                    filteredBitmap?.let { bmp ->
-                        BitmapCard(
-                            bitmap = bmp,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Select a file",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF757575)
+                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            pickMediaLauncher.launch(PickVisualMediaRequest(ImageOnly))
+                         },
+                     ) {
+                        Icon(
+                            imageVector = Icons.Default.ImageSearch,
+                            contentDescription = null,
+                            modifier = Modifier.padding(end = 8.dp)
                          )
+                        Text("Choose File")
                      }
                  }
-
-                 // Original image
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+             } else {
+                // Fixed preview images (not scrollable)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                  ) {
-                    Text(
-                        text = "Original",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                     )
-                    originalBitmap?.let { bmp ->
-                        BitmapCard(
-                            bitmap = bmp,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
+                     // Filtered image
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                     ) {
+                        Text(
+                            text = "Filtered",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
                          )
-                     }
-                 }
-
-                 // Detected (warped) result
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                 ) {
-                    Text(
-                        text = "Detected",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                     )
-                    resultBitmap?.let { bmp ->
-                        BitmapCard(
-                            bitmap = bmp,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                         )
-                     }
-                 }
-             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-             // Scrollable pipeline parameters
-            Column(
-                modifier = Modifier
-                     .fillMaxWidth()
-                     .weight(1f)
-                     .verticalScroll(rememberScrollState()),
-             ) {
-                Text(
-                    text = "Pipeline Parameters",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                 )
-
-                PipelineParametersSection(
-                    params = currentParams,
-                    onParamsChange = { newParams ->
-                        viewModel.updateParams(newParams)
-                        viewModel.reprocessPickedDocument(context)
-                    },
-                    enableCannyAuto = {
-                        coroutineScope.launch {
-                            viewModel.enableCannyAuto(context)
+                        filteredBitmap?.let { bmp ->
+                            BitmapCard(
+                                bitmap = bmp,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                             )
                          }
-                     },
-                    disableCannyAuto = {
-                        coroutineScope.launch {
-                            viewModel.disableCannyAuto()
+                     }
+
+                     // Original image
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                     ) {
+                        Text(
+                            text = "Original",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                         )
+                        originalBitmap?.let { bmp ->
+                            BitmapCard(
+                                bitmap = bmp,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                             )
                          }
-                     },
-                )
+                     }
+
+                     // Detected (warped) result
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                     ) {
+                        Text(
+                            text = "Detected",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                         )
+                        resultBitmap?.let { bmp ->
+                            BitmapCard(
+                                bitmap = bmp,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                             )
+                         }
+                     }
+                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                 // Scrollable pipeline parameters
+                Column(
+                    modifier = Modifier
+                         .fillMaxWidth()
+                         .weight(1f)
+                         .verticalScroll(rememberScrollState()),
+                ) {
+                    Text(
+                        text = "Pipeline Parameters",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                     )
+
+                    PipelineParametersSection(
+                        params = currentParams,
+                        onParamsChange = { newParams ->
+                            viewModel.updateParams(newParams)
+                            viewModel.reprocessPickedDocument(context)
+                        },
+                        enableCannyAuto = {
+                            coroutineScope.launch {
+                                viewModel.enableCannyAuto(context)
+                             }
+                         },
+                        disableCannyAuto = {
+                            coroutineScope.launch {
+                                viewModel.disableCannyAuto()
+                             }
+                         },
+                    )
+                 }
              }
          }
      }

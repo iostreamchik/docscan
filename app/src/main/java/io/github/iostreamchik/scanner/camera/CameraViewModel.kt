@@ -265,8 +265,13 @@ class CameraViewModel(
             val blurKsize = params.medianBlurKsize.coerceAtLeast(3)
             Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
 
-            // 3️⃣ CLAHE (configurable clip limit and tile size)
-            val clahe = Imgproc.createCLAHE(params.claheClipLimit.toDouble(), Size(params.claheTileSize.toDouble(), params.claheTileSize.toDouble()))
+            // 3️⃣ CLAHE (brightness-adaptive clip limit)
+            // Map brightness [20, 150] → clipLimit [4.0, 0.5]
+            // Dark images (low brightness) get more aggressive enhancement; bright images preserve detail
+            val brightness = avgBrightness.coerceIn(20.0, 150.0)
+            val adaptiveClipLimit = (4.6 - 0.03 * brightness).coerceIn(0.5, 4.0)
+            Log.d("Pipeline", "CLAHE adaptive clipLimit=$adaptiveClipLimit (brightness=$avgBrightness)")
+            val clahe = Imgproc.createCLAHE(adaptiveClipLimit, Size(params.claheTileSize.toDouble(), params.claheTileSize.toDouble()))
             clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
 
             // 4️⃣ Morph Close (configurable kernel size, gated by contrast)
