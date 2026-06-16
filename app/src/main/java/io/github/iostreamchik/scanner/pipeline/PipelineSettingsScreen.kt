@@ -488,7 +488,7 @@ private fun QuadCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(6.dp),
+        elevation = CardDefaults.cardElevation(0.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
         )
@@ -515,7 +515,7 @@ private fun QuadCard(
                         modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = "Quad",
+                        text = "Result",
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
                     )
@@ -600,7 +600,10 @@ private fun PipelineStageCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(4.dp)
+        elevation = CardDefaults.cardElevation(0.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+        )
     ) {
         Column {
             // Collapsible header

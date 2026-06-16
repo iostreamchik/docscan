@@ -126,6 +126,7 @@ fun CameraScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             IconButton(
+
                 onClick = {
                     viewModel.toggleTorch()
                 }
