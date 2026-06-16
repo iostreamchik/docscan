@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
+import androidx.camera.core.Camera
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -81,6 +82,18 @@ class CameraViewModel(
 
     private val _resultBitmap = MutableStateFlow<Bitmap?>(null)
     val resultBitmap = _resultBitmap.asStateFlow()
+
+    // Torch state
+    private val _torchOn = MutableStateFlow(false)
+    val torchOn: StateFlow<Boolean> = _torchOn.asStateFlow()
+
+    fun setTorchOn(value: Boolean) {
+        _torchOn.value = value
+    }
+
+    fun toggleTorch() {
+        setTorchOn(!_torchOn.value)
+    }
 
     private val _exposureStateFlow = MutableStateFlow("")
     val exposureStateFlow = _exposureStateFlow.asStateFlow()

@@ -23,10 +23,13 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -63,6 +66,7 @@ fun CameraScreen(
     modifier: Modifier = Modifier,
     viewModel: CameraViewModel,
     toScanFromFile: () -> Unit = {},
+    toOpenSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -76,7 +80,11 @@ fun CameraScreen(
     val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
     val errorState by viewModel.errorState.collectAsStateWithLifecycle()
     val manualCannyHigh by viewModel.manualCannyHigh.collectAsStateWithLifecycle()
+    val torchOn by viewModel.torchOn.collectAsStateWithLifecycle()
     val cornerRadius = rememberDeviceCornerRadiusDp()
+
+    // Store the bound Camera reference for torch state observation
+    val boundCamera = remember { mutableStateOf<androidx.camera.core.Camera?>(null) }
 
     // Throttle for contourState updates (matches ViewModel's UI_UPDATE_THROTTLE_MS)
     val lastContourUpdateTime = remember { mutableLongStateOf(0L) }
@@ -108,6 +116,36 @@ fun CameraScreen(
                 )
             }
         }
+
+        // Torch toggle button - top right corner
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(end = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            IconButton(
+                onClick = {
+                    viewModel.toggleTorch()
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FlashlightOn,
+                    contentDescription = "Toggle torch",
+                    tint = if (torchOn) Color.White else Color.White.copy(alpha = 0.5f)
+                )
+            }
+            IconButton(
+                onClick = toOpenSettings,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Pipeline settings"
+                )
+            }
+        }
+
 
         Column(
             modifier = Modifier
@@ -256,7 +294,7 @@ fun CameraScreen(
 
             try {
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
+                boundCamera.value = cameraProvider.bindToLifecycle(
                     lifecycleOwner,
                     CameraSelector.DEFAULT_BACK_CAMERA,
                     preview,
@@ -274,6 +312,20 @@ fun CameraScreen(
         DisposableEffect(Unit) {
             onDispose {
                 contourState.value?.release()
+            }
+        }
+
+        // Observe torch state from CameraX and sync to ViewModel
+        LaunchedEffect(boundCamera.value) {
+            boundCamera.value?.cameraInfo?.torchState?.observe(lifecycleOwner) { torchState ->
+                viewModel.setTorchOn(torchState == androidx.camera.core.TorchState.ON)
+            }
+        }
+
+        // Apply torch state changes from ViewModel to CameraX
+        LaunchedEffect(torchOn, boundCamera.value) {
+            boundCamera.value?.cameraControl?.apply {
+                enableTorch(torchOn)
             }
         }
     }
