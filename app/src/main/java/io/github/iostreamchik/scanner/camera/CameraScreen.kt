@@ -218,7 +218,7 @@ fun CameraScreen(
 
             // 1. Define the Resolution Selector
             // This tells CameraX to prefer the highest resolution possible
-            val size = 1000
+            val size = 2000
             val resolutionSelector = ResolutionSelector.Builder()
                 .setResolutionStrategy(
                     ResolutionStrategy(

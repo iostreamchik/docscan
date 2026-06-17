@@ -41,6 +41,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -329,21 +330,22 @@ fun PipelineSettingsScreen(
 @Composable
 private fun getParametersForStage(
     stageName: String,
-    currentParams: PipelineParams,
+    currentParams: PipelineParams?,
     viewModel: PipelineSettingsViewModel,
     context: Context
 ): @Composable () -> Unit {
+    val p = currentParams ?: PipelineParams.Default
     return {
         when (stageName) {
             "Grayscale" -> {}
 
             "Median Blur" -> {
-                var kernelSize by remember { mutableIntStateOf(currentParams.medianBlurKsize) }
+                var kernelSize by remember { mutableIntStateOf(p.medianBlurKsize) }
                 val debouncedKernel = debounceInt(kernelSize, 300)
                 LaunchedEffect(debouncedKernel) {
-                    if (debouncedKernel != currentParams.medianBlurKsize) {
+                    if (debouncedKernel != p.medianBlurKsize) {
                         viewModel.updateParamSafely(
-                            currentParams.copy(medianBlurKsize = debouncedKernel)
+                            p.copy(medianBlurKsize = debouncedKernel)
                         ) { context }
                     }
                 }
@@ -361,17 +363,22 @@ private fun getParametersForStage(
             }
 
             "CLAHE" -> {
-                var clipLimit by remember { mutableFloatStateOf(currentParams.claheClipLimit) }
-                var tileSize by remember { mutableIntStateOf(currentParams.claheTileSize) }
+                val isAuto = currentParams == null
+                val p = currentParams ?: PipelineParams.Default
+                var clipLimit by remember { mutableFloatStateOf(p.claheClipLimit) }
+                var tileSize by remember { mutableIntStateOf(p.claheTileSize) }
+                var modeAuto by remember { mutableStateOf(isAuto) }
 
                 val debouncedClip = debounceFloat(clipLimit, 300)
                 val debouncedTile = debounceInt(tileSize, 300)
-                LaunchedEffect(debouncedClip, debouncedTile) {
-                    if (debouncedClip != currentParams.claheClipLimit ||
-                        debouncedTile != currentParams.claheTileSize
+                LaunchedEffect(modeAuto, debouncedClip, debouncedTile) {
+                    if (modeAuto) {
+                        viewModel.updateParamSafely(null) { context }
+                    } else if (debouncedClip != p.claheClipLimit ||
+                        debouncedTile != p.claheTileSize
                     ) {
                         viewModel.updateParamSafely(
-                            currentParams.copy(
+                            p.copy(
                                 claheClipLimit = debouncedClip,
                                 claheTileSize = debouncedTile
                             )
@@ -379,31 +386,51 @@ private fun getParametersForStage(
                     }
                 }
 
-                ParameterSlider(
-                    label = "Clip Limit",
-                    value = clipLimit,
-                    valueRange = 0.1f..5.0f,
-                    step = 0.1f,
-                    valueFormatter = { "%.1f".format(it) },
-                    onValueChange = { clipLimit = it }
-                )
-                ParameterSlider(
-                    label = "Tile Size",
-                    value = tileSize.toFloat(),
-                    valueRange = 8f..64f,
-                    step = 8f,
-                    valueFormatter = { "${it.toInt()}" },
-                    onValueChange = { tileSize = it.toInt() }
-                )
+                // Auto/Manual toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (modeAuto) "Auto (brightness-adaptive)" else "Manual",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Switch(
+                        checked = modeAuto,
+                        onCheckedChange = { modeAuto = it }
+                    )
+                }
+
+                if (!modeAuto) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ParameterSlider(
+                        label = "Clip Limit",
+                        value = clipLimit,
+                        valueRange = 0.5f..8.0f,
+                        step = 0.1f,
+                        valueFormatter = { "%.1f".format(it) },
+                        onValueChange = { clipLimit = it }
+                    )
+                    ParameterSlider(
+                        label = "Tile Size",
+                        value = tileSize.toFloat(),
+                        valueRange = 8f..64f,
+                        step = 8f,
+                        valueFormatter = { "${it.toInt()}" },
+                        onValueChange = { tileSize = it.toInt().coerceIn(8, 64) }
+                    )
+                }
             }
 
             "Morph Close" -> {
-                var kernelSize by remember { mutableIntStateOf(currentParams.morphCloseSize) }
+                var kernelSize by remember { mutableIntStateOf(p.morphCloseSize) }
                 val debouncedKernel = debounceInt(kernelSize, 300)
                 LaunchedEffect(debouncedKernel) {
-                    if (debouncedKernel != currentParams.morphCloseSize) {
+                    if (debouncedKernel != p.morphCloseSize) {
                         viewModel.updateParamSafely(
-                            currentParams.copy(morphCloseSize = debouncedKernel)
+                            p.copy(morphCloseSize = debouncedKernel)
                         ) { context }
                     }
                 }
@@ -421,17 +448,17 @@ private fun getParametersForStage(
             }
 
             "Canny Edges" -> {
-                var lowThreshold by remember { mutableFloatStateOf(currentParams.cannyLow) }
-                var highThreshold by remember { mutableFloatStateOf(currentParams.cannyHigh) }
+                var lowThreshold by remember { mutableFloatStateOf(p.cannyLow) }
+                var highThreshold by remember { mutableFloatStateOf(p.cannyHigh) }
 
                 val debouncedLow = debounceFloat(lowThreshold, 300)
                 val debouncedHigh = debounceFloat(highThreshold, 300)
                 LaunchedEffect(debouncedLow, debouncedHigh) {
-                    if (debouncedLow != currentParams.cannyLow ||
-                        debouncedHigh != currentParams.cannyHigh
+                    if (debouncedLow != p.cannyLow ||
+                        debouncedHigh != p.cannyHigh
                     ) {
                         viewModel.updateParamSafely(
-                            currentParams.copy(
+                            p.copy(
                                 cannyLow = debouncedLow,
                                 cannyHigh = debouncedHigh
                             )
@@ -458,12 +485,12 @@ private fun getParametersForStage(
             }
 
             "Strong Close" -> {
-                var kernelSize by remember { mutableIntStateOf(currentParams.strongCloseSize) }
+                var kernelSize by remember { mutableIntStateOf(p.strongCloseSize) }
                 val debouncedKernel = debounceInt(kernelSize, 300)
                 LaunchedEffect(debouncedKernel) {
-                    if (debouncedKernel != currentParams.strongCloseSize) {
+                    if (debouncedKernel != p.strongCloseSize) {
                         viewModel.updateParamSafely(
-                            currentParams.copy(strongCloseSize = debouncedKernel)
+                            p.copy(strongCloseSize = debouncedKernel)
                         ) { context }
                     }
                 }
@@ -481,13 +508,13 @@ private fun getParametersForStage(
             }
 
             "Directional Suppression" -> {
-                var kernelSize by remember { mutableIntStateOf(currentParams.directionalKernelSize) }
+                var kernelSize by remember { mutableIntStateOf(p.directionalKernelSize) }
 
                 val debouncedKernel = debounceInt(kernelSize, 300)
                 LaunchedEffect(debouncedKernel) {
-                    if (debouncedKernel != currentParams.directionalKernelSize) {
+                    if (debouncedKernel != p.directionalKernelSize) {
                         viewModel.updateParamSafely(
-                            currentParams.copy(
+                            p.copy(
                                 directionalKernelSize = debouncedKernel
                             )
                         ) { context }

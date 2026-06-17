@@ -1,12 +1,16 @@
 package io.github.iostreamchik.scanner
 
+import android.graphics.Bitmap
+import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.MatOfDouble
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
+import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import java.lang.Math.PI
@@ -16,15 +20,259 @@ import kotlin.math.max
 import kotlin.math.sqrt
 
 /**
- * Shared document detection logic — contour finding, hull computation,
- * quad validation, and scoring. Used by both CameraViewModel and
- * PipelineSettingsViewModel to avoid ~60 lines of duplicated contour
- * detection code in three places.
+ * Shared document detection logic — image preprocessing, contour finding,
+ * hull computation, quad validation, and scoring.
+ *
+ * Used by both CameraViewModel and PipelineSettingsViewModel to avoid
+ * ~200 lines of duplicated pipeline code.
+ *
+ * @param matBundle Pre-allocated OpenCV matrix pool for zero-allocation processing
+ * @param params Pipeline parameters controlling all preprocessing knobs
+ * @param thresholdCalculator Optional calculator for auto Canny thresholds (used by camera pipeline)
  */
 class DocumentDetector(
     private val matBundle: IMatBundle,
-    private val params: PipelineParams = PipelineParams.Default
+    private val params: PipelineParams = PipelineParams.Default,
+    private val thresholdCalculator: ICannyThresholdCalculator? = null
 ) {
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Image Preprocessing Pipeline
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Runs the full image preprocessing pipeline from a raw RGBA Mat to edge Mat.
+     * Pipeline stages: resize → grayscale → blur → CLAHE → morph close → Canny →
+     * strong close → directional suppression.
+     *
+     * Does NOT call [IMatBundle.releaseAll] — the caller owns the lifecycle.
+     *
+     * @return The final edge Mat (matBundle.getMorph()) after all preprocessing stages
+     */
+    fun preprocess(
+        rawMat: Mat,
+        scaledWidth: Int,
+        scaledHeight: Int,
+        params: PipelineParams?
+    ): Mat {
+        preprocessWithPreviews(rawMat, scaledWidth, scaledHeight, params, mutableMapOf())
+        return matBundle.getMorph()
+    }
+
+    /**
+     * Runs the full image preprocessing pipeline with intermediate preview capture.
+     *
+     * Captures a bitmap at each pipeline stage into the provided map under keys:
+     * "Grayscale", "Median Blur", "CLAHE", "Morph Close", "Canny Edges",
+     * "Strong Close", "Directional Suppression".
+     *
+     * Does NOT call [IMatBundle.releaseAll] — the caller owns the lifecycle.
+     *
+     * @return The final edge Mat (matBundle.getMorph()) after all preprocessing stages
+     */
+    fun preprocessWithPreviews(
+        rawMat: Mat,
+        scaledWidth: Int,
+        scaledHeight: Int,
+        params: PipelineParams?,
+        previews: MutableMap<String, Bitmap?>
+    ): Mat {
+        val p = params ?: PipelineParams.Default
+
+        // --- Resize + Grayscale ---
+        val smallMat = Mat()
+        Imgproc.resize(rawMat, smallMat, Size(scaledWidth.toDouble(), scaledHeight.toDouble()))
+        Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
+        smallMat.release()
+        previews["Grayscale"] = matBundle.getGray().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+
+        // --- Median Blur ---
+        val blurKsize = p.medianBlurKsize.coerceAtLeast(3)
+        Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
+        previews["Median Blur"] = matBundle.getBlurred().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+
+        // --- CLAHE (auto when params is null, user-configured when set) ---
+        val claheClipLimit: Double = if (params == null) {
+            // Brightness-adaptive: dimmer scenes → stronger contrast enhancement
+            Core.mean(matBundle.getBlurred(), matBundle.getMean())
+            val brightness = matBundle.getMean().toArray()[0].coerceIn(20.0, 150.0)
+            (2.0 + 100.0 / (brightness + 10.0)).coerceIn(0.5, 4.0)
+        } else {
+            params.claheClipLimit.toDouble()
+        }
+        val tileSize = (params?.claheTileSize ?: 8).toDouble()
+        val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
+        clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
+        previews["CLAHE"] = matBundle.getEnhanced().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+
+        // --- Morph Close ---
+        Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(p.morphCloseSize.toDouble(), p.morphCloseSize.toDouble())).also { kernel ->
+            matBundle.getKernel().release()
+            kernel.copyTo(matBundle.getKernel())
+        }
+        Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
+        previews["Morph Close"] = matBundle.getMorph().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+
+        // --- Canny ---
+        Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), p.cannyLow.toDouble(), p.cannyHigh.toDouble())
+        previews["Canny Edges"] = matBundle.getEdges().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+
+        // --- Strong Closing ---
+        val scale = max(scaledWidth, scaledHeight).toDouble()
+        var closeKsize = (p.strongCloseSize / scale * 640.0).coerceAtLeast(3.0).toInt()
+        if (closeKsize % 2 == 0) closeKsize++
+        Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(closeKsize.toDouble(), closeKsize.toDouble())).also { k2 ->
+            matBundle.getKernel2().release()
+            k2.copyTo(matBundle.getKernel2())
+        }
+        Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
+        previews["Strong Close"] = matBundle.getMorph().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+
+        // --- Directional Suppression ---
+        if (p.directionalKernelSize > 0) {
+            val dirKsize = (p.directionalKernelSize / scale * 640.0).coerceAtLeast(3.0).toInt()
+            Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(dirKsize.toDouble(), 1.0)).also { k ->
+                matBundle.getHorizontalKernel().release()
+                k.copyTo(matBundle.getHorizontalKernel())
+            }
+            Imgproc.morphologyEx(matBundle.getMorph(), matBundle.getHorizontalClose(), Imgproc.MORPH_CLOSE, matBundle.getHorizontalKernel())
+
+            Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(1.0, dirKsize.toDouble())).also { k ->
+                matBundle.getVerticalKernel().release()
+                k.copyTo(matBundle.getVerticalKernel())
+            }
+            Imgproc.morphologyEx(matBundle.getHorizontalClose(), matBundle.getVerticalClose(), Imgproc.MORPH_CLOSE, matBundle.getVerticalKernel())
+
+            matBundle.getVerticalClose().copyTo(matBundle.getMorph())
+            previews["Directional Suppression"] = matBundle.getMorph().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+        }
+
+        return matBundle.getMorph()
+    }
+
+    /**
+     * Runs the full image preprocessing pipeline with adaptive CLAHE and
+     * context-aware morph close skip logic. Used by the camera detection path.
+     */
+    internal fun preprocessWithAdaptiveCLAHE(
+        rawMat: Mat,
+        scaledWidth: Int,
+        scaledHeight: Int,
+        params: PipelineParams?,
+        useAutoParams: Boolean
+    ): Mat {
+        // --- Resize + Grayscale ---
+        val smallMat = Mat()
+        Imgproc.resize(rawMat, smallMat, Size(scaledWidth.toDouble(), scaledHeight.toDouble()))
+        Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
+        smallMat.release()
+
+        Core.meanStdDev(matBundle.getGray(), matBundle.getMean(), matBundle.getStd())
+        val avgBrightness = matBundle.getMean().toArray()[0]
+        val p = params ?: PipelineParams.Default
+
+        // --- Median Blur ---
+        val blurKsize = p.medianBlurKsize.coerceAtLeast(3)
+        Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
+
+        // --- CLAHE (auto when params is null, user-configured or brightness-adaptive) ---
+        val useAutoClahe = params == null
+        val claheClipLimit: Double = if (useAutoClahe) {
+            // Brightness-adaptive: dimmer scenes → stronger contrast enhancement
+            val brightness = avgBrightness.coerceIn(20.0, 150.0)
+            (2.0 + 100.0 / (brightness + 10.0)).coerceIn(0.5, 4.0)
+        } else {
+            p.claheClipLimit.toDouble()
+        }
+        val tileSize = (p.claheTileSize).toDouble()
+        val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
+        clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
+
+        // --- Morph Close (contrast-gated skip) ---
+        Core.meanStdDev(matBundle.getEnhanced(), matBundle.getMean(), matBundle.getStd())
+        val enhancedContrast = matBundle.getStd().toArray()[0]
+        val skipMorphClose = useAutoParams && enhancedContrast < 25.0
+
+        if (skipMorphClose) {
+            matBundle.getEnhanced().copyTo(matBundle.getMorph())
+        } else {
+            Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT,
+                Size(p.morphCloseSize.toDouble(), p.morphCloseSize.toDouble())
+            ).also { kernel ->
+                matBundle.getKernel().release()
+                kernel.copyTo(matBundle.getKernel())
+            }
+            Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
+        }
+
+        // --- Canny ---
+        var (cannyHigh, cannyLow) = if (useAutoParams) {
+            thresholdCalculator?.computeThreshold(matBundle.getGray())
+                ?: Pair(p.cannyHigh.toDouble(), p.cannyLow.toDouble())
+        } else if (p.cannyAutoDetect) {
+            thresholdCalculator?.computeThreshold(matBundle.getGray())
+                ?: Pair(p.cannyHigh.toDouble(), p.cannyLow.toDouble())
+        } else {
+            Pair(p.cannyHigh.toDouble(), p.cannyLow.toDouble())
+        }
+
+        // Auto-fallback: if Otsu produced thresholds > 100, scale down
+        if (!useAutoParams && p.cannyAutoDetect && cannyHigh > 100.0) {
+            cannyHigh = 50.0
+            cannyLow = cannyHigh * 0.5
+        }
+
+        Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), cannyLow, cannyHigh)
+
+        // --- Strong Closing ---
+        val scale = max(scaledWidth, scaledHeight).toDouble()
+        var closeKsize = (p.strongCloseSize / scale * 640.0).coerceAtLeast(3.0).toInt()
+        if (closeKsize % 2 == 0) closeKsize++
+        Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(closeKsize.toDouble(), closeKsize.toDouble())).also { k2 ->
+            matBundle.getKernel2().release()
+            k2.copyTo(matBundle.getKernel2())
+        }
+        Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
+
+        // --- Directional Suppression ---
+        val dirKsize = (p.directionalKernelSize / scale * 640.0).coerceAtLeast(3.0).toInt()
+        Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT,
+            Size(dirKsize.toDouble(), 1.0)
+        ).also { kernel ->
+            matBundle.getHorizontalKernel().release()
+            kernel.copyTo(matBundle.getHorizontalKernel())
+        }
+        Imgproc.morphologyEx(
+            matBundle.getMorph(),
+            matBundle.getHorizontalClose(),
+            Imgproc.MORPH_CLOSE,
+            matBundle.getHorizontalKernel()
+        )
+
+        Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT,
+            Size(1.0, dirKsize.toDouble())
+        ).also { kernel ->
+            matBundle.getVerticalKernel().release()
+            kernel.copyTo(matBundle.getVerticalKernel())
+        }
+        Imgproc.morphologyEx(
+            matBundle.getHorizontalClose(),
+            matBundle.getVerticalClose(),
+            Imgproc.MORPH_CLOSE,
+            matBundle.getVerticalKernel()
+        )
+
+        matBundle.getVerticalClose().copyTo(matBundle.getMorph())
+
+        return matBundle.getMorph()
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Document Detection (contour finding, quad validation, scoring)
+    // ─────────────────────────────────────────────────────────────────────────────
 
     /**
      * Extract document candidates from a morph/edge Mat.
@@ -100,7 +348,28 @@ class DocumentDetector(
         return candidates.maxByOrNull { scoreContourWithParams(it, scaledWidth, scaledHeight, params) }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Companion object: shared geometry helpers
+    // ─────────────────────────────────────────────────────────────────────────────
+
     companion object {
+        /**
+         * Validates that a detected quad doesn't fill the entire frame,
+         * which indicates a likely false positive (background texture).
+         *
+         * @return true if the quad passes the size check, false otherwise
+         */
+        fun validateQuadSize(
+            quad: MatOfPoint,
+            originalWidth: Int,
+            originalHeight: Int
+        ): Boolean {
+            val rect = Imgproc.boundingRect(quad)
+            val quadArea = rect.width * rect.height
+            val frameArea = originalWidth * originalHeight
+            return quadArea <= frameArea * 0.95
+        }
+
         /**
          * Checks if a 4-point contour approximates a rectangle by verifying
          * that all interior angles are close to 90°.

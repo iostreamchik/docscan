@@ -47,7 +47,7 @@ import kotlin.math.max
 class CameraViewModel(
     private val matBundle: IMatBundle = MatBundle(),
     private val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculator(matBundle),
-    private val detector: DocumentDetector = DocumentDetector(matBundle)
+    private val detector: DocumentDetector = DocumentDetector(matBundle, thresholdCalculator = thresholdCalculator)
 ) : ViewModel() {
 
     val cameraExecutor = Executors.newSingleThreadExecutor()
@@ -102,13 +102,14 @@ class CameraViewModel(
     }
 
     // Pipeline parameters — reads from pipelineConfigurationManager
-    private val _currentParams = MutableStateFlow(PipelineParams.Default)
-    val currentParams: StateFlow<PipelineParams> = _currentParams.asStateFlow()
+    private val _currentParams = MutableStateFlow<PipelineParams?>(null)
+    val currentParams: StateFlow<PipelineParams?> = _currentParams.asStateFlow()
 
     /**
      * Update pipeline parameters — called from FileScanResultScreen when parameters change.
+     * null = auto CLAHE, non-null = user-configured CLAHE.
      */
-    fun updateParams(newParams: PipelineParams) {
+    fun updateParams(newParams: PipelineParams?) {
         _currentParams.value = newParams
     }
 
@@ -227,9 +228,8 @@ class CameraViewModel(
     }
 
     /**
-     * Shared detection pipeline — runs the full image processing pipeline
-     * and returns detected quads. Used by both processFrame() and
-     * processPickedDocument() to avoid duplicating ~200 lines of pipeline code.
+     * Shared detection pipeline — delegates preprocessing to [DocumentDetector]
+     * and handles quad detection + size validation. Reduced from ~120 lines to ~30.
      */
     private fun runDetection(
         mat: Mat,
@@ -243,124 +243,16 @@ class CameraViewModel(
         val scaledWidth = (originalWidth * scale).toInt()
         val scaledHeight = (originalHeight * scale).toInt()
 
-        val params = if (useAutoParams) PipelineParams.Default else _currentParams.value
+        val params = if (useAutoParams) PipelineParams.Default else (_currentParams.value ?: PipelineParams.Default)
 
         try {
-            val smallMat = Mat()
-            Imgproc.resize(mat, smallMat, Size(scaledWidth.toDouble(), scaledHeight.toDouble()))
+            // Preprocess: resize → grayscale → blur → CLAHE → morph → Canny → strong close → directional suppression
+            detector.preprocessWithAdaptiveCLAHE(mat, scaledWidth, scaledHeight, params, useAutoParams)
 
-            // 1️⃣ Grayscale
-            Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
-            smallMat.release()
-
-            Core.meanStdDev(matBundle.getGray(), matBundle.getMean(), matBundle.getStd())
-            val avgBrightness = matBundle.getMean().toArray()[0]
-            val contrast = matBundle.getStd().toArray()[0]
-            Log.d(
-                "Pipeline",
-                "--- Pipeline start: brightness=$avgBrightness contrast=$contrast scale=$scale (${scaledWidth}x${scaledHeight}) ---"
-            )
-
-            // 2️⃣ Median Blur (configurable kernel size)
-            val blurKsize = params.medianBlurKsize.coerceAtLeast(3)
-            Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
-
-            // 3️⃣ CLAHE (brightness-adaptive clip limit)
-            // Map brightness [20, 150] → clipLimit [4.0, 0.5]
-            // Dark images (low brightness) get more aggressive enhancement; bright images preserve detail
-            val brightness = avgBrightness.coerceIn(20.0, 150.0)
-            val adaptiveClipLimit = (4.6 - 0.03 * brightness).coerceIn(0.5, 4.0)
-            Log.d("Pipeline", "CLAHE adaptive clipLimit=$adaptiveClipLimit (brightness=$avgBrightness)")
-            val clahe = Imgproc.createCLAHE(adaptiveClipLimit, Size(params.claheTileSize.toDouble(), params.claheTileSize.toDouble()))
-            clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
-
-            // 4️⃣ Morph Close (configurable kernel size, gated by contrast)
-            Core.meanStdDev(matBundle.getEnhanced(), matBundle.getMean(), matBundle.getStd())
-            val enhancedContrast = matBundle.getStd().toArray()[0]
-            val skipMorphClose = useAutoParams && enhancedContrast < 25.0
-
-            if (skipMorphClose) {
-                matBundle.getEnhanced().copyTo(matBundle.getMorph())
-            } else {
-                Imgproc.getStructuringElement(
-                    Imgproc.MORPH_RECT,
-                    Size(params.morphCloseSize.toDouble(), params.morphCloseSize.toDouble())
-                ).also { kernel ->
-                    matBundle.getKernel().release()
-                    kernel.copyTo(matBundle.getKernel())
-                }
-                Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
-            }
-
-            // 5️⃣ Canny thresholds (auto or manual)
-            var (cannyHigh, cannyLow) = if (useAutoParams) {
-                thresholdCalculator.computeThreshold(matBundle.getGray())
-            } else if (params.cannyAutoDetect) {
-                thresholdCalculator.computeThreshold(matBundle.getGray())
-            } else {
-                Pair(params.cannyHigh.toDouble(), params.cannyLow.toDouble())
-            }
-
-            // Auto-fallback: if Otsu produced thresholds > 100, scale down
-            if (!useAutoParams && params.cannyAutoDetect && cannyHigh > 100.0) {
-                val fallbackHigh = 50.0
-                cannyHigh = fallbackHigh
-                cannyLow = fallbackHigh * 0.5
-            }
-
-            val exposureTime = System.currentTimeMillis()
-            if (exposureTime - lastUiUpdateTime >= UI_UPDATE_THROTTLE_MS) {
-                _exposureStateFlow.value = "br: ${avgBrightness.toInt()} ct: ${contrast.toInt()}"
-                lastUiUpdateTime = exposureTime
-            }
-
-            Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), cannyLow, cannyHigh)
-
-            // 6️⃣ Strong Closing (configurable kernel size, scaled)
-            var closeKsize = (params.strongCloseSize * scale).coerceAtLeast(3.0).toInt()
-            if (closeKsize % 2 == 0) closeKsize++
-            Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(closeKsize.toDouble(), closeKsize.toDouble())).also { kernel2 ->
-                matBundle.getKernel2().release()
-                kernel2.copyTo(matBundle.getKernel2())
-            }
-            Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
-
-            // 7️⃣ Directional Suppression (configurable kernel size, scaled)
-            val dirKsize = (params.directionalKernelSize * scale).coerceAtLeast(3.0).toInt()
-            Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT,
-                Size(dirKsize.toDouble(), 1.0)
-            ).also { kernel ->
-                matBundle.getHorizontalKernel().release()
-                kernel.copyTo(matBundle.getHorizontalKernel())
-            }
-            Imgproc.morphologyEx(
-                matBundle.getMorph(),
-                matBundle.getHorizontalClose(),
-                Imgproc.MORPH_CLOSE,
-                matBundle.getHorizontalKernel()
-            )
-
-            Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT,
-                Size(1.0, dirKsize.toDouble())
-            ).also { kernel ->
-                matBundle.getVerticalKernel().release()
-                kernel.copyTo(matBundle.getVerticalKernel())
-            }
-            Imgproc.morphologyEx(
-                matBundle.getHorizontalClose(),
-                matBundle.getVerticalClose(),
-                Imgproc.MORPH_CLOSE,
-                matBundle.getVerticalKernel()
-            )
-
-            matBundle.getVerticalClose().copyTo(matBundle.getMorph())
-
-            // Set filtered bitmap
+            // Set filtered bitmap from the morph result
             _filteredBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
 
-            // 8️⃣ Detect document using shared detector
+            // Detect document
             val bestQuad = detector.detectQuad(
                 morphImage = matBundle.getMorph(),
                 scaledWidth = scaledWidth,
@@ -371,11 +263,8 @@ class CameraViewModel(
 
             if (bestQuad == null) return emptyList()
 
-            // Validate document size — a quad filling the entire frame is likely a false positive
-            val bestRect = Imgproc.boundingRect(bestQuad)
-            val bestArea = bestRect.width * bestRect.height
-            val frameOriginalArea = originalWidth * originalHeight
-            if (bestArea > frameOriginalArea * 0.95) {
+            // Validate document size
+            if (!DocumentDetector.validateQuadSize(bestQuad, originalWidth, originalHeight)) {
                 bestQuad.release()
                 return emptyList()
             }
@@ -511,7 +400,7 @@ class CameraViewModel(
                 sourceBitmap.recycle()
 
                 val (cannyHigh, cannyLow) = thresholdCalculator.computeThreshold(matBundle.getGray())
-                updateParams(_currentParams.value.copy(
+                updateParams((_currentParams.value ?: PipelineParams.Default).copy(
                     cannyLow = cannyLow.toFloat(),
                     cannyHigh = cannyHigh.toFloat(),
                     cannyAutoDetect = true
@@ -529,7 +418,7 @@ class CameraViewModel(
      * uses the manual thresholds instead.
      */
     fun disableCannyAuto() {
-        _currentParams.value = _currentParams.value.copy(
+        _currentParams.value = (_currentParams.value ?: PipelineParams.Default).copy(
             cannyAutoDetect = false
         )
     }

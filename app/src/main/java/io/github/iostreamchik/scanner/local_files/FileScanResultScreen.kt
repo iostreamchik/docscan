@@ -279,11 +279,12 @@ fun FileScanResultScreen(
 
 @Composable
 private fun PipelineParametersSection(
-    params: io.github.iostreamchik.scanner.opencv.PipelineParams,
-    onParamsChange: (io.github.iostreamchik.scanner.opencv.PipelineParams) -> Unit,
+    params: io.github.iostreamchik.scanner.opencv.PipelineParams?,
+    onParamsChange: (io.github.iostreamchik.scanner.opencv.PipelineParams?) -> Unit,
     enableCannyAuto: () -> Unit,
     disableCannyAuto: () -> Unit,
 ) {
+    val p = params ?: io.github.iostreamchik.scanner.opencv.PipelineParams.Default
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -293,11 +294,11 @@ private fun PipelineParametersSection(
             stageName = "Median Blur",
             isExpanded = true
          ) {
-            var kernelSize by remember { mutableIntStateOf(params.medianBlurKsize) }
+            var kernelSize by remember { mutableIntStateOf(p.medianBlurKsize) }
             val debouncedKernel = debounceInt(kernelSize, 300)
             LaunchedEffect(debouncedKernel) {
-                if (debouncedKernel != params.medianBlurKsize) {
-                    onParamsChange(params.copy(medianBlurKsize = debouncedKernel))
+                if (debouncedKernel != p.medianBlurKsize) {
+                    onParamsChange(p.copy(medianBlurKsize = debouncedKernel))
                  }
              }
             ParameterSlider(
@@ -318,38 +319,62 @@ private fun PipelineParametersSection(
             stageName = "CLAHE",
             isExpanded = true
          ) {
-            var clipLimit by remember { mutableFloatStateOf(params.claheClipLimit) }
-            var tileSize by remember { mutableIntStateOf(params.claheTileSize) }
+            val isAuto = params == null
+            var clipLimit by remember { mutableFloatStateOf(p.claheClipLimit) }
+            var tileSize by remember { mutableIntStateOf(p.claheTileSize) }
+            var modeAuto by remember { mutableStateOf(isAuto) }
 
             val debouncedClip = debounceFloat(clipLimit, 300)
             val debouncedTile = debounceInt(tileSize, 300)
-            LaunchedEffect(debouncedClip, debouncedTile) {
-                if (debouncedClip != params.claheClipLimit ||
-                    debouncedTile != params.claheTileSize
+            LaunchedEffect(modeAuto, debouncedClip, debouncedTile) {
+                if (modeAuto) {
+                    onParamsChange(null)
+                } else if (debouncedClip != p.claheClipLimit ||
+                    debouncedTile != p.claheTileSize
                  ) {
-                    onParamsChange(params.copy(
+                    onParamsChange(p.copy(
                         claheClipLimit = debouncedClip,
                         claheTileSize = debouncedTile
                      ))
                  }
              }
 
-            ParameterSlider(
-                label = "Clip Limit",
-                value = clipLimit,
-                valueRange = 0.1f..5.0f,
-                step = 0.1f,
-                valueFormatter = { "%.1f".format(it) },
-                onValueChange = { clipLimit = it }
-             )
-            ParameterSlider(
-                label = "Tile Size",
-                value = tileSize.toFloat(),
-                valueRange = 8f..64f,
-                step = 8f,
-                valueFormatter = { "${it.toInt()}" },
-                onValueChange = { tileSize = it.toInt() }
-             )
+            // Auto/Manual toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (modeAuto) "Auto (brightness-adaptive)" else "Manual",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Switch(
+                    checked = modeAuto,
+                    onCheckedChange = { modeAuto = it }
+                )
+            }
+
+            if (!modeAuto) {
+                Spacer(modifier = Modifier.height(4.dp))
+                ParameterSlider(
+                    label = "Clip Limit",
+                    value = clipLimit,
+                    valueRange = 0.5f..8.0f,
+                    step = 0.1f,
+                    valueFormatter = { "%.1f".format(it) },
+                    onValueChange = { clipLimit = it }
+                 )
+                ParameterSlider(
+                    label = "Tile Size",
+                    value = tileSize.toFloat(),
+                    valueRange = 8f..64f,
+                    step = 8f,
+                    valueFormatter = { "${it.toInt()}" },
+                    onValueChange = { tileSize = it.toInt().coerceIn(8, 64) }
+                 )
+            }
          }
 
          // Morph Close
@@ -357,11 +382,11 @@ private fun PipelineParametersSection(
             stageName = "Morph Close",
             isExpanded = true
          ) {
-            var kernelSize by remember { mutableIntStateOf(params.morphCloseSize) }
+            var kernelSize by remember { mutableIntStateOf(p.morphCloseSize) }
             val debouncedKernel = debounceInt(kernelSize, 300)
             LaunchedEffect(debouncedKernel) {
-                if (debouncedKernel != params.morphCloseSize) {
-                    onParamsChange(params.copy(morphCloseSize = debouncedKernel))
+                if (debouncedKernel != p.morphCloseSize) {
+                    onParamsChange(p.copy(morphCloseSize = debouncedKernel))
                  }
              }
             ParameterSlider(
@@ -382,22 +407,22 @@ private fun PipelineParametersSection(
             stageName = "Canny Edges",
             isExpanded = true
          ) {
-            var lowThreshold by remember { mutableFloatStateOf(params.cannyLow) }
-            var highThreshold by remember { mutableFloatStateOf(params.cannyHigh) }
+            var lowThreshold by remember { mutableFloatStateOf(p.cannyLow) }
+            var highThreshold by remember { mutableFloatStateOf(p.cannyHigh) }
 
             // Sync local slider state when params change externally (e.g., enableCannyAuto)
-            LaunchedEffect(params.cannyLow, params.cannyHigh) {
-                lowThreshold = params.cannyLow
-                highThreshold = params.cannyHigh
+            LaunchedEffect(p.cannyLow, p.cannyHigh) {
+                lowThreshold = p.cannyLow
+                highThreshold = p.cannyHigh
             }
 
             val debouncedLow = debounceFloat(lowThreshold, 300)
             val debouncedHigh = debounceFloat(highThreshold, 300)
             LaunchedEffect(debouncedLow, debouncedHigh) {
-                if (debouncedLow != params.cannyLow ||
-                    debouncedHigh != params.cannyHigh
+                if (debouncedLow != p.cannyLow ||
+                    debouncedHigh != p.cannyHigh
                  ) {
-                    onParamsChange(params.copy(
+                    onParamsChange(p.copy(
                         cannyLow = debouncedLow,
                         cannyHigh = debouncedHigh
                      ))
@@ -405,7 +430,7 @@ private fun PipelineParametersSection(
              }
 
             // Show auto-threshold values when auto-detect is active
-            if (params.cannyAutoDetect) {
+            if (p.cannyAutoDetect) {
                 Text(
                     text = "Auto: ${lowThreshold.toInt()} / ${highThreshold.toInt()}",
                     fontSize = 12.sp,
@@ -453,7 +478,7 @@ private fun PipelineParametersSection(
                     color = Color.Gray
                  )
                 Switch(
-                    checked = params.cannyAutoDetect,
+                    checked = p.cannyAutoDetect,
                     onCheckedChange = { newValue ->
                         if (newValue) {
                             enableCannyAuto()
@@ -471,11 +496,11 @@ private fun PipelineParametersSection(
             stageName = "Strong Close",
             isExpanded = true
          ) {
-            var kernelSize by remember { mutableIntStateOf(params.strongCloseSize) }
+            var kernelSize by remember { mutableIntStateOf(p.strongCloseSize) }
             val debouncedKernel = debounceInt(kernelSize, 300)
             LaunchedEffect(debouncedKernel) {
-                if (debouncedKernel != params.strongCloseSize) {
-                    onParamsChange(params.copy(strongCloseSize = debouncedKernel))
+                if (debouncedKernel != p.strongCloseSize) {
+                    onParamsChange(p.copy(strongCloseSize = debouncedKernel))
                  }
              }
             ParameterSlider(
@@ -496,12 +521,12 @@ private fun PipelineParametersSection(
             stageName = "Directional Suppression",
             isExpanded = true
          ) {
-            var kernelSize by remember { mutableIntStateOf(params.directionalKernelSize) }
+            var kernelSize by remember { mutableIntStateOf(p.directionalKernelSize) }
 
             val debouncedKernel = debounceInt(kernelSize, 300)
             LaunchedEffect(debouncedKernel) {
-                if (debouncedKernel != params.directionalKernelSize) {
-                    onParamsChange(params.copy(
+                if (debouncedKernel != p.directionalKernelSize) {
+                    onParamsChange(p.copy(
                         directionalKernelSize = debouncedKernel
                      ))
                  }

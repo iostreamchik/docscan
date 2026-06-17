@@ -67,8 +67,8 @@ class PipelineSettingsViewModel(
     private val _hasDetectedDocument = MutableStateFlow(false)
     val hasDetectedDocument: StateFlow<Boolean> = _hasDetectedDocument.asStateFlow()
 
-    private var _currentParams = MutableStateFlow(PipelineParams.Default)
-    val currentParams: StateFlow<PipelineParams> = _currentParams.asStateFlow()
+    private var _currentParams = MutableStateFlow<PipelineParams?>(null)
+    val currentParams: StateFlow<PipelineParams?> = _currentParams.asStateFlow()
 
     private val _avgBrightness = MutableStateFlow<Double?>(null)
     val avgBrightness: StateFlow<Double?> = _avgBrightness.asStateFlow()
@@ -78,7 +78,7 @@ class PipelineSettingsViewModel(
 
     private var lastImageUri: Uri? = null
 
-    fun updateParams(newParams: PipelineParams, context: Context) {
+    fun updateParams(newParams: PipelineParams?, context: Context) {
         _currentParams.value = newParams
         if (lastImageUri != null) {
             viewModelScope.launch {
@@ -98,7 +98,7 @@ class PipelineSettingsViewModel(
      * Update individual parameters with debounce — the UI layer delays the call
      * for 300ms after the last change before invoking this method.
      */
-    fun updateParamSafely(newParams: PipelineParams, contextProvider: suspend () -> Context) {
+    fun updateParamSafely(newParams: PipelineParams?, contextProvider: suspend () -> Context) {
         _currentParams.value = newParams
         if (lastImageUri != null) {
             viewModelScope.launch {
@@ -118,7 +118,7 @@ class PipelineSettingsViewModel(
      * Reset all parameters to defaults and reprocess.
      */
     fun resetParams(context: Context) {
-        updateParams(PipelineParams.Default, context)
+        updateParams(null, context)
     }
 
     /**
@@ -160,7 +160,7 @@ class PipelineSettingsViewModel(
         }
     }
 
-    private suspend fun processWithParams(context: Context, params: PipelineParams) = withContext(Dispatchers.IO) {
+    private suspend fun processWithParams(context: Context, params: PipelineParams?) = withContext(Dispatchers.IO) {
         val uri = lastImageUri ?: return@withContext
         val sourceBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, _, _ ->
@@ -182,85 +182,21 @@ class PipelineSettingsViewModel(
 
         Log.d("PipelineSettings", "=== PipelineSettingsViewModel.processWithParams START ===")
         Log.d("PipelineSettings", "Input: ${originalWidth}x${originalHeight}, maxDim=$maxDim, scale=${"%.4f".format(scale)}, scaled=${scaledWidth}x${scaledHeight}")
-        Log.d("PipelineSettings", "Params: medianBlur=${params.medianBlurKsize}, claheClip=${params.claheClipLimit}, claheTile=${params.claheTileSize}, morphClose=${params.morphCloseSize}, cannyLow=${params.cannyLow}, cannyHigh=${params.cannyHigh}, strongClose=${params.strongCloseSize}, dirKernel=${params.directionalKernelSize}, approxTol=${params.approxPolyDPTolerance}, minAreaFrac=${params.minAreaFraction}")
+        val p = params ?: PipelineParams.Default
+        Log.d("PipelineSettings", "Params: medianBlur=${p.medianBlurKsize}, claheClip=${params?.claheClipLimit}, claheTile=${params?.claheTileSize}, morphClose=${p.morphCloseSize}, cannyLow=${p.cannyLow}, cannyHigh=${p.cannyHigh}, strongClose=${p.strongCloseSize}, dirKernel=${p.directionalKernelSize}, approxTol=${p.approxPolyDPTolerance}, minAreaFrac=${p.minAreaFraction}")
 
         val previews = mutableMapOf<String, Bitmap?>()
 
         try {
-            val smallMat = Mat()
-            Imgproc.resize(mat, smallMat, Size(scaledWidth.toDouble(), scaledHeight.toDouble()))
+            // Preprocess: resize → grayscale → blur → CLAHE → morph → Canny → strong close → directional suppression
+            detector.preprocessWithPreviews(mat, scaledWidth, scaledHeight, params, previews)
 
-            // --- Step 1: Grayscale ---
-            Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
-            previews["Grayscale"] = matBundle.getGray().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
+            // Capture brightness/contrast from the grayscale step
             Core.meanStdDev(matBundle.getGray(), matBundle.getMean(), matBundle.getStd())
-            val avgBrightness = matBundle.getMean().toArray()[0]
-            val contrast = matBundle.getStd().toArray()[0]
-            _avgBrightness.value = avgBrightness
-            _contrast.value = contrast
-            smallMat.release()
-            Log.d("PipelineSettings", "Step1 Grayscale: brightness=$avgBrightness, contrast=$contrast")
+            _avgBrightness.value = matBundle.getMean().toArray()[0]
+            _contrast.value = matBundle.getStd().toArray()[0]
 
-            // --- Step 2: Median Blur ---
-            val blurKsize = params.medianBlurKsize.coerceAtLeast(3)
-            Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
-            previews["Median Blur"] = matBundle.getBlurred().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
-            Log.d("PipelineSettings", "Step2 MedianBlur: ksize=$blurKsize")
-
-            // --- Step 3: CLAHE ---
-            val clahe = Imgproc.createCLAHE(params.claheClipLimit.toDouble(), Size(params.claheTileSize.toDouble(), params.claheTileSize.toDouble()))
-            clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
-            previews["CLAHE"] = matBundle.getEnhanced().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
-            Log.d("PipelineSettings", "Step3 CLAHE: clipLimit=${params.claheClipLimit}, tileSize=${params.claheTileSize}")
-
-            // --- Step 4: Morph Close ---
-            Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(params.morphCloseSize.toDouble(), params.morphCloseSize.toDouble())).also { kernel ->
-                matBundle.getKernel().release()
-                kernel.copyTo(matBundle.getKernel())
-            }
-            Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
-            previews["Morph Close"] = matBundle.getMorph().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
-            Log.d("PipelineSettings", "Step4 MorphClose: ksize=${params.morphCloseSize}")
-
-            // --- Step 5: Canny ---
-            Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), params.cannyLow.toDouble(), params.cannyHigh.toDouble())
-            previews["Canny Edges"] = matBundle.getEdges().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
-            Log.d("PipelineSettings", "Step5 Canny: low=${params.cannyLow}, high=${params.cannyHigh}")
-
-            // --- Step 6: Strong Closing ---
-            var closeKsize = (params.strongCloseSize * scale).coerceAtLeast(3.0).toInt()
-            if (closeKsize % 2 == 0) closeKsize++
-            Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(closeKsize.toDouble(), closeKsize.toDouble())).also { k2 ->
-                matBundle.getKernel2().release()
-                k2.copyTo(matBundle.getKernel2())
-            }
-            Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
-            previews["Strong Close"] = matBundle.getMorph().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
-            Log.d("PipelineSettings", "Step6 StrongClose: ksize=$closeKsize (params=${params.strongCloseSize}, scale=${"%.4f".format(scale)})")
-
-            // --- Step 7: Directional Suppression ---
-            if (params.directionalKernelSize > 0) {
-                val dirKsize = (params.directionalKernelSize * scale).coerceAtLeast(3.0).toInt()
-                Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(dirKsize.toDouble(), 1.0)).also { k ->
-                    matBundle.getHorizontalKernel().release()
-                    k.copyTo(matBundle.getHorizontalKernel())
-                }
-                Imgproc.morphologyEx(matBundle.getMorph(), matBundle.getHorizontalClose(), Imgproc.MORPH_CLOSE, matBundle.getHorizontalKernel())
-
-                Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(1.0, dirKsize.toDouble())).also { k ->
-                    matBundle.getVerticalKernel().release()
-                    k.copyTo(matBundle.getVerticalKernel())
-                }
-                Imgproc.morphologyEx(matBundle.getHorizontalClose(), matBundle.getVerticalClose(), Imgproc.MORPH_CLOSE, matBundle.getVerticalKernel())
-
-                matBundle.getVerticalClose().copyTo(matBundle.getMorph())
-                previews["Directional Suppression"] = matBundle.getMorph().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
-                Log.d("PipelineSettings", "Step7 DirSuppression: ksize=$dirKsize (params=${params.directionalKernelSize})")
-            } else {
-                Log.d("PipelineSettings", "Step7 DirSuppression: SKIPPED (kernelSize=0)")
-            }
-
-            // --- Step 8: Detect Document ---
+            // --- Detect Document ---
             val bestQuad = detector.detectQuad(
                 morphImage = matBundle.getMorph(),
                 scaledWidth = scaledWidth,
