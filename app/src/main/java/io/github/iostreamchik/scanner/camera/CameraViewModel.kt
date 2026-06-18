@@ -91,9 +91,6 @@ class CameraViewModel(
     private val _errorState = MutableStateFlow<String?>(null)
     val errorState = _errorState.asStateFlow()
 
-    private var lastUiUpdateTime = 0L
-    private val UI_UPDATE_THROTTLE_MS = 100L
-
     // Store last picked URI for reprocessing
     private var lastPickedUri: Uri? = null
 
@@ -244,13 +241,30 @@ class CameraViewModel(
         val scaledHeight = (originalHeight * scale).toInt()
 
         val params = if (useAutoParams) PipelineParams.Default else (_currentParams.value ?: PipelineParams.Default)
+        val flowType = if (useAutoParams) "CAMERA" else "FILE_SCAN"
+        Log.d("DocScan", "\n========== $flowType Pipeline ==========")
+        Log.d("DocScan", "Resolution: ${originalWidth}x${originalHeight}, Scaled: ${scaledWidth}x${scaledHeight}, Scale: ${"%.3f".format(scale)}")
+        Log.d("DocScan", "useAutoParams: $useAutoParams")
+        Log.d("DocScan", "medianBlurKsize: ${params.medianBlurKsize}")
+        Log.d("DocScan", "claheClipLimit: ${params.claheClipLimit}, claheTileSize: ${params.claheTileSize}")
+        Log.d("DocScan", "morphCloseSize: ${params.morphCloseSize}")
+        Log.d("DocScan", "cannyLow: ${params.cannyLow}, cannyHigh: ${params.cannyHigh}, cannyAutoDetect: ${params.cannyAutoDetect}")
+        Log.d("DocScan", "strongCloseSize: ${params.strongCloseSize}")
+        Log.d("DocScan", "directionalKernelSize: ${params.directionalKernelSize}")
+        Log.d("DocScan", "approxPolyDPTolerance: ${params.approxPolyDPTolerance}, minAreaFraction: ${params.minAreaFraction}")
+        Log.d("DocScan", "========================================\n")
+
+        val paramsForLog = params
 
         try {
             // Preprocess: resize → grayscale → blur → CLAHE → morph → Canny → strong close → directional suppression
-            detector.preprocessWithAdaptiveCLAHE(mat, scaledWidth, scaledHeight, params, useAutoParams)
+            detector.preprocessWithAdaptiveCLAHE(mat, scaledWidth, scaledHeight, paramsForLog, useAutoParams)
 
             // Set filtered bitmap from the morph result
+            // Clone before emitting to StateFlow so Compose gets its own independent copy
+            // that won't be affected by recycling in clearBitmaps() or a subsequent call.
             _filteredBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
+                .copy(Bitmap.Config.ARGB_8888, false)
 
             // Detect document
             val bestQuad = detector.detectQuad(
@@ -284,7 +298,9 @@ class CameraViewModel(
             try {
                 lastPickedUri = uri
                 // Clear stale filtered bitmap from camera scanner
-                _filteredBitmap.value?.recycle()
+                // Don't recycle — the new value is a clone, so the old one can be
+                // safely discarded without recycling to avoid a race condition
+                // with Compose composition.
                 _filteredBitmap.value = null
 
                 val sourceBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -301,7 +317,7 @@ class CameraViewModel(
                 }
 
                 // Capture original before processing
-                _originalBitmap.value?.recycle()
+                // Don't recycle — let GC handle it to avoid race condition with Compose.
                 _originalBitmap.value = sourceBitmap.copy(Bitmap.Config.ARGB_8888, false)
 
                 val mat = Mat()
@@ -432,13 +448,14 @@ class CameraViewModel(
     }
 
     private fun clearBitmaps() {
-        _filteredBitmap.value?.recycle()
+        // Don't recycle bitmaps here — let GC handle it to avoid a race condition
+        // with Compose composition (same issue as setPreviewBitmaps in
+        // PipelineSettingsViewModel). If we recycle while Compose is still reading
+        // the old refs during composition, we get "Canvas: trying to use a recycled
+        // bitmap" crashes.
         _filteredBitmap.value = null
-        _originalBitmap.value?.recycle()
         _originalBitmap.value = null
-        _resultBitmap.value?.recycle()
         _resultBitmap.value = null
-        lastWarpedBitmap?.recycle()
         lastWarpedBitmap = null
     }
 

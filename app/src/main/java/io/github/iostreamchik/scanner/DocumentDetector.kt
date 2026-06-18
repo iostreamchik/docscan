@@ -1,10 +1,10 @@
 package io.github.iostreamchik.scanner
 
 import android.graphics.Bitmap
+import android.util.Log
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
-import org.opencv.core.MatOfDouble
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
@@ -14,6 +14,8 @@ import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import java.lang.Math.PI
+import java.math.BigDecimal
+import java.math.RoundingMode
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.max
@@ -94,9 +96,9 @@ class DocumentDetector(
         // --- CLAHE (auto when params is null, user-configured when set) ---
         val claheClipLimit: Double = if (params == null) {
             // Brightness-adaptive: dimmer scenes → stronger contrast enhancement
-            Core.mean(matBundle.getBlurred(), matBundle.getMean())
-            val brightness = matBundle.getMean().toArray()[0].coerceIn(20.0, 150.0)
-            (2.0 + 100.0 / (brightness + 10.0)).coerceIn(0.5, 4.0)
+            val meanVal = Core.mean(matBundle.getBlurred())
+            val brightness = meanVal.`val`[0].coerceIn(0.0, 255.0)
+            calculateClacheClipLimit(brightness) - 0.1
         } else {
             params.claheClipLimit.toDouble()
         }
@@ -171,6 +173,8 @@ class DocumentDetector(
         val avgBrightness = matBundle.getMean().toArray()[0]
         val p = params ?: PipelineParams.Default
 
+        Log.d("DocScan", "  Avg brightness: ${"%.1f".format(avgBrightness)}")
+
         // --- Median Blur ---
         val blurKsize = p.medianBlurKsize.coerceAtLeast(3)
         Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
@@ -179,11 +183,12 @@ class DocumentDetector(
         val useAutoClahe = params == null
         val claheClipLimit: Double = if (useAutoClahe) {
             // Brightness-adaptive: dimmer scenes → stronger contrast enhancement
-            val brightness = avgBrightness.coerceIn(20.0, 150.0)
-            (2.0 + 100.0 / (brightness + 10.0)).coerceIn(0.5, 4.0)
+            val brightness = avgBrightness.coerceIn(0.0, 255.0)
+            calculateClacheClipLimit(brightness).coerceIn(0.5, 4.0)
         } else {
             p.claheClipLimit.toDouble()
         }
+        Log.d("DocScan", "  CLAHE: clipLimit=${"%.2f".format(claheClipLimit)}, tileSize=${p.claheTileSize}, useAutoClahe=$useAutoClahe")
         val tileSize = (p.claheTileSize).toDouble()
         val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
         clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
@@ -192,6 +197,8 @@ class DocumentDetector(
         Core.meanStdDev(matBundle.getEnhanced(), matBundle.getMean(), matBundle.getStd())
         val enhancedContrast = matBundle.getStd().toArray()[0]
         val skipMorphClose = useAutoParams && enhancedContrast < 25.0
+
+        Log.d("DocScan", "  Morph Close: kernel=${p.morphCloseSize}, enhancedContrast=${"%.1f".format(enhancedContrast)}, skip=$skipMorphClose")
 
         if (skipMorphClose) {
             matBundle.getEnhanced().copyTo(matBundle.getMorph())
@@ -217,8 +224,11 @@ class DocumentDetector(
             Pair(p.cannyHigh.toDouble(), p.cannyLow.toDouble())
         }
 
+        Log.d("DocScan", "  Canny: low=${"%.0f".format(cannyLow)}, high=${"%.0f".format(cannyHigh)}, autoDetect=${p.cannyAutoDetect}, useAutoParams=$useAutoParams")
+
         // Auto-fallback: if Otsu produced thresholds > 100, scale down
         if (!useAutoParams && p.cannyAutoDetect && cannyHigh > 100.0) {
+            Log.d("DocScan", "  Canny auto-fallback: scaling down high=${"%.0f".format(cannyHigh)} -> 50.0, low=${"%.0f".format(cannyLow)} -> 25.0")
             cannyHigh = 50.0
             cannyLow = cannyHigh * 0.5
         }
@@ -229,6 +239,7 @@ class DocumentDetector(
         val scale = max(scaledWidth, scaledHeight).toDouble()
         var closeKsize = (p.strongCloseSize / scale * 640.0).coerceAtLeast(3.0).toInt()
         if (closeKsize % 2 == 0) closeKsize++
+        Log.d("DocScan", "  Strong Close: original=${p.strongCloseSize}, computed=$closeKsize")
         Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(closeKsize.toDouble(), closeKsize.toDouble())).also { k2 ->
             matBundle.getKernel2().release()
             k2.copyTo(matBundle.getKernel2())
@@ -237,6 +248,7 @@ class DocumentDetector(
 
         // --- Directional Suppression ---
         val dirKsize = (p.directionalKernelSize / scale * 640.0).coerceAtLeast(3.0).toInt()
+        Log.d("DocScan", "  Directional Suppression: original=${p.directionalKernelSize}, computed=$dirKsize")
         Imgproc.getStructuringElement(
             Imgproc.MORPH_RECT,
             Size(dirKsize.toDouble(), 1.0)
@@ -346,6 +358,15 @@ class DocumentDetector(
         }
 
         return candidates.maxByOrNull { scoreContourWithParams(it, scaledWidth, scaledHeight, params) }
+    }
+
+    fun calculateClacheClipLimit(brightness: Double): Double {
+        val raw = BigDecimal(100.0 / brightness)
+            .coerceIn(BigDecimal(0.5), BigDecimal(2.0))
+            .multiply(BigDecimal(10))
+        return (raw.divide(BigDecimal(10), RoundingMode.HALF_UP) - BigDecimal("0.1"))
+            .setScale(1, RoundingMode.HALF_UP)
+            .toDouble().coerceIn(0.5, 2.0)
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

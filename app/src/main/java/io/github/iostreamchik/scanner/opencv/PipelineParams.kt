@@ -5,7 +5,7 @@ package io.github.iostreamchik.scanner.opencv
  */
 data class PipelineParams(
     // Blur
-    val medianBlurKsize: Int = 3,
+    val medianBlurKsize: Int = 5,
     val gaussianSigma: Double = 1.0,
 
     // CLAHE
@@ -22,10 +22,10 @@ data class PipelineParams(
     val cannyAutoDetect: Boolean = true,
 
     // Strong Closing (post-Canny)
-    val strongCloseSize: Int = 7,
+    val strongCloseSize: Int = 3,
 
     // Directional Suppression
-    val directionalKernelSize: Int = 10,
+    val directionalKernelSize: Int = 6,
 
     // Contour Detection
     val approxPolyDPTolerance: Float = 0.015f,
@@ -35,10 +35,6 @@ data class PipelineParams(
     val scoreAreaWeight: Float = 0.5f,
     val scoreCenterWeight: Float = 0.3f,
     val scoreAreaRatioWeight: Float = 0.2f,
-
-    // Adaptive thresholding parameters
-    val adaptiveBlockSize: Int = 11,      // Must be odd, 3–51
-    val adaptiveConstant: Float = 2.0f,   // C constant, 0–20
 ) {
     companion object {
         val Default = PipelineParams()
