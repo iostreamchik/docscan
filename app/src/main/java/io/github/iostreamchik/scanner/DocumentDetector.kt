@@ -37,7 +37,7 @@ import kotlin.math.sqrt
  */
 class DocumentDetector(
     private val matBundle: IMatBundle,
-    private val params: PipelineParams = PipelineParams.Default,
+    private val params: PipelineParams = PipelineParams.Auto,
     private val thresholdCalculator: ICannyThresholdCalculator? = null
 ) {
 
@@ -45,27 +45,6 @@ class DocumentDetector(
     val detectionParams = _detectionParams.asStateFlow()
 
     fun preprocess(
-        rawMat: Mat,
-        scaledWidth: Int,
-        scaledHeight: Int,
-        params: PipelineParams
-    ): Mat {
-        preprocessWithPreviews(rawMat, scaledWidth, scaledHeight, params, mutableMapOf())
-        return matBundle.getMorph()
-    }
-
-    /**
-     * Runs the full image preprocessing pipeline with intermediate preview capture.
-     *
-     * Captures a bitmap at each pipeline stage into the provided map under keys:
-     * "Grayscale", "Median Blur", "CLAHE", "Morph Close", "Canny Edges",
-     * "Strong Close", "Directional Suppression".
-     *
-     * Does NOT call [IMatBundle.releaseAll] — the caller owns the lifecycle.
-     *
-     * @return The final edge Mat (matBundle.getMorph()) after all preprocessing stages
-     */
-    fun preprocessWithPreviews(
         rawMat: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
@@ -82,7 +61,7 @@ class DocumentDetector(
         previews["Grayscale"] = matBundle.getGray().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
 
         // --- Median Blur ---
-        val blurKsize = p.medianBlurKsize.coerceAtLeast(3)
+        val blurKsize = p.medianBlurKsize
         Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
         previews["Median Blur"] = matBundle.getBlurred().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
 

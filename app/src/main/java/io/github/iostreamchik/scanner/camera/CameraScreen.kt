@@ -183,18 +183,15 @@ fun CameraScreen(
             // Detection params info box
             Surface(
                 color = Color.Black.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(4.dp),
-                modifier = Modifier
-                    .padding(top = 4.dp)
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                shape = RoundedCornerShape(8.dp),
             ) {
                 Text(
+                    modifier = Modifier.padding(4.dp),
                     text = "CLAHE: ${detectionParams.claheClipLimit}" +
                             "\nCanny: ${detectionParams.cannyLow}/${detectionParams.cannyHigh}" +
                             "\nBright: ${detectionParams.brightness}",
                     color = Color.White.copy(alpha = 0.8f),
                     fontSize = 10.sp,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                 )
             }
             
@@ -309,7 +306,7 @@ fun CameraScreen(
         // Observe torch state from CameraX and sync to ViewModel
         LaunchedEffect(boundCamera.value) {
             boundCamera.value?.cameraInfo?.torchState?.observe(lifecycleOwner) { torchState ->
-                viewModel.setTorchOn(torchState == androidx.camera.core.TorchState.ON)
+                viewModel.setTorchOpposite(torchState == androidx.camera.core.TorchState.ON)
             }
         }
 

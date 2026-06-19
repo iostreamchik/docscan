@@ -14,8 +14,6 @@ package io.github.iostreamchik.scanner.opencv
 sealed class PipelineParams {
 
     object Auto : PipelineParams()
-    object Default : PipelineParams()
-
     data class Manual(
         // Blur
         val medianBlurKsize: Int = 5,
@@ -54,47 +52,50 @@ sealed class PipelineParams {
 // This keeps the sealed class clean while letting callers read .medianBlurKsize
 // etc. on any PipelineParams without exhaustive when expressions.
 
+private inline val PipelineParams._manual: PipelineParams.Manual?
+    get() = this as? PipelineParams.Manual
+
 val PipelineParams.medianBlurKsize: Int
-    get() = (this as? PipelineParams.Manual)?.medianBlurKsize ?: 5
+    get() = _manual?.medianBlurKsize ?: 5
 
 val PipelineParams.claheClipLimit: Float
-    get() = (this as? PipelineParams.Manual)?.claheClipLimit ?: 0.5f
+    get() = _manual?.claheClipLimit ?: 0.5f
 
 val PipelineParams.claheTileSize: Int
-    get() = (this as? PipelineParams.Manual)?.claheTileSize ?: 8
+    get() = _manual?.claheTileSize ?: 8
 
 val PipelineParams.morphCloseSize: Int
-    get() = (this as? PipelineParams.Manual)?.morphCloseSize ?: 3
+    get() = _manual?.morphCloseSize ?: 3
 
 val PipelineParams.cannyLow: Float
-    get() = (this as? PipelineParams.Manual)?.cannyLow ?: 0f
+    get() = _manual?.cannyLow ?: 0f
 
 val PipelineParams.cannyHigh: Float
-    get() = (this as? PipelineParams.Manual)?.cannyHigh ?: 0f
+    get() = _manual?.cannyHigh ?: 0f
 
 val PipelineParams.cannyAutoDetect: Boolean
-    get() = (this as? PipelineParams.Manual)?.cannyAutoDetect ?: true
+    get() = _manual?.cannyAutoDetect ?: true
 
 val PipelineParams.strongCloseSize: Int
-    get() = (this as? PipelineParams.Manual)?.strongCloseSize ?: 3
+    get() = _manual?.strongCloseSize ?: 3
 
 val PipelineParams.directionalKernelSize: Int
-    get() = (this as? PipelineParams.Manual)?.directionalKernelSize ?: 6
+    get() = _manual?.directionalKernelSize ?: 6
 
 val PipelineParams.approxPolyDPTolerance: Float
-    get() = (this as? PipelineParams.Manual)?.approxPolyDPTolerance ?: 0.015f
+    get() = _manual?.approxPolyDPTolerance ?: 0.015f
 
 val PipelineParams.minAreaFraction: Float
-    get() = (this as? PipelineParams.Manual)?.minAreaFraction ?: 0.025f
+    get() = _manual?.minAreaFraction ?: 0.025f
 
 val PipelineParams.scoreAreaWeight: Float
-    get() = (this as? PipelineParams.Manual)?.scoreAreaWeight ?: 0.5f
+    get() = _manual?.scoreAreaWeight ?: 0.5f
 
 val PipelineParams.scoreCenterWeight: Float
-    get() = (this as? PipelineParams.Manual)?.scoreCenterWeight ?: 0.3f
+    get() = _manual?.scoreCenterWeight ?: 0.3f
 
 val PipelineParams.scoreAreaRatioWeight: Float
-    get() = (this as? PipelineParams.Manual)?.scoreAreaRatioWeight ?: 0.2f
+    get() = _manual?.scoreAreaRatioWeight ?: 0.2f
 
 /**
  * Creates a [PipelineParams.Manual] with the given property overrides.

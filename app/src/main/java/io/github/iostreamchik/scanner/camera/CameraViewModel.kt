@@ -76,12 +76,12 @@ class CameraViewModel(
     private val _torchOn = MutableStateFlow(false)
     val torchOn: StateFlow<Boolean> = _torchOn.asStateFlow()
 
-    fun setTorchOn(value: Boolean) {
+    fun setTorchOpposite(value: Boolean) {
         _torchOn.value = value
     }
 
     fun toggleTorch() {
-        setTorchOn(!_torchOn.value)
+        setTorchOpposite(!_torchOn.value)
     }
 
     private val _exposureStateFlow = MutableStateFlow("")
@@ -98,7 +98,7 @@ class CameraViewModel(
     }
 
     // Pipeline parameters — reads from pipelineConfigurationManager
-    private val _pipelineParams = MutableStateFlow<PipelineParams>(PipelineParams.Default)
+    private val _pipelineParams = MutableStateFlow<PipelineParams>(PipelineParams.Auto)
     val pipelineParams = _pipelineParams.asStateFlow()
 
     /**
@@ -238,19 +238,7 @@ class CameraViewModel(
         val scaledWidth = (originalWidth * scale).toInt()
         val scaledHeight = (originalHeight * scale).toInt()
 
-        val params = if (useAutoParams) PipelineParams.Default else _pipelineParams.value
-        val flowType = if (useAutoParams) "CAMERA" else "FILE_SCAN"
-        Log.d("DocScan", "\n========== $flowType Pipeline ==========")
-        Log.d("DocScan", "Resolution: ${originalWidth}x${originalHeight}, Scaled: ${scaledWidth}x${scaledHeight}, Scale: ${"%.3f".format(scale)}")
-        Log.d("DocScan", "useAutoParams: $useAutoParams")
-        Log.d("DocScan", "medianBlurKsize: ${params.medianBlurKsize}")
-        Log.d("DocScan", "claheClipLimit: ${params.claheClipLimit}, claheTileSize: ${params.claheTileSize}")
-        Log.d("DocScan", "morphCloseSize: ${params.morphCloseSize}")
-        Log.d("DocScan", "cannyLow: ${params.cannyLow}, cannyHigh: ${params.cannyHigh}, cannyAutoDetect: ${params.cannyAutoDetect}")
-        Log.d("DocScan", "strongCloseSize: ${params.strongCloseSize}")
-        Log.d("DocScan", "directionalKernelSize: ${params.directionalKernelSize}")
-        Log.d("DocScan", "approxPolyDPTolerance: ${params.approxPolyDPTolerance}, minAreaFraction: ${params.minAreaFraction}")
-        Log.d("DocScan", "========================================\n")
+        val params = if (useAutoParams) PipelineParams.Auto else _pipelineParams.value
 
         val paramsForLog = params
 

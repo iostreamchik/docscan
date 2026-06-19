@@ -190,7 +190,7 @@ class PipelineSettingsViewModel(
 
         try {
             // Preprocess: resize → grayscale → blur → CLAHE → morph → Canny → strong close → directional suppression
-            detector.preprocessWithPreviews(mat, scaledWidth, scaledHeight, params, previews)
+            detector.preprocessWithAdaptiveCLAHE(mat, scaledWidth, scaledHeight, params, false)
 
             // Capture brightness/contrast from the grayscale step
             Core.meanStdDev(matBundle.getGray(), matBundle.getMean(), matBundle.getStd())
