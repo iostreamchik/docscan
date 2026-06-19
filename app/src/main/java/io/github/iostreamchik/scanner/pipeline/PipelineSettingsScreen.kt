@@ -66,6 +66,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
+import io.github.iostreamchik.scanner.opencv.*
 
 /**
  * Pipeline Settings screen — pick an image, tweak detection parameters,
@@ -330,11 +331,11 @@ fun PipelineSettingsScreen(
 @Composable
 private fun getParametersForStage(
     stageName: String,
-    currentParams: PipelineParams?,
+    currentParams: PipelineParams,
     viewModel: PipelineSettingsViewModel,
     context: Context
 ): @Composable () -> Unit {
-    val p = currentParams ?: PipelineParams.Default
+    val p = currentParams
     return {
         when (stageName) {
             "Grayscale" -> {}
@@ -345,7 +346,7 @@ private fun getParametersForStage(
                 LaunchedEffect(debouncedKernel) {
                     if (debouncedKernel != p.medianBlurKsize) {
                         viewModel.updateParamSafely(
-                            p.copy(medianBlurKsize = debouncedKernel)
+                            p.copyAsManual(medianBlurKsize = debouncedKernel)
                         ) { context }
                     }
                 }
@@ -363,8 +364,7 @@ private fun getParametersForStage(
             }
 
             "CLAHE" -> {
-                val isAuto = currentParams == null
-                val p = currentParams ?: PipelineParams.Default
+                val isAuto = currentParams is PipelineParams.Auto
                 var clipLimit by remember { mutableFloatStateOf(p.claheClipLimit) }
                 var tileSize by remember { mutableIntStateOf(p.claheTileSize) }
                 var modeAuto by remember { mutableStateOf(isAuto) }
@@ -373,12 +373,12 @@ private fun getParametersForStage(
                 val debouncedTile = debounceInt(tileSize, 300)
                 LaunchedEffect(modeAuto, debouncedClip, debouncedTile) {
                     if (modeAuto) {
-                        viewModel.updateParamSafely(null) { context }
+                        viewModel.updateParamSafely(PipelineParams.Auto) { context }
                     } else if (debouncedClip != p.claheClipLimit ||
                         debouncedTile != p.claheTileSize
                     ) {
                         viewModel.updateParamSafely(
-                            p.copy(
+                            p.copyAsManual(
                                 claheClipLimit = debouncedClip,
                                 claheTileSize = debouncedTile
                             )
@@ -430,7 +430,7 @@ private fun getParametersForStage(
                 LaunchedEffect(debouncedKernel) {
                     if (debouncedKernel != p.morphCloseSize) {
                         viewModel.updateParamSafely(
-                            p.copy(morphCloseSize = debouncedKernel)
+                            p.copyAsManual(morphCloseSize = debouncedKernel)
                         ) { context }
                     }
                 }
@@ -458,7 +458,7 @@ private fun getParametersForStage(
                         debouncedHigh != p.cannyHigh
                     ) {
                         viewModel.updateParamSafely(
-                            p.copy(
+                            p.copyAsManual(
                                 cannyLow = debouncedLow,
                                 cannyHigh = debouncedHigh
                             )
@@ -490,7 +490,7 @@ private fun getParametersForStage(
                 LaunchedEffect(debouncedKernel) {
                     if (debouncedKernel != p.strongCloseSize) {
                         viewModel.updateParamSafely(
-                            p.copy(strongCloseSize = debouncedKernel)
+                            p.copyAsManual(strongCloseSize = debouncedKernel)
                         ) { context }
                     }
                 }
@@ -514,7 +514,7 @@ private fun getParametersForStage(
                 LaunchedEffect(debouncedKernel) {
                     if (debouncedKernel != p.directionalKernelSize) {
                         viewModel.updateParamSafely(
-                            p.copy(
+                            p.copyAsManual(
                                 directionalKernelSize = debouncedKernel
                             )
                         ) { context }

@@ -4,6 +4,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ImageSearch
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Switch
@@ -60,6 +60,8 @@ import io.github.iostreamchik.scanner.pipeline.ParameterSlider
 import io.github.iostreamchik.scanner.pipeline.debounceFloat
 import io.github.iostreamchik.scanner.pipeline.debounceInt
 import androidx.compose.runtime.rememberCoroutineScope
+import io.github.iostreamchik.scanner.opencv.PipelineParams
+import io.github.iostreamchik.scanner.opencv.*
 
 /**
  * Displays the original image with contour overlay, filtered preview, and warped result
@@ -74,233 +76,232 @@ fun FileScanResultScreen(
 ) {
     val context = LocalContext.current
 
-     // Collect state from ViewModel — all pipeline params come from the flow
-    val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
-    val originalBitmap by viewModel.originalBitmap.collectAsStateWithLifecycle()
-    val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
-    val currentParams by viewModel.currentParams.collectAsStateWithLifecycle()
+    val currentParams by viewModel.pipelineParams.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
 
     val pickMediaLauncher = rememberLauncherForActivityResult(
         contract = PickVisualMedia()
-     ) { uri ->
+    ) { uri ->
         if (uri != null) {
             viewModel.processPickedDocument(context, uri) {}
-         }
-     }
-
-
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             Box(
                 modifier = Modifier
-                     .fillMaxWidth()
-                     .systemBarsPadding()
-             ) {
+                    .fillMaxWidth()
+                    .systemBarsPadding()
+            ) {
                 IconButton(
                     onClick = onBack,
                     modifier = Modifier.align(Alignment.CenterStart)
-                 ) {
+                ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Default.ArrowBack,
                         contentDescription = "Back to camera"
-                     )
-                 }
+                    )
+                }
                 Text(
                     text = "Scan Result",
                     fontWeight = FontWeight.Bold,
                     fontSize = 20.sp,
                     modifier = Modifier.align(Alignment.Center)
-                 )
-             }
-         },
+                )
+            }
+        },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
                     pickMediaLauncher.launch(PickVisualMediaRequest(ImageOnly))
-                 },
-             ) {
+                },
+            ) {
                 Icon(
                     imageVector = Icons.Default.ImageSearch,
                     contentDescription = "Scan from file"
-                 )
-             }
-         }
-     ) { innerPadding ->
+                )
+            }
+        }
+    ) { innerPadding ->
         Column(
             modifier = modifier
-                 .fillMaxSize()
-                 .padding(innerPadding)
-                 .padding(16.dp),
-         ) {
-             if (originalBitmap == null) {
-                // Empty state — no image loaded yet
-                Column(
-                    modifier = Modifier
-                         .fillMaxWidth()
-                         .weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                 ) {
-                    Icon(
-                        imageVector = Icons.Default.CloudUpload,
-                        contentDescription = null,
-                        modifier = Modifier.size(80.dp),
-                        tint = Color(0xFF9E9E9E)
-                     )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Select a file",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF757575)
-                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Button(
-                        onClick = {
-                            pickMediaLauncher.launch(PickVisualMediaRequest(ImageOnly))
-                         },
-                     ) {
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp),
+        ) {
+            val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
+            val originalBitmap by viewModel.originalBitmap.collectAsStateWithLifecycle()
+            val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
+            AnimatedContent(
+                targetState = originalBitmap == null
+            ) { isEmpty ->
+                if (isEmpty) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.ImageSearch,
+                            imageVector = Icons.Default.CloudUpload,
                             contentDescription = null,
-                            modifier = Modifier.padding(end = 8.dp)
-                         )
-                        Text("Choose File")
-                     }
-                 }
-             } else {
-                // Fixed preview images (not scrollable)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                 ) {
-                     // Filtered image
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                     ) {
+                            modifier = Modifier.size(80.dp),
+                            tint = Color(0xFF9E9E9E)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Filtered",
-                            fontSize = 14.sp,
+                            text = "Select a file",
+                            fontSize = 18.sp,
                             fontWeight = FontWeight.Medium,
-                         )
-                        filteredBitmap?.let { bmp ->
-                            BitmapCard(
-                                bitmap = bmp,
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                             )
-                         }
-                     }
+                            color = Color(0xFF757575)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                pickMediaLauncher.launch(PickVisualMediaRequest(ImageOnly))
+                            },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ImageSearch,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                            Text("Choose File")
+                        }
+                    }
+                } else {
+                    Column() {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Filtered image
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "Filtered",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                filteredBitmap?.let { bmp ->
+                                    BitmapCard(
+                                        bitmap = bmp,
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
 
-                     // Original image
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                     ) {
-                        Text(
-                            text = "Original",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                         )
-                        originalBitmap?.let { bmp ->
-                            BitmapCard(
-                                bitmap = bmp,
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                             )
-                         }
-                     }
+                            // Original image
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "Original",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                originalBitmap?.let { bmp ->
+                                    BitmapCard(
+                                        bitmap = bmp,
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
 
-                     // Detected (warped) result
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                     ) {
-                        Text(
-                            text = "Detected",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                         )
-                        resultBitmap?.let { bmp ->
-                            BitmapCard(
-                                bitmap = bmp,
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                             )
-                         }
-                     }
-                 }
+                            // Detected (warped) result
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "Detected",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                resultBitmap?.let { bmp ->
+                                    BitmapCard(
+                                        bitmap = bmp,
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            Text(
+                                text = "Pipeline Parameters",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                 // Scrollable pipeline parameters
-                Column(
-                    modifier = Modifier
-                         .fillMaxWidth()
-                         .weight(1f)
-                         .verticalScroll(rememberScrollState()),
-                ) {
-                    Text(
-                        text = "Pipeline Parameters",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                     )
-
-                    PipelineParametersSection(
-                        params = currentParams,
-                        onParamsChange = { newParams ->
-                            viewModel.updateParams(newParams)
-                            viewModel.reprocessPickedDocument(context)
-                        },
-                        enableCannyAuto = {
-                            coroutineScope.launch {
-                                viewModel.enableCannyAuto(context)
-                             }
-                         },
-                        disableCannyAuto = {
-                            coroutineScope.launch {
-                                viewModel.disableCannyAuto()
-                             }
-                         },
-                    )
-                 }
-             }
-         }
-     }
+                            PipelineParametersSection(
+                                viewModel = viewModel,
+                                params = currentParams,
+                                onParamsChange = { newParams ->
+                                    viewModel.updateParams(newParams)
+                                    viewModel.reprocessPickedDocument(context)
+                                },
+                                enableCannyAuto = {
+                                    coroutineScope.launch {
+                                        viewModel.enableCannyAuto(context)
+                                    }
+                                },
+                                disableCannyAuto = {
+                                    coroutineScope.launch {
+                                        viewModel.disableCannyAuto()
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
 private fun PipelineParametersSection(
-    params: io.github.iostreamchik.scanner.opencv.PipelineParams?,
-    onParamsChange: (io.github.iostreamchik.scanner.opencv.PipelineParams?) -> Unit,
+    viewModel: CameraViewModel,
+    params: PipelineParams,
+    onParamsChange: (PipelineParams) -> Unit,
     enableCannyAuto: () -> Unit,
     disableCannyAuto: () -> Unit,
 ) {
-    val p = params ?: io.github.iostreamchik.scanner.opencv.PipelineParams.Default
+    val p = params
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
-     ) {
-         // Median Blur
+    ) {
+        // Median Blur
         PipelineStageControls(
             stageName = "Median Blur",
-            isExpanded = true
-         ) {
+        ) {
             var kernelSize by remember { mutableIntStateOf(p.medianBlurKsize) }
             val debouncedKernel = debounceInt(kernelSize, 300)
             LaunchedEffect(debouncedKernel) {
                 if (debouncedKernel != p.medianBlurKsize) {
-                    onParamsChange(p.copy(medianBlurKsize = debouncedKernel))
-                 }
-             }
+                    onParamsChange(p.copyAsManual(medianBlurKsize = debouncedKernel))
+                }
+            }
             ParameterSlider(
                 label = "Kernel Size",
                 value = kernelSize.toFloat(),
@@ -310,16 +311,16 @@ private fun PipelineParametersSection(
                 onValueChange = {
                     val v = it.toInt().coerceIn(3, 21)
                     if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
-                 }
-             )
-         }
+                }
+            )
+        }
 
-         // CLAHE
+        // CLAHE
         PipelineStageControls(
             stageName = "CLAHE",
-            isExpanded = true
-         ) {
-            val isAuto = params == null
+        ) {
+            val isAuto = params is PipelineParams.Auto
+            val detectionParams by viewModel.detector.detectionParams.collectAsStateWithLifecycle()
             var clipLimit by remember { mutableFloatStateOf(p.claheClipLimit) }
             var tileSize by remember { mutableIntStateOf(p.claheTileSize) }
             var modeAuto by remember { mutableStateOf(isAuto) }
@@ -328,16 +329,18 @@ private fun PipelineParametersSection(
             val debouncedTile = debounceInt(tileSize, 300)
             LaunchedEffect(modeAuto, debouncedClip, debouncedTile) {
                 if (modeAuto) {
-                    onParamsChange(null)
+                    onParamsChange(PipelineParams.Auto)
                 } else if (debouncedClip != p.claheClipLimit ||
                     debouncedTile != p.claheTileSize
-                 ) {
-                    onParamsChange(p.copy(
-                        claheClipLimit = debouncedClip,
-                        claheTileSize = debouncedTile
-                     ))
-                 }
-             }
+                ) {
+                    onParamsChange(
+                        p.copyAsManual(
+                            claheClipLimit = debouncedClip,
+                            claheTileSize = debouncedTile
+                        )
+                    )
+                }
+            }
 
             // Auto/Manual toggle
             Row(
@@ -356,16 +359,24 @@ private fun PipelineParametersSection(
                 )
             }
 
+            // Show current clip limit value (auto or manual)
+//            Text(
+//                text = "Clip limit: %.1f".format(if (modeAuto) p.claheClipLimit else params.claheClipLimit),
+//                fontSize = 12.sp,
+//                color = Color(0xFF2196F3),
+//                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+//            )
+
             if (!modeAuto) {
                 Spacer(modifier = Modifier.height(4.dp))
                 ParameterSlider(
                     label = "Clip Limit",
-                    value = clipLimit,
+                    value = detectionParams.claheClipLimit.toFloat(),
                     valueRange = 0.5f..8.0f,
                     step = 0.1f,
                     valueFormatter = { "%.1f".format(it) },
                     onValueChange = { clipLimit = it }
-                 )
+                )
                 ParameterSlider(
                     label = "Tile Size",
                     value = tileSize.toFloat(),
@@ -373,22 +384,21 @@ private fun PipelineParametersSection(
                     step = 8f,
                     valueFormatter = { "${it.toInt()}" },
                     onValueChange = { tileSize = it.toInt().coerceIn(8, 64) }
-                 )
+                )
             }
-         }
+        }
 
-         // Morph Close
+        // Morph Close
         PipelineStageControls(
             stageName = "Morph Close",
-            isExpanded = true
-         ) {
+        ) {
             var kernelSize by remember { mutableIntStateOf(p.morphCloseSize) }
             val debouncedKernel = debounceInt(kernelSize, 300)
             LaunchedEffect(debouncedKernel) {
                 if (debouncedKernel != p.morphCloseSize) {
-                    onParamsChange(p.copy(morphCloseSize = debouncedKernel))
-                 }
-             }
+                    onParamsChange(p.copyAsManual(morphCloseSize = debouncedKernel))
+                }
+            }
             ParameterSlider(
                 label = "Kernel Size",
                 value = kernelSize.toFloat(),
@@ -398,15 +408,14 @@ private fun PipelineParametersSection(
                 onValueChange = {
                     val v = it.toInt().coerceIn(3, 21)
                     if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
-                 }
-             )
-         }
+                }
+            )
+        }
 
-         // Canny Edges
-         PipelineStageControls(
+        // Canny Edges
+        PipelineStageControls(
             stageName = "Canny Edges",
-            isExpanded = true
-         ) {
+        ) {
             var lowThreshold by remember { mutableFloatStateOf(p.cannyLow) }
             var highThreshold by remember { mutableFloatStateOf(p.cannyHigh) }
 
@@ -421,13 +430,15 @@ private fun PipelineParametersSection(
             LaunchedEffect(debouncedLow, debouncedHigh) {
                 if (debouncedLow != p.cannyLow ||
                     debouncedHigh != p.cannyHigh
-                 ) {
-                    onParamsChange(p.copy(
-                        cannyLow = debouncedLow,
-                        cannyHigh = debouncedHigh
-                     ))
-                 }
-             }
+                ) {
+                    onParamsChange(
+                        p.copyAsManual(
+                            cannyLow = debouncedLow,
+                            cannyHigh = debouncedHigh
+                        )
+                    )
+                }
+            }
 
             // Show auto-threshold values when auto-detect is active
             if (p.cannyAutoDetect) {
@@ -436,15 +447,15 @@ private fun PipelineParametersSection(
                     fontSize = 12.sp,
                     color = Color(0xFF2196F3),
                     modifier = Modifier.padding(bottom = 4.dp)
-                 )
-             } else {
+                )
+            } else {
                 Text(
                     text = "Manual thresholds",
                     fontSize = 12.sp,
                     color = Color.Gray,
                     modifier = Modifier.padding(bottom = 4.dp)
-                 )
-             }
+                )
+            }
 
             ParameterSlider(
                 label = "Low Threshold",
@@ -453,7 +464,7 @@ private fun PipelineParametersSection(
                 step = 5f,
                 valueFormatter = { "%.0f".format(it) },
                 onValueChange = { lowThreshold = it }
-             )
+            )
             ParameterSlider(
                 label = "High Threshold",
                 value = highThreshold,
@@ -461,48 +472,47 @@ private fun PipelineParametersSection(
                 step = 10f,
                 valueFormatter = { "%.0f".format(it) },
                 onValueChange = { highThreshold = it }
-             )
+            )
 
-             // Auto-detect switch — wired to new enable/disable methods
+            // Auto-detect switch — wired to new enable/disable methods
             Row(
                 modifier = Modifier
-                     .fillMaxWidth()
-                     .padding(top = 8.dp),
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
-             ) {
+            ) {
                 Text(
                     text = "Auto Detect",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                     color = Color.Gray
-                 )
+                )
                 Switch(
                     checked = p.cannyAutoDetect,
                     onCheckedChange = { newValue ->
                         if (newValue) {
                             enableCannyAuto()
-                         } else {
+                        } else {
                             disableCannyAuto()
-                         }
-                     },
-                     enabled = true
-                 )
-             }
-         }
+                        }
+                    },
+                    enabled = true
+                )
+            }
+        }
 
-         // Strong Close
+        // Strong Close
         PipelineStageControls(
             stageName = "Strong Close",
-            isExpanded = true
-         ) {
+        ) {
             var kernelSize by remember { mutableIntStateOf(p.strongCloseSize) }
             val debouncedKernel = debounceInt(kernelSize, 300)
             LaunchedEffect(debouncedKernel) {
                 if (debouncedKernel != p.strongCloseSize) {
-                    onParamsChange(p.copy(strongCloseSize = debouncedKernel))
-                 }
-             }
+                    onParamsChange(p.copyAsManual(strongCloseSize = debouncedKernel))
+                }
+            }
             ParameterSlider(
                 label = "Kernel Size",
                 value = kernelSize.toFloat(),
@@ -512,25 +522,26 @@ private fun PipelineParametersSection(
                 onValueChange = {
                     val v = it.toInt().coerceIn(3, 15)
                     if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
-                 }
-             )
-         }
+                }
+            )
+        }
 
-         // Directional Suppression
+        // Directional Suppression
         PipelineStageControls(
             stageName = "Directional Suppression",
-            isExpanded = true
-         ) {
+        ) {
             var kernelSize by remember { mutableIntStateOf(p.directionalKernelSize) }
 
             val debouncedKernel = debounceInt(kernelSize, 300)
             LaunchedEffect(debouncedKernel) {
                 if (debouncedKernel != p.directionalKernelSize) {
-                    onParamsChange(p.copy(
-                        directionalKernelSize = debouncedKernel
-                     ))
-                 }
-             }
+                    onParamsChange(
+                        p.copyAsManual(
+                            directionalKernelSize = debouncedKernel
+                        )
+                    )
+                }
+            }
 
             ParameterSlider(
                 label = "Kernel Size",
@@ -539,37 +550,36 @@ private fun PipelineParametersSection(
                 step = 2f,
                 valueFormatter = { "${it.toInt()}" },
                 onValueChange = { kernelSize = it.toInt().coerceIn(1, 31) }
-             )
-         }
-     }
+            )
+        }
+    }
 }
 
 @Composable
 private fun PipelineStageControls(
     stageName: String,
-    isExpanded: Boolean,
     content: @Composable () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
-        elevation = CardDefaults.cardElevation(2.dp)
-     ) {
+        elevation = CardDefaults.cardElevation(0.dp)
+    ) {
         Column(
             modifier = Modifier
-                 .fillMaxWidth()
-                 .padding(12.dp)
-         ) {
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
             Text(
                 text = stageName,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = Color.Gray
-             )
+            )
             Spacer(modifier = Modifier.height(8.dp))
             content()
-         }
-     }
+        }
+    }
 }
 
 @Preview
@@ -581,9 +591,9 @@ private fun FileScanResultPreview() {
             viewModel = viewModel {
                 CameraViewModel(
                     matBundle = MockMatBundle()
-                 )
-             },
+                )
+            },
             onBack = {}
-         )
-     }
+        )
+    }
 }

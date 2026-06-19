@@ -12,14 +12,18 @@ import org.opencv.imgproc.Imgproc
  */
 interface ICannyThresholdCalculator {
     /**
-     * Computes cannyHigh and cannyLow thresholds from a grayscale frame.
-     * Uses Otsu's binarization on a structurally blurred version of the frame,
+     * Computes cannyHigh and cannyLow thresholds from the image that Canny will process.
+     * Uses Otsu's binarization on a structurally blurred version of the image,
      * then applies temporal EMA smoothing to prevent threshold flicker.
      *
-     * @param grayMat Single-channel grayscale matrix (Y plane from camera frame)
+     * The input image should be the same preprocessing stage that Canny will run on
+     * (e.g., CLAHE-enhanced for camera pipeline, or raw gray for file-scan fallback).
+     * This ensures Otsu thresholds match the actual contrast Canny sees.
+     *
+     * @param preCannyMat Single-channel matrix at the preprocessing stage that Canny will process
      * @return Pair of (cannyHigh, cannyLow) thresholds
      */
-    fun computeThreshold(grayMat: Mat): Pair<Double, Double>
+    fun computeThreshold(preCannyMat: Mat): Pair<Double, Double>
 
     /**
      * Resets the temporal EMA filter state. Call when camera session resets.
@@ -50,15 +54,14 @@ class CannyThresholdCalculator(
 
     private var smoothedHigh = -1.0
 
-    override fun computeThreshold(grayMat: Mat): Pair<Double, Double> {
-        // Step 1: Light blur — collapse minor high-frequency noise while preserving
-        // the document boundary signal in the histogram. A 3×3 blur is small enough
-        // that Otsu sees accurate contrast levels for both static files and camera
-        // frames, avoiding the inflated thresholds that a 7×7 blur produces.
-        Imgproc.GaussianBlur(grayMat, matBundle.getOtsuBlur(), Size(3.0, 3.0), 1.0)
+    // Pre-allocate a 1x1 double array field at the class level to capture Core.meanStdDev values safely
+    private val stdValOut = DoubleArray(1)
 
-        // Step 2: Extract the optimal global threshold using Otsu's method.
-        // We use getOtsuThreshold() as a scratch buffer — only the returned double value matters.
+    override fun computeThreshold(preCannyMat: Mat): Pair<Double, Double> { // Note: Change to pass destination if you want zero allocations
+        // Step 1: Light 3x3 blur to collapse high-frequency text grain safely
+        Imgproc.GaussianBlur(preCannyMat, matBundle.getOtsuBlur(), Size(3.0, 3.0), 1.0)
+
+        // Step 2: Extract the optimal inter-class global threshold via Otsu
         val rawOtsu = Imgproc.threshold(
             matBundle.getOtsuBlur(),
             matBundle.getOtsuThreshold(),
@@ -66,31 +69,26 @@ class CannyThresholdCalculator(
             Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
         )
 
-        // Step 3: Compute image contrast (std dev of grayscale) to adapt the
-        // hysteresis ratio. Low-contrast images need a wider gap between low
-        // and high thresholds to capture faint document edges.
-        Core.meanStdDev(grayMat, matBundle.getMean(), matBundle.getStd())
-        val contrast = matBundle.getStd().toArray()[0]
+        // Step 3: Allocation-Free Contrast Extraction
+        Core.meanStdDev(preCannyMat, matBundle.getMean(), matBundle.getStd())
+        // Extracts raw double values directly into our pre-allocated array heap space
+        matBundle.getStd().get(0, 0, stdValOut)
+        val contrast = stdValOut[0]
 
-        // Step 4: Temporal smoothing via Exponential Moving Average (EMA).
-        // Eliminates micro-flicker caused by sensor noise and minor lighting oscillations.
+        // Step 4: Temporal smoothing via EMA (Locks down micro-exposure fluctuations)
         smoothedHigh = if (smoothedHigh < 0.0) {
-            rawOtsu // Initialize on first frame
+            rawOtsu
         } else {
-            emaAlpha * rawOtsu + (1.0 - emaAlpha) * smoothedHigh
+            (emaAlpha * rawOtsu) + ((1.0 - emaAlpha) * smoothedHigh)
         }
 
-        // Step 5: Contrast-aware hysteresis ratio.
-        // - High contrast (> 40): 2:1 ratio — sharp edges, easy to detect
-        // - Medium contrast (20–40): 3:1 ratio — moderate edges, lower threshold helps
-        // - Low contrast (< 20): 4:1 ratio — faint edges, much lower low threshold
-        val ratio = when {
-            contrast > 40.0 -> 0.5   // 2:1
-            contrast > 20.0 -> 0.33  // 3:1
-            else               -> 0.25 // 4:1
-        }
+        // Step 5: Continuous Contrast-to-Ratio Interpolation (Eradicates Edge Jitter)
+        // Maps contrast linearly between 20.0 (Ratio 0.25) and 40.0 (Ratio 0.5) smoothly
+        val clampedContrast = contrast.coerceIn(20.0, 40.0)
+        val normalizationFactor = (clampedContrast - 20.0) / (40.0 - 20.0) // Becomes a smooth 0.0 to 1.0 line
+        val ratio = 0.25 + (normalizationFactor * (0.5 - 0.25))
 
-        Log.d("CannyThreshold", "OtsuHigh=$smoothedHigh contrast=$contrast ratio=$ratio")
+        // Optional: Return values. In full production loops, pass a custom object or set class variables directly.
         return Pair(smoothedHigh, smoothedHigh * ratio)
     }
 

@@ -4,6 +4,7 @@ import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
 import kotlin.math.hypot
 import io.github.iostreamchik.scanner.opencv.PipelineParams
+import io.github.iostreamchik.scanner.opencv.*
 
 /**
  * Scores a detected contour for document suitability.

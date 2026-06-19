@@ -79,6 +79,7 @@ fun CameraScreen(
         remember { mutableStateOf<ContourData?>(null) }
 
     val exposure by viewModel.exposureStateFlow.collectAsStateWithLifecycle()
+    val detectionParams by viewModel.detector.detectionParams.collectAsStateWithLifecycle()
     val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
     val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
     val errorState by viewModel.errorState.collectAsStateWithLifecycle()
@@ -179,6 +180,23 @@ fun CameraScreen(
                     )
                 )
             )
+            // Detection params info box
+            Surface(
+                color = Color.Black.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "CLAHE: ${detectionParams.claheClipLimit}" +
+                            "\nCanny: ${detectionParams.cannyLow}/${detectionParams.cannyHigh}" +
+                            "\nBright: ${detectionParams.brightness}",
+                    color = Color.White.copy(alpha = 0.8f),
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                )
+            }
             
             Row(
                 Modifier

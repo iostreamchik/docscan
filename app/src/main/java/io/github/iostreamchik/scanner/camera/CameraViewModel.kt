@@ -7,7 +7,6 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
-import androidx.camera.core.Camera
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -20,6 +19,7 @@ import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
+import io.github.iostreamchik.scanner.opencv.*
 import io.github.iostreamchik.scanner.quadDistance
 import io.github.iostreamchik.scanner.quadHash
 import io.github.iostreamchik.scanner.toBitmap
@@ -34,7 +34,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.opencv.android.Utils
 import org.opencv.core.Core
-import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
@@ -47,7 +46,7 @@ import kotlin.math.max
 class CameraViewModel(
     private val matBundle: IMatBundle = MatBundle(),
     private val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculator(matBundle),
-    private val detector: DocumentDetector = DocumentDetector(matBundle, thresholdCalculator = thresholdCalculator)
+    val detector: DocumentDetector = DocumentDetector(matBundle, thresholdCalculator = thresholdCalculator)
 ) : ViewModel() {
 
     val cameraExecutor = Executors.newSingleThreadExecutor()
@@ -99,15 +98,14 @@ class CameraViewModel(
     }
 
     // Pipeline parameters — reads from pipelineConfigurationManager
-    private val _currentParams = MutableStateFlow<PipelineParams?>(null)
-    val currentParams: StateFlow<PipelineParams?> = _currentParams.asStateFlow()
+    private val _pipelineParams = MutableStateFlow<PipelineParams>(PipelineParams.Default)
+    val pipelineParams = _pipelineParams.asStateFlow()
 
     /**
      * Update pipeline parameters — called from FileScanResultScreen when parameters change.
-     * null = auto CLAHE, non-null = user-configured CLAHE.
      */
-    fun updateParams(newParams: PipelineParams?) {
-        _currentParams.value = newParams
+    fun updateParams(newParams: PipelineParams) {
+        _pipelineParams.value = newParams
     }
 
     fun processFrame(imageProxy: ImageProxy): List<MatOfPoint> {
@@ -231,7 +229,7 @@ class CameraViewModel(
     private fun runDetection(
         mat: Mat,
         rotation: Int,
-        useAutoParams: Boolean = true
+        useAutoParams: Boolean = false
     ): List<MatOfPoint> {
         val originalWidth = mat.cols()
         val originalHeight = mat.rows()
@@ -240,7 +238,7 @@ class CameraViewModel(
         val scaledWidth = (originalWidth * scale).toInt()
         val scaledHeight = (originalHeight * scale).toInt()
 
-        val params = if (useAutoParams) PipelineParams.Default else (_currentParams.value ?: PipelineParams.Default)
+        val params = if (useAutoParams) PipelineParams.Default else _pipelineParams.value
         val flowType = if (useAutoParams) "CAMERA" else "FILE_SCAN"
         Log.d("DocScan", "\n========== $flowType Pipeline ==========")
         Log.d("DocScan", "Resolution: ${originalWidth}x${originalHeight}, Scaled: ${scaledWidth}x${scaledHeight}, Scale: ${"%.3f".format(scale)}")
@@ -415,8 +413,16 @@ class CameraViewModel(
                 mat.release()
                 sourceBitmap.recycle()
 
-                val (cannyHigh, cannyLow) = thresholdCalculator.computeThreshold(matBundle.getGray())
-                updateParams((_currentParams.value ?: PipelineParams.Default).copy(
+                // Apply CLAHE to match the preprocessing pipeline — Canny runs on the
+                // enhanced image, so Otsu must also run on the enhanced image for correct thresholds.
+                val avgBrightness = Core.mean(matBundle.getGray()).`val`[0]
+                val claheClipLimit = detector.calculateClacheClipLimit(avgBrightness).coerceIn(0.5, 4.0)
+                val clahe = Imgproc.createCLAHE(claheClipLimit, Size(8.0, 8.0))
+                Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), 5)
+                clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
+
+                val (cannyHigh, cannyLow) = thresholdCalculator.computeThreshold(matBundle.getEnhanced())
+                updateParams(_pipelineParams.value.copyAsManual(
                     cannyLow = cannyLow.toFloat(),
                     cannyHigh = cannyHigh.toFloat(),
                     cannyAutoDetect = true
@@ -434,7 +440,7 @@ class CameraViewModel(
      * uses the manual thresholds instead.
      */
     fun disableCannyAuto() {
-        _currentParams.value = (_currentParams.value ?: PipelineParams.Default).copy(
+        _pipelineParams.value = _pipelineParams.value.copyAsManual(
             cannyAutoDetect = false
         )
     }

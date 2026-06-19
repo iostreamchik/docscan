@@ -13,6 +13,9 @@ import org.opencv.imgproc.Imgproc
 import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
+import io.github.iostreamchik.scanner.opencv.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.lang.Math.PI
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -38,24 +41,14 @@ class DocumentDetector(
     private val thresholdCalculator: ICannyThresholdCalculator? = null
 ) {
 
-    // ─────────────────────────────────────────────────────────────────────────────
-    // Image Preprocessing Pipeline
-    // ─────────────────────────────────────────────────────────────────────────────
+    private val _detectionParams = MutableStateFlow(DetectionParameters())
+    val detectionParams = _detectionParams.asStateFlow()
 
-    /**
-     * Runs the full image preprocessing pipeline from a raw RGBA Mat to edge Mat.
-     * Pipeline stages: resize → grayscale → blur → CLAHE → morph close → Canny →
-     * strong close → directional suppression.
-     *
-     * Does NOT call [IMatBundle.releaseAll] — the caller owns the lifecycle.
-     *
-     * @return The final edge Mat (matBundle.getMorph()) after all preprocessing stages
-     */
     fun preprocess(
         rawMat: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
-        params: PipelineParams?
+        params: PipelineParams
     ): Mat {
         preprocessWithPreviews(rawMat, scaledWidth, scaledHeight, params, mutableMapOf())
         return matBundle.getMorph()
@@ -76,10 +69,10 @@ class DocumentDetector(
         rawMat: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
-        params: PipelineParams?,
+        params: PipelineParams,
         previews: MutableMap<String, Bitmap?>
     ): Mat {
-        val p = params ?: PipelineParams.Default
+        val p = params
 
         // --- Resize + Grayscale ---
         val smallMat = Mat()
@@ -93,8 +86,8 @@ class DocumentDetector(
         Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
         previews["Median Blur"] = matBundle.getBlurred().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
 
-        // --- CLAHE (auto when params is null, user-configured when set) ---
-        val claheClipLimit: Double = if (params == null) {
+        // --- CLAHE (auto when params is Auto, user-configured when set) ---
+        val claheClipLimit: Double = if (params is PipelineParams.Auto) {
             // Brightness-adaptive: dimmer scenes → stronger contrast enhancement
             val meanVal = Core.mean(matBundle.getBlurred())
             val brightness = meanVal.`val`[0].coerceIn(0.0, 255.0)
@@ -102,7 +95,7 @@ class DocumentDetector(
         } else {
             params.claheClipLimit.toDouble()
         }
-        val tileSize = (params?.claheTileSize ?: 8).toDouble()
+        val tileSize = params.claheTileSize.toDouble()
         val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
         clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
         previews["CLAHE"] = matBundle.getEnhanced().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
@@ -160,7 +153,7 @@ class DocumentDetector(
         rawMat: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
-        params: PipelineParams?,
+        params: PipelineParams,
         useAutoParams: Boolean
     ): Mat {
         // --- Resize + Grayscale ---
@@ -171,16 +164,19 @@ class DocumentDetector(
 
         Core.meanStdDev(matBundle.getGray(), matBundle.getMean(), matBundle.getStd())
         val avgBrightness = matBundle.getMean().toArray()[0]
-        val p = params ?: PipelineParams.Default
+        val p = params
 
         Log.d("DocScan", "  Avg brightness: ${"%.1f".format(avgBrightness)}")
+        _detectionParams.value = _detectionParams.value.copy(
+            brightness = "%.1f".format(avgBrightness)
+        )
 
         // --- Median Blur ---
         val blurKsize = p.medianBlurKsize.coerceAtLeast(3)
         Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
 
-        // --- CLAHE (auto when params is null, user-configured or brightness-adaptive) ---
-        val useAutoClahe = params == null
+        // --- CLAHE (auto when params is Auto, user-configured or brightness-adaptive) ---
+        val useAutoClahe = params is PipelineParams.Auto
         val claheClipLimit: Double = if (useAutoClahe) {
             // Brightness-adaptive: dimmer scenes → stronger contrast enhancement
             val brightness = avgBrightness.coerceIn(0.0, 255.0)
@@ -188,6 +184,9 @@ class DocumentDetector(
         } else {
             p.claheClipLimit.toDouble()
         }
+        _detectionParams.value = _detectionParams.value.copy(
+            claheClipLimit = claheClipLimit.toString()
+        )
         Log.d("DocScan", "  CLAHE: clipLimit=${"%.2f".format(claheClipLimit)}, tileSize=${p.claheTileSize}, useAutoClahe=$useAutoClahe")
         val tileSize = (p.claheTileSize).toDouble()
         val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
@@ -215,10 +214,10 @@ class DocumentDetector(
 
         // --- Canny ---
         var (cannyHigh, cannyLow) = if (useAutoParams) {
-            thresholdCalculator?.computeThreshold(matBundle.getGray())
+            thresholdCalculator?.computeThreshold(matBundle.getEnhanced())
                 ?: Pair(p.cannyHigh.toDouble(), p.cannyLow.toDouble())
         } else if (p.cannyAutoDetect) {
-            thresholdCalculator?.computeThreshold(matBundle.getGray())
+            thresholdCalculator?.computeThreshold(matBundle.getEnhanced())
                 ?: Pair(p.cannyHigh.toDouble(), p.cannyLow.toDouble())
         } else {
             Pair(p.cannyHigh.toDouble(), p.cannyLow.toDouble())
@@ -232,6 +231,10 @@ class DocumentDetector(
             cannyHigh = 50.0
             cannyLow = cannyHigh * 0.5
         }
+        _detectionParams.value = _detectionParams.value.copy(
+            cannyHigh = cannyHigh.toInt().toString(),
+            cannyLow = cannyLow.toInt().toString()
+        )
 
         Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), cannyLow, cannyHigh)
 
@@ -364,8 +367,8 @@ class DocumentDetector(
         val raw = BigDecimal(100.0 / brightness)
             .coerceIn(BigDecimal(0.5), BigDecimal(2.0))
             .multiply(BigDecimal(10))
-        return (raw.divide(BigDecimal(10), RoundingMode.HALF_UP) - BigDecimal("0.1"))
-            .setScale(1, RoundingMode.HALF_UP)
+        return (raw.divide(BigDecimal(10), RoundingMode.HALF_UP) - BigDecimal("0.2"))
+            .setScale(1, RoundingMode.HALF_DOWN)
             .toDouble().coerceIn(0.5, 2.0)
     }
 
@@ -428,3 +431,10 @@ class DocumentDetector(
         }
     }
 }
+
+data class DetectionParameters(
+    val claheClipLimit: String = "",
+    val cannyHigh: String = "",
+    val cannyLow: String = "",
+    val brightness: String = "",
+)

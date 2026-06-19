@@ -15,6 +15,7 @@ import io.github.iostreamchik.scanner.fixRotation
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
+import io.github.iostreamchik.scanner.opencv.*
 import io.github.iostreamchik.scanner.sharpen
 import io.github.iostreamchik.scanner.sortQuadPoints
 import io.github.iostreamchik.scanner.toBitmap
@@ -67,8 +68,8 @@ class PipelineSettingsViewModel(
     private val _hasDetectedDocument = MutableStateFlow(false)
     val hasDetectedDocument: StateFlow<Boolean> = _hasDetectedDocument.asStateFlow()
 
-    private var _currentParams = MutableStateFlow<PipelineParams?>(null)
-    val currentParams: StateFlow<PipelineParams?> = _currentParams.asStateFlow()
+    private var _currentParams = MutableStateFlow<PipelineParams>(PipelineParams.Auto)
+    val currentParams: StateFlow<PipelineParams> = _currentParams.asStateFlow()
 
     private val _avgBrightness = MutableStateFlow<Double?>(null)
     val avgBrightness: StateFlow<Double?> = _avgBrightness.asStateFlow()
@@ -78,7 +79,7 @@ class PipelineSettingsViewModel(
 
     private var lastImageUri: Uri? = null
 
-    fun updateParams(newParams: PipelineParams?, context: Context) {
+    fun updateParams(newParams: PipelineParams, context: Context) {
         _currentParams.value = newParams
         if (lastImageUri != null) {
             viewModelScope.launch {
@@ -98,7 +99,7 @@ class PipelineSettingsViewModel(
      * Update individual parameters with debounce — the UI layer delays the call
      * for 300ms after the last change before invoking this method.
      */
-    fun updateParamSafely(newParams: PipelineParams?, contextProvider: suspend () -> Context) {
+    fun updateParamSafely(newParams: PipelineParams, contextProvider: suspend () -> Context) {
         _currentParams.value = newParams
         if (lastImageUri != null) {
             viewModelScope.launch {
@@ -118,7 +119,7 @@ class PipelineSettingsViewModel(
      * Reset all parameters to defaults and reprocess.
      */
     fun resetParams(context: Context) {
-        updateParams(null, context)
+        updateParams(PipelineParams.Auto, context)
     }
 
     /**
@@ -160,7 +161,7 @@ class PipelineSettingsViewModel(
         }
     }
 
-    private suspend fun processWithParams(context: Context, params: PipelineParams?) = withContext(Dispatchers.IO) {
+    private suspend fun processWithParams(context: Context, params: PipelineParams) = withContext(Dispatchers.IO) {
         val uri = lastImageUri ?: return@withContext
         val sourceBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, _, _ ->
@@ -182,8 +183,8 @@ class PipelineSettingsViewModel(
 
         Log.d("PipelineSettings", "=== PipelineSettingsViewModel.processWithParams START ===")
         Log.d("PipelineSettings", "Input: ${originalWidth}x${originalHeight}, maxDim=$maxDim, scale=${"%.4f".format(scale)}, scaled=${scaledWidth}x${scaledHeight}")
-        val p = params ?: PipelineParams.Default
-        Log.d("PipelineSettings", "Params: medianBlur=${p.medianBlurKsize}, claheClip=${params?.claheClipLimit}, claheTile=${params?.claheTileSize}, morphClose=${p.morphCloseSize}, cannyLow=${p.cannyLow}, cannyHigh=${p.cannyHigh}, strongClose=${p.strongCloseSize}, dirKernel=${p.directionalKernelSize}, approxTol=${p.approxPolyDPTolerance}, minAreaFrac=${p.minAreaFraction}")
+        val p = params
+        Log.d("PipelineSettings", "Params: medianBlur=${p.medianBlurKsize}, claheClip=${p.claheClipLimit}, claheTile=${p.claheTileSize}, morphClose=${p.morphCloseSize}, cannyLow=${p.cannyLow}, cannyHigh=${p.cannyHigh}, strongClose=${p.strongCloseSize}, dirKernel=${p.directionalKernelSize}, approxTol=${p.approxPolyDPTolerance}, minAreaFrac=${p.minAreaFraction}")
 
         val previews = mutableMapOf<String, Bitmap?>()
 
