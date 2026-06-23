@@ -38,7 +38,7 @@ import kotlin.math.sqrt
 class DocumentDetector(
     private val matBundle: IMatBundle,
     private val params: PipelineParams = PipelineParams(),
-    private val thresholdCalculator: ICannyThresholdCalculator? = null
+    private val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculator(matBundle)
 ) {
 
     private val _detectionParams = MutableStateFlow(DetectionParameters())
@@ -68,13 +68,13 @@ class DocumentDetector(
         // --- CLAHE (auto when params is Auto, user-configured when set) ---
         val claheClipLimit: Double = if (params.isAuto) {
             // Brightness-adaptive: dimmer scenes → stronger contrast enhancement
-            val meanVal = Core.mean(matBundle.getBlurred())
-            val brightness = meanVal.`val`[0].coerceIn(0.0, 255.0)
-            calculateClacheClipLimit(brightness) - 0.1
+            Core.mean(matBundle.getBlurred(), matBundle.getMean())
+            val brightness = matBundle.getMean().toArray()[0].coerceIn(20.0, 150.0)
+            (2.0 + 100.0 / (brightness + 10.0)).coerceIn(0.5, 4.0)
         } else {
             params.claheClipLimit.toDouble()
         }
-        val tileSize = params.claheTileSize.toDouble()
+        val tileSize = (params.claheTileSize).toDouble()
         val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
         clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
         previews["CLAHE"] = matBundle.getEnhanced().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
@@ -88,7 +88,8 @@ class DocumentDetector(
         previews["Morph Close"] = matBundle.getMorph().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
 
         // --- Canny ---
-        Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), p.cannyLow.toDouble(), p.cannyHigh.toDouble())
+        val (cannyHigh, cannyLow) = thresholdCalculator.computeThreshold(matBundle.getEnhanced())
+        Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), cannyLow, cannyHigh)
         previews["Canny Edges"] = matBundle.getEdges().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
 
         // --- Strong Closing ---
@@ -104,7 +105,8 @@ class DocumentDetector(
 
         // --- Directional Suppression ---
         if (p.directionalKernelSize > 0) {
-            val dirKsize = (p.directionalKernelSize / scale * 640.0).coerceAtLeast(3.0).toInt()
+            val dirKsize = ((p.directionalKernelSize / scale * 640.0).coerceAtLeast(3.0)
+                .coerceAtMost(11.0)).toInt()
             Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(dirKsize.toDouble(), 1.0)).also { k ->
                 matBundle.getHorizontalKernel().release()
                 k.copyTo(matBundle.getHorizontalKernel())
@@ -157,8 +159,8 @@ class DocumentDetector(
         val useAutoClahe = params.isAuto
         val claheClipLimit: Double = if (useAutoClahe) {
             // Brightness-adaptive: dimmer scenes → stronger contrast enhancement
-            val brightness = avgBrightness.coerceIn(0.0, 255.0)
-            calculateClacheClipLimit(brightness).coerceIn(0.5, 4.0)
+            val brightness = avgBrightness.coerceIn(20.0, 150.0)
+            (2.0 + 100.0 / (brightness + 10.0)).coerceIn(0.5, 4.0)
         } else {
             p.claheClipLimit.toDouble()
         }
@@ -190,12 +192,18 @@ class DocumentDetector(
             Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
         }
 
+        // --- Pre-Canny Gaussian Blur ---
+        // Reduces sensor grain that CLAHE amplifies into fake edges.
+        // Canny's built-in Gaussian (3×3, σ=1.0) is too light alone — this pre-blur
+        // (5×5, σ=1.5) complements it for a combined σ≈1.8.
+        Imgproc.GaussianBlur(matBundle.getEnhanced(), matBundle.getTemp(), Size(5.0, 5.0), 1.5)
+
         // --- Canny ---
-        var (cannyHigh, cannyLow) = if (params.isAuto) {
-            thresholdCalculator?.computeThreshold(matBundle.getEnhanced())
+        val (cannyHigh, cannyLow) = if (params.isAuto) {
+            thresholdCalculator?.computeThreshold(matBundle.getGray())
                 ?: Pair(p.cannyHigh.toDouble(), p.cannyLow.toDouble())
         } else if (p.cannyAutoDetect) {
-            thresholdCalculator?.computeThreshold(matBundle.getEnhanced())
+            thresholdCalculator?.computeThreshold(matBundle.getGray())
                 ?: Pair(p.cannyHigh.toDouble(), p.cannyLow.toDouble())
         } else {
             Pair(p.cannyHigh.toDouble(), p.cannyLow.toDouble())
@@ -207,7 +215,7 @@ class DocumentDetector(
             cannyLow = cannyLow.toInt().toString()
         )
 
-        Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), cannyLow, cannyHigh)
+        Imgproc.Canny(matBundle.getTemp(), matBundle.getEdges(), cannyLow, cannyHigh)
 
         // --- Strong Closing ---
         val scale = max(scaledWidth, scaledHeight).toDouble()
@@ -221,7 +229,8 @@ class DocumentDetector(
         Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
 
         // --- Directional Suppression ---
-        val dirKsize = (p.directionalKernelSize / scale * 640.0).coerceAtLeast(3.0).toInt()
+        val dirKsize = ((p.directionalKernelSize / scale * 640.0).coerceAtLeast(3.0)
+            .coerceAtMost(11.0)).toInt()
         Log.d("DocScan", "  Directional Suppression: original=${p.directionalKernelSize}, computed=$dirKsize")
         Imgproc.getStructuringElement(
             Imgproc.MORPH_RECT,
@@ -289,6 +298,10 @@ class DocumentDetector(
             val area = Imgproc.contourArea(contour)
             if (area < minArea) continue
 
+            // Early exit: skip contours with very few points (likely noise/text).
+            // Skips expensive convexHull + approxPolyDP for tiny contours.
+            if (contour.total() < 10) continue
+
             val hull = matBundle.getHull()
             matBundle.getHullPoints().release()
             matBundle.getHullPoints().create(0, 1, CvType.CV_32FC2)
@@ -296,7 +309,7 @@ class DocumentDetector(
 
             Imgproc.convexHull(contour, hull)
             val contourArray = contour.toArray()
-            val hullIndices = IntArray(hull.rows().toInt())
+            val hullIndices = IntArray(hull.rows())
             hull.get(0, 0, hullIndices)
             val hullPointList = hullIndices.map { contourArray[it] }
             matBundle.getHullPoints().fromList(hullPointList.map { Point(it.x, it.y) })
@@ -339,8 +352,8 @@ class DocumentDetector(
         val raw = BigDecimal(100.0 / brightness)
             .coerceIn(BigDecimal(0.5), BigDecimal(2.0))
             .multiply(BigDecimal(10))
-        return (raw.divide(BigDecimal(10), RoundingMode.HALF_UP) - BigDecimal("0.2"))
-            .setScale(1, RoundingMode.HALF_DOWN)
+        return (raw.divide(BigDecimal(10), RoundingMode.HALF_UP) - BigDecimal("0.1"))
+            .setScale(1, RoundingMode.HALF_UP)
             .toDouble().coerceIn(0.5, 2.0)
     }
 
