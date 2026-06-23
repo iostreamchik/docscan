@@ -60,8 +60,10 @@ import io.github.iostreamchik.scanner.pipeline.ParameterSlider
 import io.github.iostreamchik.scanner.pipeline.debounceFloat
 import io.github.iostreamchik.scanner.pipeline.debounceInt
 import androidx.compose.runtime.rememberCoroutineScope
+import io.github.iostreamchik.scanner.DetectionParameters
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import io.github.iostreamchik.scanner.opencv.*
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Displays the original image with contour overlay, filtered preview, and warped result
@@ -129,7 +131,8 @@ fun FileScanResultScreen(
             modifier = modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(16.dp),
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.Center
         ) {
             val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
             val originalBitmap by viewModel.originalBitmap.collectAsStateWithLifecycle()
@@ -253,8 +256,8 @@ fun FileScanResultScreen(
                             )
 
                             PipelineParametersSection(
-                                viewModel = viewModel,
                                 params = currentParams,
+                                detectionParams = viewModel.detector.detectionParams,
                                 onParamsChange = { newParams ->
                                     viewModel.updateParams(newParams)
                                     viewModel.reprocessPickedDocument(context)
@@ -280,13 +283,31 @@ fun FileScanResultScreen(
 
 @Composable
 private fun PipelineParametersSection(
-    viewModel: CameraViewModel,
     params: PipelineParams,
+    detectionParams: StateFlow<DetectionParameters>,
     onParamsChange: (PipelineParams) -> Unit,
     enableCannyAuto: () -> Unit,
     disableCannyAuto: () -> Unit,
 ) {
     val p = params
+
+    // Preserve manual CLAHE values across parameter changes.
+    // This prevents other sections' debounce effects (which capture a stale `params`
+    // reference) from overwriting CLAHE mode with hardcoded defaults when emitting.
+    var preservedClaheClipLimit by remember {
+        mutableFloatStateOf(if (params.isAuto.not()) params.claheClipLimit else 0.5f)
+    }
+    var preservedClaheTileSize by remember {
+        mutableIntStateOf(if (params.isAuto.not()) params.claheTileSize else 8)
+    }
+
+    // Shared debounced CLAHE values — defined at section level so other sections
+    // can reference them when emitting their own parameter changes.
+    var claheDisplayClip by remember { mutableFloatStateOf(p.claheClipLimit) }
+    var claheDisplayTile by remember { mutableIntStateOf(p.claheTileSize) }
+    val debouncedClip = debounceFloat(claheDisplayClip, 300)
+    val debouncedTile = debounceInt(claheDisplayTile, 300)
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -299,7 +320,11 @@ private fun PipelineParametersSection(
             val debouncedKernel = debounceInt(kernelSize, 300)
             LaunchedEffect(debouncedKernel) {
                 if (debouncedKernel != p.medianBlurKsize) {
-                    onParamsChange(p.copyAsManual(medianBlurKsize = debouncedKernel))
+                    // Preserve current CLAHE values so this emit doesn't overwrite
+                    // CLAHE mode with hardcoded defaults from the stale `params` ref
+                    preservedClaheClipLimit = debouncedClip
+                    preservedClaheTileSize = debouncedTile
+                    onParamsChange(p.copy(medianBlurKsize = debouncedKernel))
                 }
             }
             ParameterSlider(
@@ -319,26 +344,39 @@ private fun PipelineParametersSection(
         PipelineStageControls(
             stageName = "CLAHE",
         ) {
-            val isAuto = params is PipelineParams.Auto
-            val detectionParams by viewModel.detector.detectionParams.collectAsStateWithLifecycle()
-            var clipLimit by remember { mutableFloatStateOf(p.claheClipLimit) }
-            var tileSize by remember { mutableIntStateOf(p.claheTileSize) }
-            var modeAuto by remember { mutableStateOf(isAuto) }
+            val autoParams by detectionParams.collectAsStateWithLifecycle()
+            var modeAuto by remember { mutableStateOf(params.isAuto) }
 
-            val debouncedClip = debounceFloat(clipLimit, 300)
-            val debouncedTile = debounceInt(tileSize, 300)
+            // Sync display values when params change externally (e.g., enableCannyAuto).
+            // Does NOT update modeAuto or preservedClahe values — those are managed
+            // by the effect below, which compares against preserved values to avoid
+            // re-emitting stale debounced values after external params changes.
+            LaunchedEffect(params) {
+                modeAuto = params.isAuto
+                claheDisplayClip = p.claheClipLimit
+                claheDisplayTile = p.claheTileSize
+            }
+
             LaunchedEffect(modeAuto, debouncedClip, debouncedTile) {
                 if (modeAuto) {
-                    onParamsChange(PipelineParams.Auto)
-                } else if (debouncedClip != p.claheClipLimit ||
-                    debouncedTile != p.claheTileSize
-                ) {
-                    onParamsChange(
-                        p.copyAsManual(
-                            claheClipLimit = debouncedClip,
-                            claheTileSize = debouncedTile
+                    // Preserve current debounced values before switching to auto
+                    preservedClaheClipLimit = debouncedClip
+                    preservedClaheTileSize = debouncedTile
+                    onParamsChange(PipelineParams())
+                } else {
+                    // Compare against preserved values, not current params,
+                    // to avoid re-emitting after external params changes
+                    val hasChanged = debouncedClip != preservedClaheClipLimit ||
+                        debouncedTile != preservedClaheTileSize
+                    if (hasChanged) {
+                        onParamsChange(
+                            p.copy(
+                                isAuto = false,
+                                claheClipLimit = debouncedClip,
+                                claheTileSize = debouncedTile
+                            )
                         )
-                    )
+                    }
                 }
             }
 
@@ -359,31 +397,38 @@ private fun PipelineParametersSection(
                 )
             }
 
-            // Show current clip limit value (auto or manual)
-//            Text(
-//                text = "Clip limit: %.1f".format(if (modeAuto) p.claheClipLimit else params.claheClipLimit),
-//                fontSize = 12.sp,
-//                color = Color(0xFF2196F3),
-//                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
-//            )
+            // Show auto-computed CLAHE values when in auto mode
+            if (modeAuto) {
+                val clipText = if (autoParams.claheClipLimit.isNotBlank()) {
+                    autoParams.claheClipLimit
+                } else {
+                    "Computing..."
+                }
+                Text(
+                    text = "Auto: clipLimit=$clipText, tileSize=${p.claheTileSize}",
+                    fontSize = 12.sp,
+                    color = Color(0xFF2196F3),
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+            }
 
             if (!modeAuto) {
                 Spacer(modifier = Modifier.height(4.dp))
                 ParameterSlider(
                     label = "Clip Limit",
-                    value = detectionParams.claheClipLimit.toFloat(),
+                    value = claheDisplayClip,
                     valueRange = 0.5f..8.0f,
                     step = 0.1f,
                     valueFormatter = { "%.1f".format(it) },
-                    onValueChange = { clipLimit = it }
+                    onValueChange = { claheDisplayClip = it }
                 )
                 ParameterSlider(
                     label = "Tile Size",
-                    value = tileSize.toFloat(),
+                    value = claheDisplayTile.toFloat(),
                     valueRange = 8f..64f,
                     step = 8f,
                     valueFormatter = { "${it.toInt()}" },
-                    onValueChange = { tileSize = it.toInt().coerceIn(8, 64) }
+                    onValueChange = { claheDisplayTile = it.toInt().coerceIn(8, 64) }
                 )
             }
         }
@@ -396,7 +441,9 @@ private fun PipelineParametersSection(
             val debouncedKernel = debounceInt(kernelSize, 300)
             LaunchedEffect(debouncedKernel) {
                 if (debouncedKernel != p.morphCloseSize) {
-                    onParamsChange(p.copyAsManual(morphCloseSize = debouncedKernel))
+                    preservedClaheClipLimit = debouncedClip
+                    preservedClaheTileSize = debouncedTile
+                    onParamsChange(p.copy(morphCloseSize = debouncedKernel))
                 }
             }
             ParameterSlider(
@@ -416,6 +463,7 @@ private fun PipelineParametersSection(
         PipelineStageControls(
             stageName = "Canny Edges",
         ) {
+            val autoParams by detectionParams.collectAsStateWithLifecycle()
             var lowThreshold by remember { mutableFloatStateOf(p.cannyLow) }
             var highThreshold by remember { mutableFloatStateOf(p.cannyHigh) }
 
@@ -431,8 +479,11 @@ private fun PipelineParametersSection(
                 if (debouncedLow != p.cannyLow ||
                     debouncedHigh != p.cannyHigh
                 ) {
+                    preservedClaheClipLimit = debouncedClip
+                    preservedClaheTileSize = debouncedTile
                     onParamsChange(
-                        p.copyAsManual(
+                        p.copy(
+                            isAuto = false,
                             cannyLow = debouncedLow,
                             cannyHigh = debouncedHigh
                         )
@@ -440,10 +491,12 @@ private fun PipelineParametersSection(
                 }
             }
 
-            // Show auto-threshold values when auto-detect is active
+            // Show auto-computed thresholds when auto-detect is active
             if (p.cannyAutoDetect) {
+                val lowText = if (autoParams.cannyLow.isNotBlank()) autoParams.cannyLow else "Computing..."
+                val highText = if (autoParams.cannyHigh.isNotBlank()) autoParams.cannyHigh else "Computing..."
                 Text(
-                    text = "Auto: ${lowThreshold.toInt()} / ${highThreshold.toInt()}",
+                    text = "Auto: $lowText / $highText",
                     fontSize = 12.sp,
                     color = Color(0xFF2196F3),
                     modifier = Modifier.padding(bottom = 4.dp)
@@ -510,7 +563,9 @@ private fun PipelineParametersSection(
             val debouncedKernel = debounceInt(kernelSize, 300)
             LaunchedEffect(debouncedKernel) {
                 if (debouncedKernel != p.strongCloseSize) {
-                    onParamsChange(p.copyAsManual(strongCloseSize = debouncedKernel))
+                    preservedClaheClipLimit = debouncedClip
+                    preservedClaheTileSize = debouncedTile
+                    onParamsChange(p.copy(strongCloseSize = debouncedKernel))
                 }
             }
             ParameterSlider(
@@ -535,8 +590,10 @@ private fun PipelineParametersSection(
             val debouncedKernel = debounceInt(kernelSize, 300)
             LaunchedEffect(debouncedKernel) {
                 if (debouncedKernel != p.directionalKernelSize) {
+                    preservedClaheClipLimit = debouncedClip
+                    preservedClaheTileSize = debouncedTile
                     onParamsChange(
-                        p.copyAsManual(
+                        p.copy(
                             directionalKernelSize = debouncedKernel
                         )
                     )

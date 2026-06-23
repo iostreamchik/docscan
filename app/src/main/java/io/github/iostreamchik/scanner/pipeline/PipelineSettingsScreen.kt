@@ -346,7 +346,10 @@ private fun getParametersForStage(
                 LaunchedEffect(debouncedKernel) {
                     if (debouncedKernel != p.medianBlurKsize) {
                         viewModel.updateParamSafely(
-                            p.copyAsManual(medianBlurKsize = debouncedKernel)
+                            p.copy(
+                                isAuto = false,
+                                medianBlurKsize = debouncedKernel
+                            )
                         ) { context }
                     }
                 }
@@ -364,7 +367,7 @@ private fun getParametersForStage(
             }
 
             "CLAHE" -> {
-                val isAuto = currentParams is PipelineParams.Auto
+                val isAuto = currentParams.isAuto
                 var clipLimit by remember { mutableFloatStateOf(p.claheClipLimit) }
                 var tileSize by remember { mutableIntStateOf(p.claheTileSize) }
                 var modeAuto by remember { mutableStateOf(isAuto) }
@@ -373,12 +376,13 @@ private fun getParametersForStage(
                 val debouncedTile = debounceInt(tileSize, 300)
                 LaunchedEffect(modeAuto, debouncedClip, debouncedTile) {
                     if (modeAuto) {
-                        viewModel.updateParamSafely(PipelineParams.Auto) { context }
+                        viewModel.updateParamSafely(PipelineParams()) { context }
                     } else if (debouncedClip != p.claheClipLimit ||
                         debouncedTile != p.claheTileSize
                     ) {
                         viewModel.updateParamSafely(
-                            p.copyAsManual(
+                            p.copy(
+                                isAuto = false,
                                 claheClipLimit = debouncedClip,
                                 claheTileSize = debouncedTile
                             )
@@ -430,7 +434,9 @@ private fun getParametersForStage(
                 LaunchedEffect(debouncedKernel) {
                     if (debouncedKernel != p.morphCloseSize) {
                         viewModel.updateParamSafely(
-                            p.copyAsManual(morphCloseSize = debouncedKernel)
+                            p.copy(
+                                isAuto = false,
+                                morphCloseSize = debouncedKernel)
                         ) { context }
                     }
                 }
@@ -458,7 +464,8 @@ private fun getParametersForStage(
                         debouncedHigh != p.cannyHigh
                     ) {
                         viewModel.updateParamSafely(
-                            p.copyAsManual(
+                            p.copy(
+                                isAuto = false,
                                 cannyLow = debouncedLow,
                                 cannyHigh = debouncedHigh
                             )
@@ -490,7 +497,9 @@ private fun getParametersForStage(
                 LaunchedEffect(debouncedKernel) {
                     if (debouncedKernel != p.strongCloseSize) {
                         viewModel.updateParamSafely(
-                            p.copyAsManual(strongCloseSize = debouncedKernel)
+                            p.copy(
+                                isAuto = false,
+                                strongCloseSize = debouncedKernel)
                         ) { context }
                     }
                 }
@@ -514,7 +523,8 @@ private fun getParametersForStage(
                 LaunchedEffect(debouncedKernel) {
                     if (debouncedKernel != p.directionalKernelSize) {
                         viewModel.updateParamSafely(
-                            p.copyAsManual(
+                            p.copy(
+                                isAuto = false,
                                 directionalKernelSize = debouncedKernel
                             )
                         ) { context }

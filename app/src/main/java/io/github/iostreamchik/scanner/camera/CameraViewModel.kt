@@ -98,7 +98,7 @@ class CameraViewModel(
     }
 
     // Pipeline parameters — reads from pipelineConfigurationManager
-    private val _pipelineParams = MutableStateFlow<PipelineParams>(PipelineParams.Auto)
+    private val _pipelineParams = MutableStateFlow<PipelineParams>(PipelineParams())
     val pipelineParams = _pipelineParams.asStateFlow()
 
     /**
@@ -116,7 +116,7 @@ class CameraViewModel(
         val mat = imageProxy.toMatRGBA()
         val rotation = imageProxy.imageInfo.rotationDegrees
 
-        val result = runDetection(mat, rotation, useAutoParams = true)
+        val result = runDetection(mat, rotation, _pipelineParams.value)
 
         if (result.isNotEmpty()) {
             if (isStable()) {
@@ -229,7 +229,7 @@ class CameraViewModel(
     private fun runDetection(
         mat: Mat,
         rotation: Int,
-        useAutoParams: Boolean = false
+        params: PipelineParams
     ): List<MatOfPoint> {
         val originalWidth = mat.cols()
         val originalHeight = mat.rows()
@@ -238,13 +238,9 @@ class CameraViewModel(
         val scaledWidth = (originalWidth * scale).toInt()
         val scaledHeight = (originalHeight * scale).toInt()
 
-        val params = if (useAutoParams) PipelineParams.Auto else _pipelineParams.value
-
-        val paramsForLog = params
-
         try {
             // Preprocess: resize → grayscale → blur → CLAHE → morph → Canny → strong close → directional suppression
-            detector.preprocessWithAdaptiveCLAHE(mat, scaledWidth, scaledHeight, paramsForLog, useAutoParams)
+            detector.preprocessWithAdaptiveCLAHE(mat, scaledWidth, scaledHeight, params)
 
             // Set filtered bitmap from the morph result
             // Clone before emitting to StateFlow so Compose gets its own independent copy
@@ -258,7 +254,8 @@ class CameraViewModel(
                 scaledWidth = scaledWidth,
                 scaledHeight = scaledHeight,
                 originalWidth = originalWidth,
-                originalHeight = originalHeight
+                originalHeight = originalHeight,
+                params = params
             )
 
             if (bestQuad == null) return emptyList()
@@ -315,7 +312,7 @@ class CameraViewModel(
                 // Clone mat for runDetection since it modifies the input in-place.
                 // The original mat must stay intact for warpDocumentHighQuality.
                 val matForDetection = mat.clone()
-                val result = runDetection(matForDetection, rotation, useAutoParams = false)
+                val result = runDetection(matForDetection, rotation, _pipelineParams.value)
 
                 if (result.isNotEmpty()) {
                     // Use the best quad directly (no fusion needed for single image)
@@ -410,7 +407,7 @@ class CameraViewModel(
                 clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
 
                 val (cannyHigh, cannyLow) = thresholdCalculator.computeThreshold(matBundle.getEnhanced())
-                updateParams(_pipelineParams.value.copyAsManual(
+                updateParams(_pipelineParams.value.copy(
                     cannyLow = cannyLow.toFloat(),
                     cannyHigh = cannyHigh.toFloat(),
                     cannyAutoDetect = true
@@ -428,7 +425,7 @@ class CameraViewModel(
      * uses the manual thresholds instead.
      */
     fun disableCannyAuto() {
-        _pipelineParams.value = _pipelineParams.value.copyAsManual(
+        _pipelineParams.value = _pipelineParams.value.copy(
             cannyAutoDetect = false
         )
     }

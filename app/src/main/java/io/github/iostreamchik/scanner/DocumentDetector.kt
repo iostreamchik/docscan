@@ -37,7 +37,7 @@ import kotlin.math.sqrt
  */
 class DocumentDetector(
     private val matBundle: IMatBundle,
-    private val params: PipelineParams = PipelineParams.Auto,
+    private val params: PipelineParams = PipelineParams(),
     private val thresholdCalculator: ICannyThresholdCalculator? = null
 ) {
 
@@ -66,7 +66,7 @@ class DocumentDetector(
         previews["Median Blur"] = matBundle.getBlurred().toBitmap().copy(Bitmap.Config.ARGB_8888, false)
 
         // --- CLAHE (auto when params is Auto, user-configured when set) ---
-        val claheClipLimit: Double = if (params is PipelineParams.Auto) {
+        val claheClipLimit: Double = if (params.isAuto) {
             // Brightness-adaptive: dimmer scenes → stronger contrast enhancement
             val meanVal = Core.mean(matBundle.getBlurred())
             val brightness = meanVal.`val`[0].coerceIn(0.0, 255.0)
@@ -132,8 +132,7 @@ class DocumentDetector(
         rawMat: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
-        params: PipelineParams,
-        useAutoParams: Boolean
+        params: PipelineParams
     ): Mat {
         // --- Resize + Grayscale ---
         val smallMat = Mat()
@@ -155,7 +154,7 @@ class DocumentDetector(
         Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
 
         // --- CLAHE (auto when params is Auto, user-configured or brightness-adaptive) ---
-        val useAutoClahe = params is PipelineParams.Auto
+        val useAutoClahe = params.isAuto
         val claheClipLimit: Double = if (useAutoClahe) {
             // Brightness-adaptive: dimmer scenes → stronger contrast enhancement
             val brightness = avgBrightness.coerceIn(0.0, 255.0)
@@ -174,7 +173,7 @@ class DocumentDetector(
         // --- Morph Close (contrast-gated skip) ---
         Core.meanStdDev(matBundle.getEnhanced(), matBundle.getMean(), matBundle.getStd())
         val enhancedContrast = matBundle.getStd().toArray()[0]
-        val skipMorphClose = useAutoParams && enhancedContrast < 25.0
+        val skipMorphClose = params.isAuto && enhancedContrast < 25.0
 
         Log.d("DocScan", "  Morph Close: kernel=${p.morphCloseSize}, enhancedContrast=${"%.1f".format(enhancedContrast)}, skip=$skipMorphClose")
 
@@ -192,7 +191,7 @@ class DocumentDetector(
         }
 
         // --- Canny ---
-        var (cannyHigh, cannyLow) = if (useAutoParams) {
+        var (cannyHigh, cannyLow) = if (params.isAuto) {
             thresholdCalculator?.computeThreshold(matBundle.getEnhanced())
                 ?: Pair(p.cannyHigh.toDouble(), p.cannyLow.toDouble())
         } else if (p.cannyAutoDetect) {
@@ -202,14 +201,7 @@ class DocumentDetector(
             Pair(p.cannyHigh.toDouble(), p.cannyLow.toDouble())
         }
 
-        Log.d("DocScan", "  Canny: low=${"%.0f".format(cannyLow)}, high=${"%.0f".format(cannyHigh)}, autoDetect=${p.cannyAutoDetect}, useAutoParams=$useAutoParams")
-
-        // Auto-fallback: if Otsu produced thresholds > 100, scale down
-        if (!useAutoParams && p.cannyAutoDetect && cannyHigh > 100.0) {
-            Log.d("DocScan", "  Canny auto-fallback: scaling down high=${"%.0f".format(cannyHigh)} -> 50.0, low=${"%.0f".format(cannyLow)} -> 25.0")
-            cannyHigh = 50.0
-            cannyLow = cannyHigh * 0.5
-        }
+        Log.d("DocScan", "  Canny: low=${"%.0f".format(cannyLow)}, high=${"%.0f".format(cannyHigh)}, autoDetect=${p.cannyAutoDetect}, mode=${if (params.isAuto) "Auto" else "Manual"}")
         _detectionParams.value = _detectionParams.value.copy(
             cannyHigh = cannyHigh.toInt().toString(),
             cannyLow = cannyLow.toInt().toString()
@@ -277,7 +269,8 @@ class DocumentDetector(
         scaledWidth: Int,
         scaledHeight: Int,
         originalWidth: Int,
-        originalHeight: Int
+        originalHeight: Int,
+        params: PipelineParams = this.params
     ): MatOfPoint? {
         val contours = mutableListOf<MatOfPoint>()
         Imgproc.findContours(

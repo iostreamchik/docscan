@@ -68,7 +68,7 @@ class PipelineSettingsViewModel(
     private val _hasDetectedDocument = MutableStateFlow(false)
     val hasDetectedDocument: StateFlow<Boolean> = _hasDetectedDocument.asStateFlow()
 
-    private var _currentParams = MutableStateFlow<PipelineParams>(PipelineParams.Auto)
+    private var _currentParams = MutableStateFlow<PipelineParams>(PipelineParams())
     val currentParams: StateFlow<PipelineParams> = _currentParams.asStateFlow()
 
     private val _avgBrightness = MutableStateFlow<Double?>(null)
@@ -119,7 +119,7 @@ class PipelineSettingsViewModel(
      * Reset all parameters to defaults and reprocess.
      */
     fun resetParams(context: Context) {
-        updateParams(PipelineParams.Auto, context)
+        updateParams(PipelineParams(), context)
     }
 
     /**
@@ -190,7 +190,7 @@ class PipelineSettingsViewModel(
 
         try {
             // Preprocess: resize → grayscale → blur → CLAHE → morph → Canny → strong close → directional suppression
-            detector.preprocessWithAdaptiveCLAHE(mat, scaledWidth, scaledHeight, params, false)
+            detector.preprocessWithAdaptiveCLAHE(mat, scaledWidth, scaledHeight, params)
 
             // Capture brightness/contrast from the grayscale step
             Core.meanStdDev(matBundle.getGray(), matBundle.getMean(), matBundle.getStd())
@@ -203,7 +203,8 @@ class PipelineSettingsViewModel(
                 scaledWidth = scaledWidth,
                 scaledHeight = scaledHeight,
                 originalWidth = originalWidth,
-                originalHeight = originalHeight
+                originalHeight = originalHeight,
+                params = params
             )
 
             if (bestQuad != null) {
