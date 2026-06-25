@@ -37,6 +37,11 @@ interface IMatBundle {
     fun getOtsuBlur(): Mat
     fun getOtsuThreshold(): Mat
 
+    // Sobel gradient pipeline (CannyThresholdCalculatorV2)
+    fun getSobelX(): Mat
+    fun getSobelY(): Mat
+    fun getGradMag(): Mat
+
     fun releaseAll()
 }
 
@@ -73,6 +78,11 @@ class MatBundle : IMatBundle {
     private var _otsuBlur: Mat = Mat()
     private var _otsuThreshold: Mat = Mat()
 
+    // Sobel gradient pipeline (CannyThresholdCalculatorV2)
+    private var _sobelX: Mat = Mat()
+    private var _sobelY: Mat = Mat()
+    private var _gradMag: Mat = Mat()
+
     override fun getGray(): Mat = _gray
     override fun getBlurred(): Mat = _blurred
     override fun getEnhanced(): Mat = _enhanced
@@ -96,6 +106,9 @@ class MatBundle : IMatBundle {
 
     override fun getOtsuBlur(): Mat = _otsuBlur
     override fun getOtsuThreshold(): Mat = _otsuThreshold
+    override fun getSobelX(): Mat = _sobelX
+    override fun getSobelY(): Mat = _sobelY
+    override fun getGradMag(): Mat = _gradMag
 
     override fun getGrayGaussian(): Mat = _grayGaussian
     override fun getHorizontalClose(): Mat = _horizontalClose
@@ -129,5 +142,9 @@ class MatBundle : IMatBundle {
 
         _otsuBlur.release()
         _otsuThreshold.release()
+
+        _sobelX.release()
+        _sobelY.release()
+        _gradMag.release()
     }
 }

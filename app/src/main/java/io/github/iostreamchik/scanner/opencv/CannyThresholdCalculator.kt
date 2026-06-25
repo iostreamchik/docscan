@@ -1,22 +1,25 @@
 package io.github.iostreamchik.scanner.opencv
 
+import org.opencv.core.Core
+import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
-import kotlin.math.max
 
 /**
- * Interface for computing adaptive Canny edge thresholds using Otsu's method
- * with temporal EMA smoothing and a fixed low/high ratio.
+ * Interface for computing adaptive Canny edge thresholds using gradient-based
+ * Otsu's method with temporal EMA smoothing and a configurable low/high ratio.
  */
 interface ICannyThresholdCalculator {
     /**
-     * Computes cannyHigh and cannyLow thresholds from a grayscale frame.
-     * Uses Otsu's method for bimodal document/background scenes, EMA smoothing
-     * for temporal stability, and a fixed 1:2 ratio (low = high * 0.5) for
-     * Canny hysteresis.
+     * Computes cannyHigh and cannyLow thresholds from a pre-processed grayscale frame.
+     * The input should be the SAME image Canny will run on (after CLAHE, morph,
+     * and pre-Canny blur) so that Otsu gradient statistics match actual edge strength.
      *
-     * @param grayMat Single-channel grayscale matrix
+     * Uses Sobel gradient magnitude + Otsu for edge-strength-aligned thresholds,
+     * EMA smoothing for temporal stability, and a 0.25 ratio for Canny hysteresis.
+     *
+     * @param processedMat Pre-processed single-channel grayscale matrix (already blurred)
      * @return Pair of (cannyHigh, cannyLow) thresholds
      */
     fun computeThreshold(grayMat: Mat): Pair<Double, Double>
@@ -35,14 +38,13 @@ interface ICannyThresholdCalculator {
 /**
  * Default implementation of ICannyThresholdCalculator.
  *
- * Uses Otsu's method for bimodal document/background scenes, EMA smoothing
- * for temporal stability, and a fixed 1:2 ratio (low = high * 0.5) for
- * Canny hysteresis edge linking.
+ * Computes Otsu on the Sobel gradient magnitude (|Gx| + |Gy|) rather than raw
+ * pixel intensities. This aligns the threshold with what Canny actually measures
+ * — gradient strength — which is critical for bright images where intensity-based
+ * Otsu returns values (150-220) far above actual edge gradients (20-60).
  *
- * Otsu is ideal for document scanning because the histogram naturally separates
- * the white document from the darker background into two peaks. No hard clamp
- * is applied — Otsu produces sensible thresholds across a wide range of lighting.
- * Only a gentle floor (10.0) prevents near-zero thresholds in pathological cases.
+ * EMA smoothing provides temporal stability; a [ThresholdFloor, ThresholdCeiling]
+ * band prevents pathological thresholds in extreme lighting.
  *
  * @param matBundle Pre-allocated OpenCV matrix pool for zero-allocation processing
  * @param emaAlpha Exponential moving average alpha (0.0–1.0). Lower = smoother but slower to adapt.
@@ -54,41 +56,50 @@ class CannyThresholdCalculator(
 
     private var smoothedHigh = -1.0
 
-    // Fixed 1:2 ratio for Canny hysteresis (classic recommendation)
-    private val LowHighRatio = 0.5
+    // Ratio for Canny hysteresis.
+    private val LowHighRatio = 0.25
 
-    // Gentle floor to prevent near-zero thresholds in extreme overexposure
+    // Floor prevents pathological thresholds in extreme lighting.
     private val ThresholdFloor = 10.0
 
-    override fun computeThreshold(grayMat: Mat): Pair<Double, Double> {
-        // Step 1: Light 3×3 Gaussian blur to collapse high-frequency noise while
-        // preserving the document boundary signal in the histogram.
-        Imgproc.GaussianBlur(grayMat, matBundle.getOtsuBlur(), Size(3.0, 3.0), 1.0)
+    // Ceiling prevents extreme thresholds.
+    private val ThresholdCeiling = 80.0
 
-        // Step 2: Otsu's method — ideal for bimodal document/background scenes.
-        // Finds the natural separation between the white document and darker background.
+    // Reusable Sobel mats to avoid per-frame allocation
+    private val gradX: Mat = Mat()
+    private val gradY: Mat = Mat()
+
+    override fun computeThreshold(processedMat: Mat): Pair<Double, Double> {
+        // Input is already the pre-Canny blurred enhanced image — no extra blur needed.
+        // Sobel gradients on this image directly match what Canny will measure.
+        Imgproc.Sobel(processedMat, gradX, CvType.CV_32F, 1, 0, 3)
+        Imgproc.Sobel(processedMat, gradY, CvType.CV_32F, 0, 1, 3)
+
+        // Step 3: Combine |Gx| + |Gy| as a fast gradient magnitude approximation.
+        // (L1 norm is faster than sqrt(Gx² + Gy²) and sufficient for Otsu histogram.)
+        Core.convertScaleAbs(gradX, matBundle.getOtsuThreshold(), 1.0, 0.0)
+        Core.convertScaleAbs(gradY, matBundle.getTemp(), 1.0, 0.0)
+        Core.add(matBundle.getOtsuThreshold(), matBundle.getTemp(), matBundle.getOtsuThreshold())
+
+        // Step 4: Otsu on gradient magnitude histogram.
         val rawOtsu = Imgproc.threshold(
-            matBundle.getOtsuBlur(),
             matBundle.getOtsuThreshold(),
+            matBundle.getTemp(),
             0.0, 255.0,
             Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
         )
 
-        // Step 3: Temporal EMA smoothing on the Otsu threshold to prevent frame-to-frame
-        // flicker while still adapting to lighting changes.
+        // Step 5: Temporal EMA smoothing to prevent frame-to-frame flicker.
         smoothedHigh = if (smoothedHigh < 0.0) {
             rawOtsu
         } else {
             (emaAlpha * rawOtsu) + ((1.0 - emaAlpha) * smoothedHigh)
         }
 
-        // Step 4: Gentle floor to prevent near-zero thresholds in extreme overexposure.
-        // No ceiling — Otsu naturally produces sensible thresholds across a wide
-        // range of lighting conditions (no arbitrary [50, 100] clamp).
-        val finalHigh = max(smoothedHigh, ThresholdFloor)
+        // Step 6: Clamp to [floor, ceiling] band.
+        val finalHigh = smoothedHigh.coerceIn(ThresholdFloor, ThresholdCeiling)
 
-        // Step 5: Fixed 1:2 ratio for Canny hysteresis edge linking.
-        // Classic Canny recommendation — low threshold is half the high.
+        // Step 7: Ratio for Canny hysteresis.
         val finalLow = finalHigh * LowHighRatio
 
         return Pair(finalHigh, finalLow)
@@ -99,6 +110,7 @@ class CannyThresholdCalculator(
     }
 
     override fun release() {
-        // No owned resources — MatBundle handles its own cleanup
+        gradX.release()
+        gradY.release()
     }
 }

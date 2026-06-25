@@ -1,24 +1,19 @@
 package io.github.iostreamchik.scanner
 
-import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculator
-import io.github.iostreamchik.scanner.opencv.MockMatBundle
 import org.junit.Test
 
 class DocumentDetectorTest {
 
-    val detector  = DocumentDetector(
-        matBundle = MockMatBundle(),
-        thresholdCalculator = CannyThresholdCalculator(
-            matBundle = MockMatBundle()
-        )
-    )
-
     @Test
-    fun calculateClacheClipLimit() {
-        val brightnesses = arrayOf(60.0, 120.0, 130.0, 140.0, 150.0, 160.0, 170.0)
-        brightnesses.forEachIndexed { index, item ->
-            println("brightness: $item -> ${detector.calculateClacheClipLimit(item)}")
-        }
+    fun computeAutoClaheClipLimit() {
+        // Dim: strong boost
+        assert(DocumentDetector.computeAutoClaheClipLimit(40.0) > 3.0)
+        // Mid-range: baseline
+        assert(DocumentDetector.computeAutoClaheClipLimit(100.0) == 1.5)
+        // Bright: boosted
+        assert(DocumentDetector.computeAutoClaheClipLimit(180.0) > 2.5)
+        // Caps at 4.0
+        assert(DocumentDetector.computeAutoClaheClipLimit(250.0) <= 4.0)
     }
 
 }

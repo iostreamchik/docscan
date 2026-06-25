@@ -1,16 +1,17 @@
 package io.github.iostreamchik.scanner.opencv
 
 data class PipelineParams(
-    val isAuto: Boolean = true,
+    val isClaheAuto: Boolean = true,
+    val isCannyAuto: Boolean = true,
     // Blur
     val medianBlurKsize: Int = 5,
 
     // CLAHE
-    val claheClipLimit: Float = 0.5f,
+    val claheClipLimit: Float = 1.5f,
     val claheTileSize: Int = 8,
 
     // Morph Close (pre-Canny)
-    val morphCloseSize: Int = 3,
+    val morphCloseSize: Int = 5,
 
     // Canny
     val cannyLow: Float = 0f,

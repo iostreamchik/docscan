@@ -2,6 +2,7 @@ package io.github.iostreamchik.scanner
 
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
+import kotlin.math.abs
 import kotlin.math.hypot
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import io.github.iostreamchik.scanner.opencv.*
@@ -19,7 +20,7 @@ fun scoreContour(
     width: Int,
     height: Int
 ): Double {
-    val area = org.opencv.imgproc.Imgproc.contourArea(contour)
+    val area = abs(org.opencv.imgproc.Imgproc.contourArea(contour))
 
     val center = org.opencv.imgproc.Imgproc.boundingRect(contour).let {
         Point(it.x + it.width / 2.0, it.y + it.height / 2.0)
@@ -56,7 +57,7 @@ fun scoreContourWithParams(
     height: Int,
     params: PipelineParams
 ): Double {
-    val area = org.opencv.imgproc.Imgproc.contourArea(contour)
+    val area = abs(org.opencv.imgproc.Imgproc.contourArea(contour))
 
     val center = org.opencv.imgproc.Imgproc.boundingRect(contour).let {
         Point(it.x + it.width / 2.0, it.y + it.height / 2.0)
@@ -75,9 +76,9 @@ fun scoreContourWithParams(
     val areaRatio = area / frameArea
     // Smooth interpolation: 1.0 at areaRatio <= 0.02, linearly down to 0.2 at areaRatio >= 0.5
     val areaRatioScore = when {
-        areaRatio <= 0.02f -> 1.0
-        areaRatio >= 0.5  -> 0.2
-        else               -> 1.0 - ((areaRatio - 0.02) / 0.48) * 0.8
+        areaRatio <= 0.02 -> 1.0
+        areaRatio >= 0.5 -> 0.2
+        else -> 1.0 - ((areaRatio - 0.02) / 0.48) * 0.8
     }
 
     return area * params.scoreAreaWeight +

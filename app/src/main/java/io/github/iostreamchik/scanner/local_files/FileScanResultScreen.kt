@@ -5,6 +5,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,16 +24,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ImageSearch
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,8 +45,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.material3.ExperimentalMaterial3Api
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -54,15 +56,13 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.BitmapCard
+import io.github.iostreamchik.scanner.DetectionParameters
 import io.github.iostreamchik.scanner.camera.CameraViewModel
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
+import io.github.iostreamchik.scanner.opencv.PipelineParams
 import io.github.iostreamchik.scanner.pipeline.ParameterSlider
 import io.github.iostreamchik.scanner.pipeline.debounceFloat
 import io.github.iostreamchik.scanner.pipeline.debounceInt
-import androidx.compose.runtime.rememberCoroutineScope
-import io.github.iostreamchik.scanner.DetectionParameters
-import io.github.iostreamchik.scanner.opencv.PipelineParams
-import io.github.iostreamchik.scanner.opencv.*
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -70,6 +70,7 @@ import kotlinx.coroutines.flow.StateFlow
  * after a file-based scan completes.
  * Also shows configurable pipeline parameters without previews.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FileScanResultScreen(
     modifier: Modifier = Modifier,
@@ -79,7 +80,8 @@ fun FileScanResultScreen(
     val context = LocalContext.current
 
     val currentParams by viewModel.pipelineParams.collectAsStateWithLifecycle()
-    val coroutineScope = rememberCoroutineScope()
+    val error by viewModel.errorState.collectAsStateWithLifecycle()
+    val isProcessing by viewModel.isProcessing.collectAsStateWithLifecycle()
 
     val pickMediaLauncher = rememberLauncherForActivityResult(
         contract = PickVisualMedia()
@@ -89,30 +91,46 @@ fun FileScanResultScreen(
         }
     }
 
+    // Single reprocess trigger: fires once (debounced) whenever params change.
+    // Decoupled from individual section callbacks so sections don't fight.
+    var reprocessKey by remember { mutableIntStateOf(0) }
+    LaunchedEffect(reprocessKey) {
+        kotlinx.coroutines.delay(400) // debounce rapid param changes
+        viewModel.reprocessPickedDocument(context)
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .systemBarsPadding()
-            ) {
-                IconButton(
-                    onClick = onBack,
-                    modifier = Modifier.align(Alignment.CenterStart)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Default.ArrowBack,
-                        contentDescription = "Back to camera"
-                    )
+            TopAppBar(
+                title = {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Scan Result",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        )
+                        if (isProcessing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
                 }
-                Text(
-                    text = "Scan Result",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            }
+            )
         },
         floatingActionButton = {
             FloatingActionButton(
@@ -134,13 +152,35 @@ fun FileScanResultScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.Center
         ) {
+            // Error banner
+            error?.let { msg ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                ) {
+                    Text(
+                        text = msg,
+                        color = Color.Red,
+                        modifier = Modifier
+                            .background(Color.Red.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    )
+                }
+            }
+
+            val blurBitmap by viewModel.blurBitmap.collectAsStateWithLifecycle()
+            val claheBitmap by viewModel.claheBitmap.collectAsStateWithLifecycle()
+            val morphBitmap by viewModel.morphBitmap.collectAsStateWithLifecycle()
             val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
             val originalBitmap by viewModel.originalBitmap.collectAsStateWithLifecycle()
             val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
+            val hasImage = originalBitmap != null
             AnimatedContent(
-                targetState = originalBitmap == null
-            ) { isEmpty ->
-                if (isEmpty) {
+                targetState = hasImage,
+                label = "file_scan_content"
+            ) { hasLoaded ->
+                if (!hasLoaded) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -148,15 +188,13 @@ fun FileScanResultScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudUpload,
-                            contentDescription = null,
+                        CircularProgressIndicator(
                             modifier = Modifier.size(80.dp),
-                            tint = Color(0xFF9E9E9E)
+                            strokeWidth = 6.dp
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Select a file",
+                            text = if (isProcessing) "Processing..." else "Select a file",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Medium,
                             color = Color(0xFF757575)
@@ -176,7 +214,75 @@ fun FileScanResultScreen(
                         }
                     }
                 } else {
-                    Column() {
+                    Column {
+                        // Intermediate pipeline stages
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Median Blur
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "Blur",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                blurBitmap?.let { bmp ->
+                                    BitmapCard(
+                                        bitmap = bmp,
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth().height(100.dp)
+                                    )
+                                }
+                            }
+
+                            // CLAHE
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "CLAHE",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                claheBitmap?.let { bmp ->
+                                    BitmapCard(
+                                        bitmap = bmp,
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth().height(100.dp)
+                                    )
+                                }
+                            }
+
+                            // Morph Close
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "Morph",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                morphBitmap?.let { bmp ->
+                                    BitmapCard(
+                                        bitmap = bmp,
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth().height(100.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Final results row
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -196,7 +302,7 @@ fun FileScanResultScreen(
                                     BitmapCard(
                                         bitmap = bmp,
                                         shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier.fillMaxWidth().height(100.dp)
                                     )
                                 }
                             }
@@ -216,7 +322,7 @@ fun FileScanResultScreen(
                                     BitmapCard(
                                         bitmap = bmp,
                                         shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier.fillMaxWidth().height(100.dp)
                                     )
                                 }
                             }
@@ -236,12 +342,14 @@ fun FileScanResultScreen(
                                     BitmapCard(
                                         bitmap = bmp,
                                         shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier.fillMaxWidth().height(100.dp)
                                     )
                                 }
                             }
                         }
                         Spacer(modifier = Modifier.height(16.dp))
+
+                        // Pipeline parameters — fills remaining space, scrolls independently
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -260,17 +368,15 @@ fun FileScanResultScreen(
                                 detectionParams = viewModel.detector.detectionParams,
                                 onParamsChange = { newParams ->
                                     viewModel.updateParams(newParams)
-                                    viewModel.reprocessPickedDocument(context)
+                                    reprocessKey++ // trigger debounced reprocess
                                 },
-                                enableCannyAuto = {
-                                    coroutineScope.launch {
-                                        viewModel.enableCannyAuto(context)
-                                    }
+                                onEnableCannyAuto = {
+                                    viewModel.enableCannyAuto()
+                                    reprocessKey++
                                 },
-                                disableCannyAuto = {
-                                    coroutineScope.launch {
-                                        viewModel.disableCannyAuto()
-                                    }
+                                onDisableCannyAuto = {
+                                    viewModel.disableCannyAuto()
+                                    reprocessKey++
                                 },
                             )
                         }
@@ -286,8 +392,8 @@ private fun PipelineParametersSection(
     params: PipelineParams,
     detectionParams: StateFlow<DetectionParameters>,
     onParamsChange: (PipelineParams) -> Unit,
-    enableCannyAuto: () -> Unit,
-    disableCannyAuto: () -> Unit,
+    onEnableCannyAuto: () -> Unit,
+    onDisableCannyAuto: () -> Unit,
 ) {
     val p = params
 
@@ -295,10 +401,10 @@ private fun PipelineParametersSection(
     // This prevents other sections' debounce effects (which capture a stale `params`
     // reference) from overwriting CLAHE mode with hardcoded defaults when emitting.
     var preservedClaheClipLimit by remember {
-        mutableFloatStateOf(if (params.isAuto.not()) params.claheClipLimit else 0.5f)
+        mutableFloatStateOf(if (params.isClaheAuto.not()) params.claheClipLimit else 0.5f)
     }
     var preservedClaheTileSize by remember {
-        mutableIntStateOf(if (params.isAuto.not()) params.claheTileSize else 8)
+        mutableIntStateOf(if (params.isClaheAuto.not()) params.claheTileSize else 8)
     }
 
     // Shared debounced CLAHE values — defined at section level so other sections
@@ -320,11 +426,15 @@ private fun PipelineParametersSection(
             val debouncedKernel = debounceInt(kernelSize, 300)
             LaunchedEffect(debouncedKernel) {
                 if (debouncedKernel != p.medianBlurKsize) {
-                    // Preserve current CLAHE values so this emit doesn't overwrite
-                    // CLAHE mode with hardcoded defaults from the stale `params` ref
                     preservedClaheClipLimit = debouncedClip
                     preservedClaheTileSize = debouncedTile
-                    onParamsChange(p.copy(medianBlurKsize = debouncedKernel))
+                    onParamsChange(
+                        p.copy(
+                            medianBlurKsize = debouncedKernel,
+                            claheClipLimit = preservedClaheClipLimit,
+                            claheTileSize = preservedClaheTileSize
+                        )
+                    )
                 }
             }
             ParameterSlider(
@@ -345,24 +455,25 @@ private fun PipelineParametersSection(
             stageName = "CLAHE",
         ) {
             val autoParams by detectionParams.collectAsStateWithLifecycle()
-            var modeAuto by remember { mutableStateOf(params.isAuto) }
+            var modeAuto by remember { mutableStateOf(params.isClaheAuto) }
 
             // Sync display values when params change externally (e.g., enableCannyAuto).
             // Does NOT update modeAuto or preservedClahe values — those are managed
             // by the effect below, which compares against preserved values to avoid
             // re-emitting stale debounced values after external params changes.
             LaunchedEffect(params) {
-                modeAuto = params.isAuto
+                modeAuto = params.isClaheAuto
                 claheDisplayClip = p.claheClipLimit
                 claheDisplayTile = p.claheTileSize
             }
 
             LaunchedEffect(modeAuto, debouncedClip, debouncedTile) {
                 if (modeAuto) {
-                    // Preserve current debounced values before switching to auto
+                    // Preserve current debounced values before switching to auto.
+                    // Use p.copy() to keep all other sections' params intact.
                     preservedClaheClipLimit = debouncedClip
                     preservedClaheTileSize = debouncedTile
-                    onParamsChange(PipelineParams())
+                    onParamsChange(p.copy(isClaheAuto = true))
                 } else {
                     // Compare against preserved values, not current params,
                     // to avoid re-emitting after external params changes
@@ -371,7 +482,7 @@ private fun PipelineParametersSection(
                     if (hasChanged) {
                         onParamsChange(
                             p.copy(
-                                isAuto = false,
+                                isClaheAuto = false,
                                 claheClipLimit = debouncedClip,
                                 claheTileSize = debouncedTile
                             )
@@ -443,7 +554,13 @@ private fun PipelineParametersSection(
                 if (debouncedKernel != p.morphCloseSize) {
                     preservedClaheClipLimit = debouncedClip
                     preservedClaheTileSize = debouncedTile
-                    onParamsChange(p.copy(morphCloseSize = debouncedKernel))
+                    onParamsChange(
+                        p.copy(
+                            morphCloseSize = debouncedKernel,
+                            claheClipLimit = preservedClaheClipLimit,
+                            claheTileSize = preservedClaheTileSize
+                        )
+                    )
                 }
             }
             ParameterSlider(
@@ -483,9 +600,11 @@ private fun PipelineParametersSection(
                     preservedClaheTileSize = debouncedTile
                     onParamsChange(
                         p.copy(
-                            isAuto = false,
+                            isCannyAuto = false,
                             cannyLow = debouncedLow,
-                            cannyHigh = debouncedHigh
+                            cannyHigh = debouncedHigh,
+                            claheClipLimit = preservedClaheClipLimit,
+                            claheTileSize = preservedClaheTileSize
                         )
                     )
                 }
@@ -527,7 +646,7 @@ private fun PipelineParametersSection(
                 onValueChange = { highThreshold = it }
             )
 
-            // Auto-detect switch — wired to new enable/disable methods
+            // Auto-detect switch
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -545,12 +664,11 @@ private fun PipelineParametersSection(
                     checked = p.cannyAutoDetect,
                     onCheckedChange = { newValue ->
                         if (newValue) {
-                            enableCannyAuto()
+                            onEnableCannyAuto()
                         } else {
-                            disableCannyAuto()
+                            onDisableCannyAuto()
                         }
-                    },
-                    enabled = true
+                    }
                 )
             }
         }
@@ -565,7 +683,13 @@ private fun PipelineParametersSection(
                 if (debouncedKernel != p.strongCloseSize) {
                     preservedClaheClipLimit = debouncedClip
                     preservedClaheTileSize = debouncedTile
-                    onParamsChange(p.copy(strongCloseSize = debouncedKernel))
+                    onParamsChange(
+                        p.copy(
+                            strongCloseSize = debouncedKernel,
+                            claheClipLimit = preservedClaheClipLimit,
+                            claheTileSize = preservedClaheTileSize
+                        )
+                    )
                 }
             }
             ParameterSlider(
@@ -594,7 +718,9 @@ private fun PipelineParametersSection(
                     preservedClaheTileSize = debouncedTile
                     onParamsChange(
                         p.copy(
-                            directionalKernelSize = debouncedKernel
+                            directionalKernelSize = debouncedKernel,
+                            claheClipLimit = preservedClaheClipLimit,
+                            claheTileSize = preservedClaheTileSize
                         )
                     )
                 }

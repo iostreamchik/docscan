@@ -11,15 +11,16 @@ import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.iostreamchik.scanner.DocumentDetector
+import io.github.iostreamchik.scanner.PROCESS_WIDTH
 import io.github.iostreamchik.scanner.enhanceDocument
 import io.github.iostreamchik.scanner.fixRotation
 import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculator
+import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculatorV3
 import io.github.iostreamchik.scanner.sortQuadPoints
 import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
-import io.github.iostreamchik.scanner.opencv.*
 import io.github.iostreamchik.scanner.quadDistance
 import io.github.iostreamchik.scanner.quadHash
 import io.github.iostreamchik.scanner.toBitmap
@@ -45,7 +46,7 @@ import kotlin.math.max
 
 class CameraViewModel(
     private val matBundle: IMatBundle = MatBundle(),
-    private val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculator(matBundle),
+    private val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculatorV3(matBundle),
     val detector: DocumentDetector = DocumentDetector(matBundle, thresholdCalculator = thresholdCalculator)
 ) : ViewModel() {
 
@@ -57,11 +58,18 @@ class CameraViewModel(
     private var frameCounter = 0
     private val STABILITY_CHECK_INTERVAL = 3
 
-    private val PROCESS_WIDTH = 640.0
-
     // Cache: skip re-warping when the same quad is detected repeatedly
     private var lastWarpedQuadHash: Long = 0
     private var lastWarpedBitmap: Bitmap? = null
+
+    private val _blurBitmap = MutableStateFlow<Bitmap?>(null)
+    val blurBitmap = _blurBitmap.asStateFlow()
+
+    private val _claheBitmap = MutableStateFlow<Bitmap?>(null)
+    val claheBitmap = _claheBitmap.asStateFlow()
+
+    private val _morphBitmap = MutableStateFlow<Bitmap?>(null)
+    val morphBitmap = _morphBitmap.asStateFlow()
 
     private val _filteredBitmap = MutableStateFlow<Bitmap?>(null)
     val filteredBitmap = _filteredBitmap.asStateFlow()
@@ -89,6 +97,9 @@ class CameraViewModel(
 
     private val _errorState = MutableStateFlow<String?>(null)
     val errorState = _errorState.asStateFlow()
+
+    private val _isProcessing = MutableStateFlow(false)
+    val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
 
     // Store last picked URI for reprocessing
     private var lastPickedUri: Uri? = null
@@ -240,13 +251,19 @@ class CameraViewModel(
 
         try {
             // Preprocess: resize → grayscale → blur → CLAHE → morph → Canny → strong close → directional suppression
-            detector.preprocessWithAdaptiveCLAHE(mat, scaledWidth, scaledHeight, params)
+            detector.preprocess(mat, scaledWidth, scaledHeight, params)
 
-            // Set filtered bitmap from the morph result
-            // Clone before emitting to StateFlow so Compose gets its own independent copy
-            // that won't be affected by recycling in clearBitmaps() or a subsequent call.
-            _filteredBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
+            // Capture intermediate stage previews before releaseAll().
+            // Clone before emitting to StateFlow so Compose gets its own independent copy.
+            _blurBitmap.value = matBundle.getBlurred().fixRotation(rotation).toBitmap()
                 .copy(Bitmap.Config.ARGB_8888, false)
+            _claheBitmap.value = matBundle.getEnhanced().fixRotation(rotation).toBitmap()
+                .copy(Bitmap.Config.ARGB_8888, false)
+            _morphBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
+                .copy(Bitmap.Config.ARGB_8888, false)
+
+            // Set filtered bitmap from the morph result (alias of morph for backward compatibility)
+            _filteredBitmap.value = _morphBitmap.value
 
             // Detect document
             val bestQuad = detector.detectQuad(
@@ -277,13 +294,17 @@ class CameraViewModel(
     }
 
     fun processPickedDocument(context: Context, uri: Uri, onScanComplete: () -> Unit) {
+        _isProcessing.value = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 lastPickedUri = uri
-                // Clear stale filtered bitmap from camera scanner
+                // Clear stale intermediate stage bitmaps from camera scanner
                 // Don't recycle — the new value is a clone, so the old one can be
                 // safely discarded without recycling to avoid a race condition
                 // with Compose composition.
+                _blurBitmap.value = null
+                _claheBitmap.value = null
+                _morphBitmap.value = null
                 _filteredBitmap.value = null
 
                 val sourceBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -347,6 +368,8 @@ class CameraViewModel(
 
             } catch (e: Exception) {
                 Log.e("CameraViewModel", "Error processing picked document", e)
+            } finally {
+                _isProcessing.value = false
             }
         }
     }
@@ -361,68 +384,20 @@ class CameraViewModel(
     }
 
     /**
-     * Compute auto Canny thresholds and reprocess the picked document with them.
-     * Updates currentParams flow so UI picks up new values automatically.
+     * Enable auto Canny detection. The actual reprocessing is handled by
+     * the caller (e.g., FileScanResultScreen's reprocessKey mechanism) to
+     * avoid double-processing when combined with param-change triggers.
+     * Thresholds are computed inside [DocumentDetector.preprocess] from the
+     * pre-Canny blurred enhanced image — no separate calculation needed here.
      */
-    suspend fun enableCannyAuto(context: Context) {
-        val uri = lastPickedUri ?: return
-        withContext(Dispatchers.IO) {
-            try {
-                val sourceBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    ImageDecoder.decodeBitmap(
-                        ImageDecoder.createSource(
-                            context.contentResolver,
-                            uri
-                        )
-                    ) { decoder, _, _ ->
-                        decoder.isMutableRequired = true
-                    }
-                } else {
-                    MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
-                }
-
-                val mat = Mat()
-                Utils.bitmapToMat(sourceBitmap, mat)
-
-                val originalWidth = mat.cols()
-                val originalHeight = mat.rows()
-                val maxDimension = max(originalWidth, originalHeight)
-                val scale = PROCESS_WIDTH / maxDimension
-                val scaledWidth = (originalWidth * scale)
-                val scaledHeight = (originalHeight * scale)
-
-                val smallMat = Mat()
-                Imgproc.resize(mat, smallMat, Size(scaledWidth, scaledHeight))
-                Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
-                smallMat.release()
-                mat.release()
-                sourceBitmap.recycle()
-
-                // Apply CLAHE to match the preprocessing pipeline — Canny runs on the
-                // enhanced image, so Otsu must also run on the enhanced image for correct thresholds.
-                val avgBrightness = Core.mean(matBundle.getGray()).`val`[0]
-                val claheClipLimit = detector.calculateClacheClipLimit(avgBrightness).coerceIn(0.5, 4.0)
-                val clahe = Imgproc.createCLAHE(claheClipLimit, Size(8.0, 8.0))
-                Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), 5)
-                clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
-
-                val (cannyHigh, cannyLow) = thresholdCalculator.computeThreshold(matBundle.getEnhanced())
-                updateParams(_pipelineParams.value.copy(
-                    cannyLow = cannyLow.toFloat(),
-                    cannyHigh = cannyHigh.toFloat(),
-                    cannyAutoDetect = true
-                ))
-                // Reprocess with newly computed auto-detect thresholds
-                processPickedDocument(context, uri) {}
-            } catch (e: Exception) {
-                Log.e("CameraViewModel", "Error in enableCannyAuto: ${e.message}")
-            }
-        }
+    fun enableCannyAuto() {
+        updateParams(_pipelineParams.value.copy(cannyAutoDetect = true))
     }
 
     /**
      * Disable auto Canny detection — set the flag to false so camera pipeline
-     * uses the manual thresholds instead.
+     * uses the manual thresholds instead. The actual reprocessing is handled
+     * by the caller to avoid double-processing.
      */
     fun disableCannyAuto() {
         _pipelineParams.value = _pipelineParams.value.copy(
@@ -444,6 +419,9 @@ class CameraViewModel(
         // PipelineSettingsViewModel). If we recycle while Compose is still reading
         // the old refs during composition, we get "Canvas: trying to use a recycled
         // bitmap" crashes.
+        _blurBitmap.value = null
+        _claheBitmap.value = null
+        _morphBitmap.value = null
         _filteredBitmap.value = null
         _originalBitmap.value = null
         _resultBitmap.value = null

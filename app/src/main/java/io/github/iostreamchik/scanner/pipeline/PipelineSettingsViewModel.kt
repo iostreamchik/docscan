@@ -10,12 +10,12 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.iostreamchik.scanner.DocumentDetector
+import io.github.iostreamchik.scanner.PROCESS_WIDTH
 import io.github.iostreamchik.scanner.calculateWarpedDimensions
 import io.github.iostreamchik.scanner.fixRotation
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
-import io.github.iostreamchik.scanner.opencv.*
 import io.github.iostreamchik.scanner.sharpen
 import io.github.iostreamchik.scanner.sortQuadPoints
 import io.github.iostreamchik.scanner.toBitmap
@@ -177,7 +177,7 @@ class PipelineSettingsViewModel(
         val originalWidth = mat.cols()
         val originalHeight = mat.rows()
         val maxDim = max(originalWidth, originalHeight)
-        val scale = 640.0 / maxDim
+        val scale = PROCESS_WIDTH / maxDim
         val scaledWidth = (originalWidth * scale).toInt()
         val scaledHeight = (originalHeight * scale).toInt()
 
@@ -190,7 +190,7 @@ class PipelineSettingsViewModel(
 
         try {
             // Preprocess: resize → grayscale → blur → CLAHE → morph → Canny → strong close → directional suppression
-            detector.preprocessWithAdaptiveCLAHE(mat, scaledWidth, scaledHeight, params)
+            detector.preprocess(mat, scaledWidth, scaledHeight, params)
 
             // Capture brightness/contrast from the grayscale step
             Core.meanStdDev(matBundle.getGray(), matBundle.getMean(), matBundle.getStd())

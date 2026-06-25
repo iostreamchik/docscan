@@ -202,39 +202,46 @@ fun Mat.enhanceDocument(): Mat {
     val lab = Mat()
     val result = Mat()
     val channels = ArrayList<Mat>()
-
-    // 1️⃣ RGBA → RGB (remove alpha)
-    Imgproc.cvtColor(this, rgb, Imgproc.COLOR_RGBA2RGB)
-
-    // 2️⃣ RGB → LAB
-    Imgproc.cvtColor(rgb, lab, Imgproc.COLOR_RGB2Lab)
-
-    // 3️⃣ Split channels
-    Core.split(lab, channels)
-
-    val l = channels[0]
-
-    // 4️⃣ Shadow removal (optional but powerful)
     val illumination = Mat()
-    Imgproc.GaussianBlur(l, illumination, Size(55.0, 55.0), 0.0)
-    Core.divide(l, illumination, l, 255.0)
-
-    // 5️⃣ CLAHE (contrast)
-    val clahe = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
-    clahe.apply(l, l)
-
-    // 6️⃣ Merge back
-    channels[0] = l
-    Core.merge(channels, lab)
-
-    // 7️⃣ LAB → RGB
-    Imgproc.cvtColor(lab, result, Imgproc.COLOR_Lab2RGB)
-
-    // 8️⃣ Optional sharpening
     val blurred = Mat()
-    Imgproc.GaussianBlur(result, blurred, Size(0.0, 0.0), 2.0)
 
-    Core.addWeighted(result, 1.3, blurred, -0.3, 0.0, result)
+    try {
+        // 1️⃣ RGBA → RGB (remove alpha)
+        Imgproc.cvtColor(this, rgb, Imgproc.COLOR_RGBA2RGB)
+
+        // 2️⃣ RGB → LAB
+        Imgproc.cvtColor(rgb, lab, Imgproc.COLOR_RGB2Lab)
+
+        // 3️⃣ Split channels
+        Core.split(lab, channels)
+
+        val l = channels[0]
+
+        // 4️⃣ Shadow removal (optional but powerful)
+        Imgproc.GaussianBlur(l, illumination, Size(55.0, 55.0), 0.0)
+        Core.divide(l, illumination, l, 255.0)
+
+        // 5️⃣ CLAHE (contrast)
+        val clahe = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
+        clahe.apply(l, l)
+
+        // 6️⃣ Merge back
+        channels[0] = l
+        Core.merge(channels, lab)
+
+        // 7️⃣ LAB → RGB
+        Imgproc.cvtColor(lab, result, Imgproc.COLOR_Lab2RGB)
+
+        // 8️⃣ Optional sharpening
+        Imgproc.GaussianBlur(result, blurred, Size(0.0, 0.0), 2.0)
+        Core.addWeighted(result, 1.3, blurred, -0.3, 0.0, result)
+    } finally {
+        channels.forEach { it.release() }
+        rgb.release()
+        lab.release()
+        illumination.release()
+        blurred.release()
+    }
 
     return result
 }
@@ -393,13 +400,22 @@ fun warpDocumentHighQuality(src: Mat, quad: MatOfPoint, rotationDegrees: Int): B
         )
 
         val transform = Imgproc.getPerspectiveTransform(srcPoints, dstPoints)
-        val output = Mat()
-        Imgproc.warpPerspective(src, output, transform, Size(outputWidth, outputHeight))
-        // Convert to Bitmap (applying existing extensions for rotation/enhancement)
-        output
-            .fixRotation(rotationDegrees)
-            .sharpen()
-            .toBitmap()
+        val warped = Mat()
+        Imgproc.warpPerspective(src, warped, transform, Size(outputWidth, outputHeight))
+
+        val rotated = warped.fixRotation(rotationDegrees)
+        val sharpened = rotated.sharpen()
+        val bitmap = sharpened.toBitmap()
+
+        // Release intermediates in reverse order
+        sharpened.release()
+        rotated.release()
+        warped.release()
+        transform.release()
+        srcPoints.release()
+        dstPoints.release()
+
+        bitmap
     } catch (e: Exception) {
         Log.e("Extensions", "Warp error: ${e.message}")
         null

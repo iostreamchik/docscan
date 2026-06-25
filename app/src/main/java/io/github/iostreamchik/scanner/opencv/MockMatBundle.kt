@@ -37,6 +37,10 @@ class MockMatBundle : IMatBundle {
     override fun getOtsuBlur(): Mat = emptyMat
     override fun getOtsuThreshold(): Mat = emptyMat
 
+    override fun getSobelX(): Mat = emptyMat
+    override fun getSobelY(): Mat = emptyMat
+    override fun getGradMag(): Mat = emptyMat
+
     override fun getGrayGaussian(): Mat = emptyMat
     override fun getHorizontalClose(): Mat = emptyMat
     override fun getVerticalClose(): Mat = emptyMat
