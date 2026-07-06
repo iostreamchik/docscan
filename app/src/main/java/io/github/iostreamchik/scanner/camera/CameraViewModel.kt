@@ -28,6 +28,8 @@ import io.github.iostreamchik.scanner.toMatRGBA
 import io.github.iostreamchik.scanner.toSortedQuad
 import io.github.iostreamchik.scanner.warpDocumentHighQuality
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +45,7 @@ import org.opencv.imgproc.Imgproc
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
+import kotlin.time.Duration.Companion.milliseconds
 
 class CameraViewModel(
     private val matBundle: IMatBundle = MatBundle(),
@@ -58,7 +61,6 @@ class CameraViewModel(
     private var frameCounter = 0
     private val STABILITY_CHECK_INTERVAL = 3
 
-    // Cache: skip re-warping when the same quad is detected repeatedly
     private var lastWarpedQuadHash: Long = 0
     private var lastWarpedBitmap: Bitmap? = null
 
@@ -339,7 +341,7 @@ class CameraViewModel(
                     // Use the best quad directly (no fusion needed for single image)
                     // Unlike live camera, we don't have multiple frames to average
                     val bestQuad = result.first()
-                    
+
                     // Warp using the detected quad
                     val warped = warpDocumentHighQuality(mat, bestQuad, rotation)
                     // Clone before emitting to StateFlow so Compose gets its own
@@ -378,9 +380,14 @@ class CameraViewModel(
      * Reprocess the last picked document with current pipeline parameters.
      * Called from FileScanResultScreen when parameters change.
      */
+    var processImageJob: Job? = null
     fun reprocessPickedDocument(context: Context) {
         val uri = lastPickedUri ?: return
-        processPickedDocument(context, uri) {}
+        processImageJob?.cancel()
+        processImageJob = viewModelScope.launch {
+            delay(500.milliseconds)
+            processPickedDocument(context, uri) {}
+        }
     }
 
     /**

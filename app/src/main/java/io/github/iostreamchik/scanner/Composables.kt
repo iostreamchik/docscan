@@ -1,22 +1,30 @@
 package io.github.iostreamchik.scanner
 
+import android.graphics.Bitmap
 import android.os.Build
 import android.view.RoundedCorner
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.createBitmap
 import io.github.iostreamchik.scanner.camera.ContourData
 import kotlin.math.max
 
@@ -42,27 +50,34 @@ fun rememberDeviceCornerRadiusDp(
 
 @Composable
 fun BitmapCard(
-    bitmap: android.graphics.Bitmap?,
     modifier: Modifier = Modifier,
-    shape: Shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+    bitmap: Bitmap?,
+    animated: Boolean = false
 ) {
-    bitmap?.let {
-        Card(
-            modifier = modifier,
-            shape = shape,
-            elevation = CardDefaults.cardElevation(8.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = Color.Transparent,
-            ),
-        ) {
-            // Don't use remember here — the Android framework caches ImageBitmap internally.
-            // Using remember(it) with a Bitmap object as key is unsafe: if the underlying
-            // Bitmap is recycled (e.g., lastWarpedBitmap recycled in CameraViewModel while
-            // the composable still holds a cached ImageBitmap from a previous composition),
-            // the stale ImageBitmap wrapper causes "Canvas: trying to use a recycled bitmap".
-            // Creating a fresh ImageBitmap each composition avoids this race condition.
+    Box(modifier = modifier) {
+        if (animated) {
+            val width = remember { mutableStateOf(0.dp) }
+            val density = LocalDensity.current
+            AnimatedContent(
+                targetState = bitmap,
+                transitionSpec = {fadeIn() togetherWith fadeOut()}
+            ) { bmp ->
+                if (bmp != null) {
+                    Image(
+                        modifier = Modifier.onGloballyPositioned {
+                            if (width.value == 0.dp)
+                                width.value = with(density) { it.size.width.toDp() }
+                        },
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = null,
+                    )
+                } else {
+                    Box(modifier = Modifier.width(width.value).fillMaxSize())
+                }
+            }
+        } else {
             Image(
-                bitmap = it.asImageBitmap(),
+                bitmap = bitmap?.asImageBitmap() ?: createBitmap(1, 1).asImageBitmap(),
                 contentDescription = null,
             )
         }

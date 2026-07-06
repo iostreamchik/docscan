@@ -204,12 +204,10 @@ fun CameraScreen(
             ) {
                 BitmapCard(
                     bitmap = filteredBitmap,
-                    shape = RoundedCornerShape(cornerRadius)
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 BitmapCard(
                     bitmap = resultBitmap,
-                    shape = RoundedCornerShape(4.dp)
                 )
 
             }
