@@ -161,6 +161,9 @@ fun Mat.fixRotation(rotationDegrees: Int): Mat {
 }
 
 fun Mat.toBitmap(): Bitmap {
+    if (empty()) {
+        return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+    }
     // Utils.matToBitmap only works reliably with 3-channel (RGB) or 1-channel (grayscale) mats.
     // For 4-channel (RGBA/BGRA) mats, convert to RGB first — Android Bitmap.Config.ARGB_8888
     // handles alpha natively, and Utils.matToBitmap with CV_8UC4 often produces transparent/corrupt results.

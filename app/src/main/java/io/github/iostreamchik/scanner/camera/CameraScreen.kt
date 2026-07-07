@@ -61,6 +61,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.BitmapCard
 import io.github.iostreamchik.scanner.ContourCanvas
+import io.github.iostreamchik.scanner.DetectionParameters
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.rememberDeviceCornerRadiusDp
 
@@ -79,7 +80,7 @@ fun CameraScreen(
         remember { mutableStateOf<ContourData?>(null) }
 
     val exposure by viewModel.exposureStateFlow.collectAsStateWithLifecycle()
-    val detectionParams by viewModel.detector.detectionParams.collectAsStateWithLifecycle()
+    val detectionParams by viewModel.detector.detectionParams?.collectAsStateWithLifecycle() ?: mutableStateOf(DetectionParameters())
     val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
     val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
     val errorState by viewModel.errorState.collectAsStateWithLifecycle()

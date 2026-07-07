@@ -10,7 +10,10 @@ import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.iostreamchik.scanner.DetectionParameters
 import io.github.iostreamchik.scanner.DocumentDetector
+import io.github.iostreamchik.scanner.DocumentDetectorOpenCV5
+import io.github.iostreamchik.scanner.IDocumentDetector
 import io.github.iostreamchik.scanner.PROCESS_WIDTH
 import io.github.iostreamchik.scanner.enhanceDocument
 import io.github.iostreamchik.scanner.fixRotation
@@ -50,8 +53,10 @@ import kotlin.time.Duration.Companion.milliseconds
 class CameraViewModel(
     private val matBundle: IMatBundle = MatBundle(),
     private val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculatorV3(matBundle),
-    val detector: DocumentDetector = DocumentDetector(matBundle, thresholdCalculator = thresholdCalculator)
+    val detector: IDocumentDetector = DocumentDetectorOpenCV5(matBundle)
 ) : ViewModel() {
+
+    val detectionParams: StateFlow<DetectionParameters> = detector.detectionParams ?: MutableStateFlow(DetectionParameters()).asStateFlow()
 
     val cameraExecutor = Executors.newSingleThreadExecutor()
 
@@ -287,7 +292,7 @@ class CameraViewModel(
             Log.d("CameraViewModel", "  runDetection: bestQuad found with ${bestQuad.total()} points")
 
             // Validate document size
-            if (!DocumentDetector.validateQuadSize(bestQuad, originalWidth, originalHeight)) {
+            if (!detector.validateQuadSize(bestQuad, originalWidth, originalHeight)) {
                 bestQuad.release()
                 return emptyList()
             }

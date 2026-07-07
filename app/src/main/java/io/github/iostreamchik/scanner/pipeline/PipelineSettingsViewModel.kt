@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.iostreamchik.scanner.DocumentDetector
+import io.github.iostreamchik.scanner.IDocumentDetector
 import io.github.iostreamchik.scanner.PROCESS_WIDTH
 import io.github.iostreamchik.scanner.calculateWarpedDimensions
 import io.github.iostreamchik.scanner.fixRotation
@@ -45,7 +46,7 @@ import kotlin.math.max
  */
 class PipelineSettingsViewModel(
     private val matBundle: IMatBundle = MatBundle(),
-    private val detector: DocumentDetector = DocumentDetector(matBundle)
+    private val detector: IDocumentDetector = DocumentDetector(matBundle)
 ) : ViewModel() {
 
     private val _originalBitmap = MutableStateFlow<Bitmap?>(null)

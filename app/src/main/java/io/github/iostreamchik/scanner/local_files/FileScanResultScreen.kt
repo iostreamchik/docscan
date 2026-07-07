@@ -342,7 +342,7 @@ fun FileScanResultScreen(
 
                             PipelineParametersSection(
                                 params = currentParams,
-                                detectionParams = viewModel.detector.detectionParams,
+                                detectionParams = viewModel.detectionParams,
                                 onParamsChange = { newParams ->
                                     viewModel.updateParams(newParams)
                                     viewModel.reprocessPickedDocument(context)

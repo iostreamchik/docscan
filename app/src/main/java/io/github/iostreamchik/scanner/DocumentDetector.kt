@@ -40,16 +40,16 @@ class DocumentDetector(
     private val matBundle: IMatBundle,
     private val params: PipelineParams = PipelineParams(),
     private val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculator(matBundle)
-) {
+) : IDocumentDetector {
 
     private val _detectionParams = MutableStateFlow(DetectionParameters())
-    val detectionParams = _detectionParams.asStateFlow()
+    override val detectionParams = _detectionParams.asStateFlow()
 
     /**
      * Runs the full image preprocessing pipeline with adaptive CLAHE and
      * context-aware morph close skip logic. Used by the camera detection path.
      */
-    internal fun preprocess(
+    override fun preprocess(
         rawMat: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
@@ -74,6 +74,7 @@ class DocumentDetector(
 
         // --- Median Blur ---
         val blurKsize = p.medianBlurKsize.coerceAtLeast(3)
+        Log.d("DocScan", "  Median Blur: ksize=$blurKsize")
         Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
 
         // --- CLAHE (auto when params is Auto, user-configured or brightness-adaptive) ---
@@ -219,20 +220,20 @@ class DocumentDetector(
      * Extract document candidates from a morph/edge Mat.
      * Returns the best quad or null if no document found.
      */
-    fun detectQuad(
+    override fun detectQuad(
         morphImage: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        params: PipelineParams = this.params
+        params: PipelineParams
     ): MatOfPoint? {
         Log.d("DocScan", "=== detectQuad START ===")
         Log.d("DocScan", "  morphImage: rows=${morphImage.rows()}, cols=${morphImage.cols()}, type=${morphImage.type()}, channels=${morphImage.channels()}")
 
         val contours = mutableListOf<MatOfPoint>()
-        // OpenCV 5 uses TRUCO algorithm by default (faster but different results).
-        // Morphological params adjusted to compensate for TRUCO's fragmented output.
+        // OpenCV 5 moved contour geometry functions from Imgproc to Geometry,
+        // but findContours still lives in Imgproc with the same API.
         Imgproc.findContours(
             morphImage,
             contours,
@@ -276,26 +277,41 @@ class DocumentDetector(
             matBundle.getHullPoints().create(0, 1, CvType.CV_32FC2)
             val approx = matBundle.getApprox()
 
+            // OpenCV 5.0.0.1: Geometry.convexHull stores hull as CV_32SC2 (2-channel int)
+            // with (x,y) coordinate pairs per row when returnPoints=true (the default).
+            // We read hull.get(_,_) directly to extract point coordinates.
             Geometry.convexHull(contour, hull)
-            val contourArray = contour.toArray()
-            val hullIndices = IntArray(hull.rows())
-            hull.get(0, 0, hullIndices)
-            val hullPointList = hullIndices.map { contourArray[it] }
-            matBundle.getHullPoints().fromList(hullPointList.map { Point(it.x, it.y) })
+            val hullCount = hull.rows() * hull.cols()
+            val hullData = IntArray(hullCount * hull.channels())
+            hull.get(0, 0, hullData)
+            val hullPointList = mutableListOf<Point>()
+            for (i in hullData.indices step 2) {
+                if (i + 1 < hullData.size) {
+                    hullPointList.add(Point(hullData[i].toDouble(), hullData[i + 1].toDouble()))
+                }
+            }
+            matBundle.getHullPoints().fromList(hullPointList)
 
+            val hullPtCount = hullPointList.size
             val peri = Geometry.arcLength(matBundle.getHullPoints(), true)
-            Geometry.approxPolyDP(
-                matBundle.getHullPoints(),
-                approx,
-                params.approxPolyDPTolerance * peri,
-                true
-            )
+            // Try progressive epsilon values to find a 4-point quadrilateral approximation.
+            // Different contours need different simplification levels — a single tolerance
+            // doesn't work uniformly across all contour sizes.
+            val epsilons = listOf(0.015, 0.025, 0.04, 0.06, 0.10)
+            var foundQuad = false
+            for (tol in epsilons) {
+                val epsilon = tol * peri
+                Geometry.approxPolyDP(matBundle.getHullPoints(), approx, epsilon, true)
+                Log.d("DocScan", "    approxPolyDP: tol=$tol, epsilon=${"%.2f".format(epsilon)}, approxPts=${approx.total()}")
+                if (approx.total() == 4L) {
+                    Log.d("DocScan", "    hull: pts=$hullPtCount, peri=${"%.0f".format(peri)}, epsilon=${"%.2f".format(epsilon)} -> QUAD")
+                    foundQuad = true
+                    break
+                }
+            }
 
-            if (approx.total() != 4L) {
-                // Debug: log vertex counts for contours that passed area/point filters
-                // OpenCV 5 TRUCO contours have more detail → approxPolyDP returns more vertices
-                // with the same tolerance that worked in OpenCV 4.
-                Log.d("DocScan", "    SKIPPED(not4): area=${"%.0f".format(area)}, hullPts=${hull.rows()}, approxPts=${approx.total()}, epsilon=${"%.2f".format(params.approxPolyDPTolerance * peri)}, peri=${"%.0f".format(peri)}")
+            if (!foundQuad) {
+                Log.d("DocScan", "    SKIPPED(not4): area=${"%.0f".format(area)}, hullPts=$hullPtCount, approxPts=${approx.total()}, peri=${"%.0f".format(peri)}")
                 skippedNot4++
                 continue
             }
@@ -332,6 +348,17 @@ class DocumentDetector(
         candidates.forEach { it.release() }
         Log.d("DocScan", "  detectQuad END: result=${if (result != null) "found (${result.total()} pts)" else "null"}")
         return result
+    }
+
+    override fun validateQuadSize(
+        quad: MatOfPoint,
+        originalWidth: Int,
+        originalHeight: Int
+    ): Boolean {
+        val rect = Geometry.boundingRect(quad)
+        val quadArea = rect.width * rect.height
+        val frameArea = originalWidth * originalHeight
+        return quadArea <= frameArea * 0.95
     }
 
     companion object {
@@ -372,22 +399,26 @@ class DocumentDetector(
 
         /**
          * Checks if a 4-point contour approximates a rectangle by verifying
-         * that all interior angles are close to 90°.
+         * that all interior angles are close to 90°. Tolerance is relaxed to
+         * 25° to accommodate perspective distortion from angled document photos.
          */
         fun isRectangle(approx: MatOfPoint2f): Boolean {
             val pts = approx.toArray()
             var maxDeviation = 0.0
+            val angles = DoubleArray(4)
 
             for (i in 0..3) {
-                val angle = computeAngle(
+                angles[i] = computeAngle(
                     pts[(i + 1) % 4],
                     pts[(i + 3) % 4],
                     pts[i]
                 )
-                maxDeviation = max(maxDeviation, abs(90 - angle))
+                val deviation = abs(90 - angles[i])
+                maxDeviation = max(maxDeviation, deviation)
             }
 
-            return maxDeviation < 15
+            Log.d("DocScan", "    isRectangle: angles=${angles.joinToString { "%.1f".format(it) }}°, maxDeviation=%.1f° -> ${maxDeviation < 25}", )
+            return maxDeviation < 25
         }
 
         /**
