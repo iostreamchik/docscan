@@ -25,8 +25,8 @@ data class PipelineParams(
     val directionalKernelSize: Int = 6,
 
     // Contour Detection
-    val approxPolyDPTolerance: Float = 0.015f,
-    val minAreaFraction: Float = 0.025f,
+    val approxPolyDPTolerance: Float = 0.15f,
+    val minAreaFraction: Float = 0.1f,
 
     // Scoring weights
     val scoreAreaWeight: Float = 0.5f,

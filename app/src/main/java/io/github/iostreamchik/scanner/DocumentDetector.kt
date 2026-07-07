@@ -8,6 +8,7 @@ import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Size
+import org.opencv.geometry.Geometry
 import org.opencv.imgproc.Imgproc
 import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
@@ -54,6 +55,7 @@ class DocumentDetector(
         scaledHeight: Int,
         params: PipelineParams
     ): Mat {
+        Log.d("DocScan", "=== preprocess START: ${scaledWidth}x${scaledHeight} ===")
         // --- Resize + Grayscale ---
         val smallMat = Mat()
         Imgproc.resize(rawMat, smallMat, Size(scaledWidth.toDouble(), scaledHeight.toDouble()))
@@ -65,6 +67,7 @@ class DocumentDetector(
         val p = params
 
         Log.d("DocScan", "  Avg brightness: ${"%.1f".format(avgBrightness)}")
+        Log.d("DocScan", "  Gray mat: rows=${matBundle.getGray().rows()}, cols=${matBundle.getGray().cols()}, type=${matBundle.getGray().type()}, channels=${matBundle.getGray().channels()}")
         _detectionParams.value = _detectionParams.value.copy(
             brightness = "%.1f".format(avgBrightness)
         )
@@ -102,6 +105,7 @@ class DocumentDetector(
         Log.d("DocScan", "  CLAHE: clipLimit=${"%.2f".format(claheClipLimit)}, tileSize=${"%.1f".format(tileSize)}, useAutoClahe=$useAutoClahe")
         val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
         clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
+        Log.d("DocScan", "  CLAHE done: enhanced type=${matBundle.getEnhanced().type()}, channels=${matBundle.getEnhanced().channels()}")
 
         // --- Morph Close (contrast-gated skip) ---
         Core.meanStdDev(matBundle.getEnhanced(), matBundle.getMean(), matBundle.getStd())
@@ -123,20 +127,25 @@ class DocumentDetector(
             }
             Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
         }
+        Log.d("DocScan", "  Morph done: morph type=${matBundle.getMorph().type()}, channels=${matBundle.getMorph().channels()}")
 
         // Copy the image Canny will actually run on.
         // After morph skip logic, the source is either getMorph() or getEnhanced().
         val cannySource = if (skipMorphClose) matBundle.getEnhanced() else matBundle.getMorph()
         Imgproc.GaussianBlur(cannySource, matBundle.getTemp(), Size(3.0, 3.0), 0.8)
+        Log.d("DocScan", "  Pre-Canny Gaussian done: temp type=${matBundle.getTemp().type()}, channels=${matBundle.getTemp().channels()}")
 
         // --- Canny ---
         // Thresholds are computed from the SAME pre-Canny blurred image that Canny
         // operates on. This ensures Otsu gradient statistics match actual edge strength.
-        val (cannyHigh, cannyLow) = if (params.isCannyAuto) {
+        val (cannyLow, cannyHigh) = if (params.isCannyAuto) {
+            Log.d("DocScan", "  [Canny] Calling thresholdCalculator.computeThreshold (Auto mode)")
             thresholdCalculator.computeThreshold(matBundle.getTemp())
         } else if (p.cannyAutoDetect) {
+            Log.d("DocScan", "  [Canny] Calling thresholdCalculator.computeThreshold (cannyAutoDetect=true)")
             thresholdCalculator.computeThreshold(matBundle.getTemp())
         } else {
+            Log.d("DocScan", "  [Canny] Using manual thresholds: high=${p.cannyHigh}, low=${p.cannyLow}")
             Pair(p.cannyHigh.toDouble(), p.cannyLow.toDouble())
         }
 
@@ -147,6 +156,7 @@ class DocumentDetector(
         )
 
         Imgproc.Canny(matBundle.getTemp(), matBundle.getEdges(), cannyLow, cannyHigh)
+        Log.d("DocScan", "  Canny done: edges type=${matBundle.getEdges().type()}, channels=${matBundle.getEdges().channels()}")
 
         // --- Strong Closing ---
         var closeKsize = p.strongCloseSize.coerceIn(3, 15).toInt()
@@ -157,6 +167,7 @@ class DocumentDetector(
             k2.copyTo(matBundle.getKernel2())
         }
         Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
+        Log.d("DocScan", "  Strong Close done: morph type=${matBundle.getMorph().type()}")
 
         // --- Directional Suppression ---
         val dirKsize = p.directionalKernelSize.coerceIn(3, 15).toInt()
@@ -190,6 +201,12 @@ class DocumentDetector(
         )
 
         matBundle.getVerticalClose().copyTo(matBundle.getMorph())
+        Log.d("DocScan", "  Directional Suppression done: final morph type=${matBundle.getMorph().type()}, channels=${matBundle.getMorph().channels()}")
+
+        // Count non-zero pixels in the final morph/edge image
+        val nonzeroCount = Core.countNonZero(matBundle.getMorph())
+        Log.d("DocScan", "  Final morph: nonzero pixels=$nonzeroCount / ${matBundle.getMorph().total()}, nonzeroRatio=${"%.4f".format(nonzeroCount.toDouble() / matBundle.getMorph().total())}")
+        Log.d("DocScan", "=== preprocess END ===")
 
         return matBundle.getMorph()
     }
@@ -210,7 +227,12 @@ class DocumentDetector(
         originalHeight: Int,
         params: PipelineParams = this.params
     ): MatOfPoint? {
+        Log.d("DocScan", "=== detectQuad START ===")
+        Log.d("DocScan", "  morphImage: rows=${morphImage.rows()}, cols=${morphImage.cols()}, type=${morphImage.type()}, channels=${morphImage.channels()}")
+
         val contours = mutableListOf<MatOfPoint>()
+        // OpenCV 5 uses TRUCO algorithm by default (faster but different results).
+        // Morphological params adjusted to compensate for TRUCO's fragmented output.
         Imgproc.findContours(
             morphImage,
             contours,
@@ -218,40 +240,65 @@ class DocumentDetector(
             Imgproc.RETR_LIST,
             Imgproc.CHAIN_APPROX_SIMPLE
         )
+        Log.d("DocScan", "  findContours: found ${contours.size} contours")
 
         val frameArea = scaledWidth * scaledHeight
         val minArea = frameArea * params.minAreaFraction
+        Log.d("DocScan", "  frameArea=$frameArea, minArea=$minArea, minAreaFraction=${params.minAreaFraction}")
+
         val candidates = mutableListOf<MatOfPoint>()
+        var skippedArea = 0
+        var skippedPoints = 0
+        var skippedNot4 = 0
+        var skippedNotRect = 0
+        var skippedSolidity = 0
+
+        // Debug: log top 5 contour areas
+        val areaStats = contours.map { abs(Geometry.contourArea(it)) }.sortedDescending().take(5)
+        Log.d("DocScan", "  Top contour areas: ${areaStats.joinToString(", ") { "%.0f".format(it) }}")
 
         for (contour in contours) {
-            val area = abs(Imgproc.contourArea(contour))
-            if (area < minArea) continue
+            val area = abs(Geometry.contourArea(contour))
+            if (area < minArea) {
+                skippedArea++
+                continue
+            }
 
             // Early exit: skip contours with very few points (likely noise/text).
             // Skips expensive convexHull + approxPolyDP for tiny contours.
-            if (contour.total() < 10) continue
+            if (contour.total() < 10) {
+                skippedPoints++
+                continue
+            }
 
             val hull = matBundle.getHull()
             matBundle.getHullPoints().release()
             matBundle.getHullPoints().create(0, 1, CvType.CV_32FC2)
             val approx = matBundle.getApprox()
 
-            Imgproc.convexHull(contour, hull)
+            Geometry.convexHull(contour, hull)
             val contourArray = contour.toArray()
             val hullIndices = IntArray(hull.rows())
             hull.get(0, 0, hullIndices)
             val hullPointList = hullIndices.map { contourArray[it] }
             matBundle.getHullPoints().fromList(hullPointList.map { Point(it.x, it.y) })
 
-            val peri = Imgproc.arcLength(matBundle.getHullPoints(), true)
-            Imgproc.approxPolyDP(
+            val peri = Geometry.arcLength(matBundle.getHullPoints(), true)
+            Geometry.approxPolyDP(
                 matBundle.getHullPoints(),
                 approx,
                 params.approxPolyDPTolerance * peri,
                 true
             )
 
-            if (approx.total() != 4L) continue
+            if (approx.total() != 4L) {
+                // Debug: log vertex counts for contours that passed area/point filters
+                // OpenCV 5 TRUCO contours have more detail → approxPolyDP returns more vertices
+                // with the same tolerance that worked in OpenCV 4.
+                Log.d("DocScan", "    SKIPPED(not4): area=${"%.0f".format(area)}, hullPts=${hull.rows()}, approxPts=${approx.total()}, epsilon=${"%.2f".format(params.approxPolyDPTolerance * peri)}, peri=${"%.0f".format(peri)}")
+                skippedNot4++
+                continue
+            }
 
             val scaleX = originalWidth.toDouble() / scaledWidth
             val scaleY = originalHeight.toDouble() / scaledHeight
@@ -260,24 +307,30 @@ class DocumentDetector(
 
             if (!isRectangle(approx)) {
                 quad.release()
+                skippedNotRect++
                 continue
             }
 
             val scaledArea = area * (scaleX * scaleY)
-            val rect = Imgproc.boundingRect(quad)
+            val rect = Geometry.boundingRect(quad)
             val solidity = scaledArea / (rect.width * rect.height).toDouble()
             if (solidity < 0.3) {
                 quad.release()
+                skippedSolidity++
                 continue
             }
 
+            Log.d("DocScan", "  CANDIDATE: area=$area, solidity=${"%.2f".format(solidity)}, rect=${rect.width}x${rect.height}, score=${scoreContourWithParams(quad, originalWidth, originalHeight, params)}")
             candidates.add(quad)
         }
+
+        Log.d("DocScan", "  detectQuad summary: totalContours=${contours.size}, candidates=${candidates.size}, skippedArea=$skippedArea, skippedPoints=$skippedPoints, skippedNot4=$skippedNot4, skippedNotRect=$skippedNotRect, skippedSolidity=$skippedSolidity")
 
         val best = candidates.maxByOrNull { scoreContourWithParams(it, originalWidth, originalHeight, params) }
         // Clone winner before releasing all candidate Mats to avoid native memory leak.
         val result = best?.let { MatOfPoint(*it.toArray()) }
         candidates.forEach { it.release() }
+        Log.d("DocScan", "  detectQuad END: result=${if (result != null) "found (${result.total()} pts)" else "null"}")
         return result
     }
 
@@ -311,7 +364,7 @@ class DocumentDetector(
             originalWidth: Int,
             originalHeight: Int
         ): Boolean {
-            val rect = Imgproc.boundingRect(quad)
+            val rect = Geometry.boundingRect(quad)
             val quadArea = rect.width * rect.height
             val frameArea = originalWidth * originalHeight
             return quadArea <= frameArea * 0.95

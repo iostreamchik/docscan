@@ -12,6 +12,7 @@ import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Size
+import org.opencv.geometry.Geometry
 import org.opencv.imgproc.Imgproc
 import android.util.Log
 import java.nio.ByteBuffer
@@ -399,7 +400,7 @@ fun warpDocumentHighQuality(src: Mat, quad: MatOfPoint, rotationDegrees: Int): B
             Point(0.0, outputHeight)
         )
 
-        val transform = Imgproc.getPerspectiveTransform(srcPoints, dstPoints)
+        val transform = Geometry.getPerspectiveTransform(srcPoints, dstPoints)
         val warped = Mat()
         Imgproc.warpPerspective(src, warped, transform, Size(outputWidth, outputHeight))
 

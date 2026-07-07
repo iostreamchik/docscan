@@ -34,6 +34,7 @@ import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.core.Size
+import org.opencv.geometry.Geometry
 import org.opencv.imgproc.Imgproc
 import kotlin.math.max
 
@@ -315,7 +316,7 @@ class PipelineSettingsViewModel(
             Point(0.0, outputH.toDouble())
         )
 
-        val transform = Imgproc.getPerspectiveTransform(srcPts, dstPts)
+        val transform = Geometry.getPerspectiveTransform(srcPts, dstPts)
         val output = Mat()
         Imgproc.warpPerspective(src, output, transform, Size(outputW.toDouble(), outputH.toDouble()))
 

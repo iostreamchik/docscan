@@ -251,6 +251,8 @@ class CameraViewModel(
         val scaledWidth = (originalWidth * scale).toInt()
         val scaledHeight = (originalHeight * scale).toInt()
 
+        Log.d("CameraViewModel", "=== runDetection START: ${originalWidth}x${originalHeight} -> scaled=${scaledWidth}x${scaledHeight} ===")
+
         try {
             // Preprocess: resize → grayscale → blur → CLAHE → morph → Canny → strong close → directional suppression
             detector.preprocess(mat, scaledWidth, scaledHeight, params)
@@ -268,6 +270,7 @@ class CameraViewModel(
             _filteredBitmap.value = _morphBitmap.value
 
             // Detect document
+            Log.d("CameraViewModel", "  Calling detectQuad with morphImage type=${matBundle.getMorph().type()}")
             val bestQuad = detector.detectQuad(
                 morphImage = matBundle.getMorph(),
                 scaledWidth = scaledWidth,
@@ -277,7 +280,11 @@ class CameraViewModel(
                 params = params
             )
 
-            if (bestQuad == null) return emptyList()
+            if (bestQuad == null) {
+                Log.d("CameraViewModel", "  runDetection: NO QUAD DETECTED")
+                return emptyList()
+            }
+            Log.d("CameraViewModel", "  runDetection: bestQuad found with ${bestQuad.total()} points")
 
             // Validate document size
             if (!DocumentDetector.validateQuadSize(bestQuad, originalWidth, originalHeight)) {

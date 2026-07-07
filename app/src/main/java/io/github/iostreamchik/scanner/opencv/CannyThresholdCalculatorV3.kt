@@ -1,5 +1,6 @@
 package io.github.iostreamchik.scanner.opencv
 
+import android.util.Log
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
@@ -12,6 +13,14 @@ class CannyThresholdCalculatorV3(private val matBundle: IMatBundle) : ICannyThre
     private val gradY = Mat()
 
     private val medianSigma = 0.33
+
+    // Gradient-magnitude Otsu thresholds are appropriate for Canny.
+    // Intensity-domain Otsu returns values 100-200+ which are far above
+    // actual edge gradients (20-60), causing Canny to detect nothing.
+    private val thresholdFloor = 10.0
+    private val thresholdCeiling = 80.0
+    private val lowHighRatio = 0.25
+    private val emaAlpha = 0.15
 
     fun computeGradientOtsu(grayMat: Mat): Double {
         Imgproc.Sobel(grayMat, gradX, CvType.CV_32F, 1, 0, 3)
@@ -30,11 +39,6 @@ class CannyThresholdCalculatorV3(private val matBundle: IMatBundle) : ICannyThre
         )
     }
 
-    fun computeGradientOtsuWithRatio(grayMat: Mat, lowHighRatio: Double): Pair<Double, Double> {
-        val high = computeGradientOtsu(grayMat)
-        return Pair(high * lowHighRatio, high) // Standardized to: Pair(lower, upper)
-    }
-
     fun computeIntensityOtsu(grayMat: Mat): Double {
         return Imgproc.threshold(
             grayMat,
@@ -51,7 +55,10 @@ class CannyThresholdCalculatorV3(private val matBundle: IMatBundle) : ICannyThre
     }
 
     override fun computeThreshold(grayMat: Mat): Pair<Double, Double> {
-        return computeIntensityOtsuWithRatio(grayMat, 0.33)
+        Log.d("CannyV3", "  computeThreshold input: rows=${grayMat.rows()}, cols=${grayMat.cols()}, type=${grayMat.type()}, channels=${grayMat.channels()}")
+        val result = computeGradientOtsuWithRatio(grayMat, lowHighRatio)
+        Log.d("CannyV3", "  computeThreshold result: low=${"%.1f".format(result.first)}, high=${"%.1f".format(result.second)}")
+        return result
     }
 
     override fun reset() {
@@ -60,8 +67,16 @@ class CannyThresholdCalculatorV3(private val matBundle: IMatBundle) : ICannyThre
         gradY.setTo(zero)
     }
 
-    fun computeMedianBased(grayMat: Mat): Pair<Double, Double> {
-        return computeMedianBasedWithSigma(grayMat, medianSigma)
+    fun computeGradientOtsuWithRatio(grayMat: Mat, lowHighRatio: Double): Pair<Double, Double> {
+        val rawOtsu = computeGradientOtsu(grayMat)
+
+        // Clamp to [floor, ceiling] — gradient-magnitude Otsu should stay in
+        // a predictable range for Canny. Values outside this band indicate
+        // pathological input (pure white/black frame, severe blur, etc).
+        val finalHigh = rawOtsu.coerceIn(thresholdFloor, thresholdCeiling)
+        val finalLow = finalHigh * lowHighRatio
+
+        return Pair(finalLow, finalHigh)
     }
 
     fun computeMedianBasedWithSigma(grayMat: Mat, sigma: Double): Pair<Double, Double> {

@@ -2,6 +2,7 @@ package io.github.iostreamchik.scanner
 
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
+import org.opencv.geometry.Geometry
 import kotlin.math.abs
 import kotlin.math.hypot
 import io.github.iostreamchik.scanner.opencv.PipelineParams
@@ -20,9 +21,9 @@ fun scoreContour(
     width: Int,
     height: Int
 ): Double {
-    val area = abs(org.opencv.imgproc.Imgproc.contourArea(contour))
+    val area = abs(Geometry.contourArea(contour))
 
-    val center = org.opencv.imgproc.Imgproc.boundingRect(contour).let {
+    val center = Geometry.boundingRect(contour).let {
         Point(it.x + it.width / 2.0, it.y + it.height / 2.0)
     }
 
@@ -57,9 +58,9 @@ fun scoreContourWithParams(
     height: Int,
     params: PipelineParams
 ): Double {
-    val area = abs(org.opencv.imgproc.Imgproc.contourArea(contour))
+    val area = abs(Geometry.contourArea(contour))
 
-    val center = org.opencv.imgproc.Imgproc.boundingRect(contour).let {
+    val center = Geometry.boundingRect(contour).let {
         Point(it.x + it.width / 2.0, it.y + it.height / 2.0)
     }
 
