@@ -80,7 +80,7 @@ fun CameraScreen(
         remember { mutableStateOf<ContourData?>(null) }
 
     val exposure by viewModel.exposureStateFlow.collectAsStateWithLifecycle()
-    val detectionParams by viewModel.detector.detectionParams?.collectAsStateWithLifecycle() ?: mutableStateOf(DetectionParameters())
+    val detectionParams by viewModel.detectionParams.collectAsStateWithLifecycle()
     val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
     val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
     val errorState by viewModel.errorState.collectAsStateWithLifecycle()
