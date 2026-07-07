@@ -2,6 +2,7 @@ package io.github.iostreamchik.scanner
 
 import android.util.Log
 import org.opencv.core.Core
+import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
@@ -23,6 +24,8 @@ class DocumentDetectorOpenCV5(
     private val matBundle: IMatBundle
 ) : IDocumentDetector {
 
+    private var _smoothedHigh = -1.0
+
     override fun preprocess(
         rawMat: Mat,
         scaledWidth: Int,
@@ -36,8 +39,42 @@ class DocumentDetectorOpenCV5(
         Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
         smallMat.release()
 
-        Imgproc.GaussianBlur(matBundle.getGray(), matBundle.getBlurred(), Size(3.0, 3.0), 0.0)
-        Imgproc.Canny(matBundle.getBlurred(), matBundle.getEdges(), 100.0, 200.0)
+        Imgproc.GaussianBlur(matBundle.getGray(), matBundle.getBlurred(), Size(5.0, 5.0), 0.0)
+
+        // Adaptive Canny thresholds via Sobel gradient + Otsu + EMA smoothing.
+        // Sobel on the pre-Canny blurred image directly matches what Canny measures.
+        Imgproc.Sobel(matBundle.getBlurred(), matBundle.getSobelX(), CvType.CV_32F, 1, 0, 3)
+        Imgproc.Sobel(matBundle.getBlurred(), matBundle.getSobelY(), CvType.CV_32F, 0, 1, 3)
+
+        Core.convertScaleAbs(matBundle.getSobelX(), matBundle.getOtsuThreshold(), 1.0, 0.0)
+        Core.convertScaleAbs(matBundle.getSobelY(), matBundle.getTemp(), 1.0, 0.0)
+        Core.add(matBundle.getOtsuThreshold(), matBundle.getTemp(), matBundle.getOtsuThreshold())
+
+        val rawOtsu = Imgproc.threshold(
+            matBundle.getOtsuThreshold(),
+            matBundle.getTemp(),
+            0.0, 255.0,
+            Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
+        )
+
+        val emaAlpha = 0.15
+        val thresholdFloor = 10.0
+        val thresholdCeiling = 80.0
+        val lowHighRatio = 0.25
+
+        val smoothedHigh = if (_smoothedHigh < 0.0) {
+            rawOtsu
+        } else {
+            (emaAlpha * rawOtsu) + ((1.0 - emaAlpha) * _smoothedHigh)
+        }
+        _smoothedHigh = smoothedHigh
+
+        val cannyHigh = smoothedHigh.coerceIn(thresholdFloor, thresholdCeiling)
+        val cannyLow = cannyHigh * lowHighRatio
+
+        Log.d("DocScan5", "  Adaptive Canny: high=${"%.1f".format(cannyHigh)}, low=${"%.1f".format(cannyLow)}")
+
+        Imgproc.Canny(matBundle.getBlurred(), matBundle.getEdges(), cannyLow, cannyHigh)
 
         // Copy edges to morph so ViewModel can access it for bitmap conversion
         matBundle.getEdges().copyTo(matBundle.getMorph())
