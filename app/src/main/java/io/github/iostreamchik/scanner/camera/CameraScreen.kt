@@ -64,6 +64,7 @@ import io.github.iostreamchik.scanner.ContourCanvas
 import io.github.iostreamchik.scanner.DetectionParameters
 import io.github.iostreamchik.scanner.DocumentDetector
 import io.github.iostreamchik.scanner.MockDocumentDetector
+import io.github.iostreamchik.scanner.OnnxDocumentDetector
 import io.github.iostreamchik.scanner.opencv.MockCannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.rememberDeviceCornerRadiusDp
@@ -79,12 +80,19 @@ fun CameraScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
 
+    // Initialize ONNX model from CameraScreen (has access to Context)
+    LaunchedEffect(Unit) {
+        val detector = viewModel.detector as? OnnxDocumentDetector
+        detector?.initModel(context)
+    }
+
     val contourState =
         remember { mutableStateOf<ContourData?>(null) }
 
     val exposure by viewModel.exposureStateFlow.collectAsStateWithLifecycle()
     val detectionParams by viewModel.detectionParams.collectAsStateWithLifecycle()
     val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
+    val onnxMaskBitmap by viewModel.onnxMaskBitmap.collectAsStateWithLifecycle()
     val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
     val errorState by viewModel.errorState.collectAsStateWithLifecycle()
     val torchOn by viewModel.torchOn.collectAsStateWithLifecycle()
@@ -208,6 +216,10 @@ fun CameraScreen(
             ) {
                 BitmapCard(
                     bitmap = filteredBitmap,
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                BitmapCard(
+                    bitmap = onnxMaskBitmap,
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 BitmapCard(

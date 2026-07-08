@@ -5,15 +5,18 @@ import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
+import android.app.Application
 import android.provider.MediaStore
 import android.util.Log
 import androidx.camera.core.ImageProxy
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.iostreamchik.scanner.DetectionParameters
 import io.github.iostreamchik.scanner.DocumentDetector
 import io.github.iostreamchik.scanner.DocumentDetectorOpenCV5
 import io.github.iostreamchik.scanner.IDocumentDetector
+import io.github.iostreamchik.scanner.OnnxDocumentDetector
 import io.github.iostreamchik.scanner.PROCESS_WIDTH
 import io.github.iostreamchik.scanner.enhanceDocument
 import io.github.iostreamchik.scanner.fixRotation
@@ -53,8 +56,11 @@ import kotlin.time.Duration.Companion.milliseconds
 class CameraViewModel(
     private val matBundle: IMatBundle = MatBundle(),
     private val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculatorV3(matBundle),
-    val detector: IDocumentDetector = DocumentDetectorOpenCV5(matBundle)
+//    val detector: IDocumentDetector = DocumentDetectorOpenCV5(matBundle)
+    val detector: IDocumentDetector = OnnxDocumentDetector(matBundle, "onnx/deeplabv3_mbv3_docseg.onnx")
 ) : ViewModel() {
+
+
 
     val detectionParams: StateFlow<DetectionParameters> = detector.detectionParams ?: MutableStateFlow(DetectionParameters()).asStateFlow()
 
@@ -80,6 +86,9 @@ class CameraViewModel(
 
     private val _filteredBitmap = MutableStateFlow<Bitmap?>(null)
     val filteredBitmap = _filteredBitmap.asStateFlow()
+
+    private val _onnxMaskBitmap = MutableStateFlow<Bitmap?>(null)
+    val onnxMaskBitmap = _onnxMaskBitmap.asStateFlow()
 
     private val _originalBitmap = MutableStateFlow<Bitmap?>(null)
     val originalBitmap = _originalBitmap.asStateFlow()
@@ -271,13 +280,23 @@ class CameraViewModel(
             _morphBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
                 .copy(Bitmap.Config.ARGB_8888, false)
 
+            // Capture ONNX mask as a debug preview (binary mask visualization)
+            if (detector is OnnxDocumentDetector) {
+                val maskMat = matBundle.getMorph().clone()
+                val maskBitmap = maskMat.fixRotation(rotation).toBitmap()
+                    .copy(Bitmap.Config.ARGB_8888, false)
+                _onnxMaskBitmap.value = maskBitmap
+                maskMat.release()
+            }
+
             // Set filtered bitmap from the morph result (alias of morph for backward compatibility)
             _filteredBitmap.value = _morphBitmap.value
 
             // Detect document
-            Log.d("CameraViewModel", "  Calling detectQuad with morphImage type=${matBundle.getMorph().type()}")
+            val morphBeforeDetect = matBundle.getMorph()
+            Log.d("CameraViewModel", "  Calling detectQuad: morph=${morphBeforeDetect.rows()}x${morphBeforeDetect.cols()}, type=${morphBeforeDetect.type()}, nonzero=${org.opencv.core.Core.countNonZero(morphBeforeDetect)}")
             val bestQuad = detector.detectQuad(
-                morphImage = matBundle.getMorph(),
+                morphImage = morphBeforeDetect,
                 scaledWidth = scaledWidth,
                 scaledHeight = scaledHeight,
                 originalWidth = originalWidth,
