@@ -446,4 +446,5 @@ data class DetectionParameters(
     val cannyHigh: String = "",
     val cannyLow: String = "",
     val brightness: String = "",
+    val maskThreshold: String = "",
 )

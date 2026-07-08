@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
 import androidx.core.app.ActivityCompat
-import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.ui.theme.DocumentScannerTheme
 
 class MainActivity : ComponentActivity() {

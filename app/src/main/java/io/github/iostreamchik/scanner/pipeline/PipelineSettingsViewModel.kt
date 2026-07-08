@@ -7,7 +7,6 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.iostreamchik.scanner.DocumentDetector
 import io.github.iostreamchik.scanner.IDocumentDetector
@@ -45,9 +44,9 @@ import kotlin.math.max
  * emitting intermediate preview bitmaps for each stage.
  */
 class PipelineSettingsViewModel(
-    private val matBundle: IMatBundle = MatBundle(),
-    private val detector: IDocumentDetector = DocumentDetector(matBundle)
-) : ViewModel() {
+    val matBundle: IMatBundle = MatBundle(),
+    val detector: IDocumentDetector = DocumentDetector(matBundle)
+) : androidx.lifecycle.ViewModel() {
 
     private val _originalBitmap = MutableStateFlow<Bitmap?>(null)
     val originalBitmap: StateFlow<Bitmap?> = _originalBitmap.asStateFlow()

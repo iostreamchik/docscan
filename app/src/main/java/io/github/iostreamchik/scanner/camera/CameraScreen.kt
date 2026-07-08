@@ -64,7 +64,6 @@ import io.github.iostreamchik.scanner.ContourCanvas
 import io.github.iostreamchik.scanner.DetectionParameters
 import io.github.iostreamchik.scanner.DocumentDetector
 import io.github.iostreamchik.scanner.MockDocumentDetector
-import io.github.iostreamchik.scanner.OnnxDocumentDetector
 import io.github.iostreamchik.scanner.opencv.MockCannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.rememberDeviceCornerRadiusDp
@@ -79,12 +78,6 @@ fun CameraScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
-
-    // Initialize ONNX model from CameraScreen (has access to Context)
-    LaunchedEffect(Unit) {
-        val detector = viewModel.detector as? OnnxDocumentDetector
-        detector?.initModel(context)
-    }
 
     val contourState =
         remember { mutableStateOf<ContourData?>(null) }

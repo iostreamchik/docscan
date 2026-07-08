@@ -13,4 +13,5 @@
 .externalNativeBuild
 .cxx
 local.properties
-AGENTS.md
+*.md
+!README.md

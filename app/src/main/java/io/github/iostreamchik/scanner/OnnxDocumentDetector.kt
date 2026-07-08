@@ -1,8 +1,14 @@
 package io.github.iostreamchik.scanner
 
+import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.util.Log
-import ai.onnxruntime.*
+import io.github.iostreamchik.scanner.opencv.IMatBundle
+import io.github.iostreamchik.scanner.opencv.PipelineParams
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
@@ -12,45 +18,49 @@ import org.opencv.core.Point
 import org.opencv.core.Size
 import org.opencv.geometry.Geometry
 import org.opencv.imgproc.Imgproc
-import io.github.iostreamchik.scanner.opencv.IMatBundle
-import io.github.iostreamchik.scanner.opencv.PipelineParams
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.max
 import kotlin.math.sqrt
 
 class OnnxDocumentDetector(
+    private val context: Context,
     private val matBundle: IMatBundle,
-    private val modelPath: String = "onnx/deeplabv3_mbv3_docseg.onnx"
+    private val modelPath: String = "onnx/deeplabv3_mbv3_docseg.onnx",
+    private val useCustomNormalization: Boolean = false
 ) : IDocumentDetector {
 
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
     private val sessionOptions: OrtSession.SessionOptions = OrtSession.SessionOptions()
+
+    var maskThreshold: Float = 0.35f
+        set(value) {
+            field = value.coerceIn(0.1f, 0.7f)
+            _detectionParams.value = _detectionParams.value.copy(
+                maskThreshold = "%.2f".format(field)
+            )
+        }
 
     private val _detectionParams = MutableStateFlow(DetectionParameters())
     override val detectionParams = _detectionParams.asStateFlow()
 
     private var session: OrtSession? = null
     private var inputName: String? = null
-    private var modelLoaded = false
-    private var storedContext: Context? = null
+    private var isDeepLabV3 = false
+    private var isInit = false
+
+    // Persist the ONNX mask between preprocess() and detectQuad() so we don't
+    // depend on matBundle.getMorph() surviving the intermediate bitmap captures
+    // in CameraViewModel.runDetection().
+    private var cachedMask: Mat? = null
 
     private val inputBuffer = FloatArray(INPUT_SIZE * INPUT_SIZE * INPUT_CHANNELS)
     private val outputBuffer = FloatArray(INPUT_SIZE * INPUT_SIZE * OUTPUT_CHANNELS)
 
-    private var isInit = false
-    private var isDeepLabV3 = false
-
-    fun initModel(context: Context) {
-        storedContext = context
-        if (isInit) return
-        isInit = true
+    private fun initModel() {
         isDeepLabV3 = modelPath.contains("deeplabv3")
         try {
             sessionOptions.setIntraOpNumThreads(1)
@@ -62,11 +72,9 @@ class OnnxDocumentDetector(
 
             session = env.createSession(modelBytes, sessionOptions)
             inputName = session!!.inputNames.iterator().next()
-            modelLoaded = true
             Log.d(TAG, "Model loaded: $modelPath, input=$inputName, size=${INPUT_SIZE}x$INPUT_SIZE, type=${if (isDeepLabV3) "DeepLabV3" else "BiRefNet"}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load ONNX model", e)
-            modelLoaded = false
         } finally {
             sessionOptions.close()
         }
@@ -78,11 +86,12 @@ class OnnxDocumentDetector(
         scaledHeight: Int,
         params: PipelineParams
     ): Mat {
-        if (isInit.not()) return Mat()
-
-        if (session == null && storedContext != null) {
-            initModel(storedContext!!)
-        }
+        if (isInit.not()) initModel()
+        isInit = true
+        // Clear stale mask from previous frame — error paths below return early,
+        // so detectQuad() must not use a cached mask from a prior successful frame.
+        cachedMask?.release()
+        cachedMask = null
         val sess = session ?: return matBundle.getMorph()
 
         Log.d(TAG, "preprocess: rawMat=${rawMat.rows()}x${rawMat.cols()}, type=${rawMat.type()}, channels=${rawMat.channels()}")
@@ -113,10 +122,13 @@ class OnnxDocumentDetector(
         if (isDeepLabV3) {
             for (c in 0 until INPUT_CHANNELS) {
                 val channelOffset = c * INPUT_SIZE * INPUT_SIZE
+                val meanVal = if (useCustomNormalization) CUSTOM_MEAN[c] else 0f
+                val stdVal = if (useCustomNormalization) CUSTOM_STD[c] else 1f
                 for (y in 0 until INPUT_SIZE) {
                     for (x in 0 until INPUT_SIZE) {
                         val pixel = rgbPadded.get(y, x)
-                        inputBuffer[channelOffset + y * INPUT_SIZE + x] = (pixel[c] / 255.0).toFloat()
+                        inputBuffer[channelOffset + y * INPUT_SIZE + x] =
+                            (((pixel[c] / 255.0) - meanVal) / stdVal).toFloat()
                     }
                 }
             }
@@ -215,7 +227,7 @@ class OnnxDocumentDetector(
                     val bgLogit = outputBuffer[idx]
                     val fgLogit = outputBuffer[INPUT_SIZE * INPUT_SIZE + idx]
                     val documentProb = 1f / (1f + kotlin.math.exp(-(fgLogit - bgLogit)))
-                    val value = if (documentProb > 0.5f) 255 else 0
+                    val value = if (documentProb > maskThreshold) 255 else 0
                     fullMask.put(y, x, value.toDouble())
                     if (value > 0) maskNonzero++
                 }
@@ -223,7 +235,7 @@ class OnnxDocumentDetector(
         } else {
             val totalPixels = INPUT_SIZE * INPUT_SIZE
             for (i in 0 until totalPixels) {
-                val value = if (outputBuffer[i] > 0.5f) 255 else 0
+                val value = if (outputBuffer[i] > maskThreshold) 255 else 0
                 fullMask.put(i / INPUT_SIZE, i % INPUT_SIZE, value.toDouble())
                 if (value > 0) maskNonzero++
             }
@@ -238,6 +250,10 @@ class OnnxDocumentDetector(
         val morph = matBundle.getMorph()
         Imgproc.resize(croppedMask, morph, Size(scaledWidth.toDouble(), scaledHeight.toDouble()), 0.0, 0.0, Imgproc.INTER_NEAREST)
         croppedMask.release()
+
+        // Cache the mask for detectQuad() — matBundle.getMorph() may be corrupted
+        // by intermediate bitmap captures in runDetection() before detectQuad() runs.
+        cachedMask = morph.clone()
 
         val nonzeroCount = Core.countNonZero(morph)
         val morphTotal = morph.total()
@@ -261,32 +277,38 @@ class OnnxDocumentDetector(
         originalHeight: Int,
         params: PipelineParams
     ): MatOfPoint? {
-        Log.d(TAG, "=== detectQuad START: morph=${morphImage.rows()}x${morphImage.cols()}, scaled=${scaledWidth}x${scaledHeight} ===")
+        // Use cached ONNX mask if available — the matBundle.getMorph() passed as
+        // morphImage is often empty because intermediate bitmap captures in
+        // runDetection() corrupt/clear the shared pooled mat.
+        val useCached = cachedMask != null && !cachedMask!!.empty()
+        val workingMask = if (useCached) cachedMask!! else morphImage
 
-        Log.d(TAG, "  morphImage: type=${morphImage.type()}, channels=${morphImage.channels()}, total=${morphImage.total()}, depth=${morphImage.depth()}")
-        val morphNonZero = Core.countNonZero(morphImage)
-        Log.d(TAG, "  morphImage nonzero pixels: $morphNonZero / ${morphImage.total()}")
+        Log.d(TAG, "=== detectQuad START: morph=${workingMask.rows()}x${workingMask.cols()}, scaled=${scaledWidth}x${scaledHeight}, source=${if (useCached) "cached" else "param"} ===")
+
+        Log.d(TAG, "  workingMask: type=${workingMask.type()}, channels=${workingMask.channels()}, total=${workingMask.total()}, depth=${workingMask.depth()}")
+        val morphNonZero = Core.countNonZero(workingMask)
+        Log.d(TAG, "  workingMask nonzero pixels: $morphNonZero / ${workingMask.total()}")
 
         var hasNonZero = false
-        val sampleN = kotlin.math.min(5000, morphImage.total().toInt())
+        val sampleN = kotlin.math.min(5000, workingMask.total().toInt())
         for (i in 0 until sampleN) {
-            val r = i / morphImage.cols()
-            val c = i % morphImage.cols()
-            if (r < morphImage.rows() && c < morphImage.cols()) {
-                val v = morphImage.get(r, c)
+            val r = i / workingMask.cols()
+            val c = i % workingMask.cols()
+            if (r < workingMask.rows() && c < workingMask.cols()) {
+                val v = workingMask.get(r, c)
                 if (v != null && v[0] > 0.0) {
                     hasNonZero = true
                     break
                 }
             }
         }
-        Log.d(TAG, "  morphImage hasNonZero (sampled): $hasNonZero")
+        Log.d(TAG, "  workingMask hasNonZero (sampled): $hasNonZero")
 
         val contours = mutableListOf<MatOfPoint>()
         val hierarchy = matBundle.getHierarchy()
         Log.d(TAG, "  findContours: calling with RETR_LIST + CHAIN_APPROX_SIMPLE, hierarchy=${hierarchy.rows()}x${hierarchy.cols()}, type=${hierarchy.type()}")
         Imgproc.findContours(
-            morphImage,
+            workingMask,
             contours,
             hierarchy,
             Imgproc.RETR_LIST,
@@ -294,12 +316,12 @@ class OnnxDocumentDetector(
         )
         Log.d(TAG, "  findContours: found ${contours.size} contours")
 
-        if (contours.isEmpty() && morphImage.total() > 0) {
-            Log.d(TAG, "  [DEBUG] morphImage pixel samples (top-left 10x10):")
-            for (r in 0 until kotlin.math.min(10, morphImage.rows())) {
+        if (contours.isEmpty() && workingMask.total() > 0) {
+            Log.d(TAG, "  [DEBUG] workingMask pixel samples (top-left 10x10):")
+            for (r in 0 until kotlin.math.min(10, workingMask.rows())) {
                 val rowStr = mutableListOf<String>()
-                for (c in 0 until kotlin.math.min(10, morphImage.cols())) {
-                    val v = morphImage.get(r, c)
+                for (c in 0 until kotlin.math.min(10, workingMask.cols())) {
+                    val v = workingMask.get(r, c)
                     rowStr.add(if (v != null) "${"%.0f".format(v[0])}" else "?")
                 }
                 Log.d(TAG, "    row $r: ${rowStr.joinToString(" ")}")
@@ -352,7 +374,7 @@ class OnnxDocumentDetector(
             val hullPtCount = hullPointList.size
             val peri = Geometry.arcLength(hullPoints, true)
             var foundQuad = false
-            val epsilons = listOf(0.015, 0.025, 0.04, 0.06, 0.10)
+            val epsilons = listOf(0.02, 0.035, 0.055, 0.08, 0.12, 0.18)
 
             for (tol in epsilons) {
                 val epsilon = tol * peri
@@ -414,7 +436,8 @@ class OnnxDocumentDetector(
     fun release() {
         session?.close()
         session = null
-        modelLoaded = false
+        cachedMask?.release()
+        cachedMask = null
         try {
             env.close()
         } catch (_: Exception) {
@@ -429,6 +452,11 @@ class OnnxDocumentDetector(
 
         private val IMAGE_MEAN = floatArrayOf(0.485f, 0.456f, 0.406f)
         private val IMAGE_STD = floatArrayOf(0.229f, 0.224f, 0.225f)
+
+        // LearnOpenCV custom normalization — matches training pipeline in
+        // https://learnopencv.com/deep-learning-based-document-segmentation-using-semantic-segmentation-deeplabv3-on-custom-dataset/
+        private val CUSTOM_MEAN = floatArrayOf(0.4611f, 0.4359f, 0.3905f)
+        private val CUSTOM_STD = floatArrayOf(0.2193f, 0.2150f, 0.2109f)
 
         private const val TAG = "OnnxDetector"
 

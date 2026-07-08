@@ -5,30 +5,24 @@ import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
-import android.app.Application
 import android.provider.MediaStore
 import android.util.Log
 import androidx.camera.core.ImageProxy
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.iostreamchik.scanner.DetectionParameters
-import io.github.iostreamchik.scanner.DocumentDetector
-import io.github.iostreamchik.scanner.DocumentDetectorOpenCV5
 import io.github.iostreamchik.scanner.IDocumentDetector
 import io.github.iostreamchik.scanner.OnnxDocumentDetector
 import io.github.iostreamchik.scanner.PROCESS_WIDTH
 import io.github.iostreamchik.scanner.enhanceDocument
 import io.github.iostreamchik.scanner.fixRotation
-import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculatorV3
-import io.github.iostreamchik.scanner.sortQuadPoints
 import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import io.github.iostreamchik.scanner.quadDistance
 import io.github.iostreamchik.scanner.quadHash
+import io.github.iostreamchik.scanner.sortQuadPoints
 import io.github.iostreamchik.scanner.toBitmap
 import io.github.iostreamchik.scanner.toMatRGBA
 import io.github.iostreamchik.scanner.toSortedQuad
@@ -54,11 +48,10 @@ import kotlin.math.max
 import kotlin.time.Duration.Companion.milliseconds
 
 class CameraViewModel(
-    private val matBundle: IMatBundle = MatBundle(),
-    private val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculatorV3(matBundle),
-//    val detector: IDocumentDetector = DocumentDetectorOpenCV5(matBundle)
-    val detector: IDocumentDetector = OnnxDocumentDetector(matBundle, "onnx/deeplabv3_mbv3_docseg.onnx")
-) : ViewModel() {
+    val matBundle: IMatBundle = MatBundle(),
+    val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculatorV3(matBundle),
+    val detector: IDocumentDetector
+) : androidx.lifecycle.ViewModel() {
 
 
 
@@ -267,30 +260,35 @@ class CameraViewModel(
 
         Log.d("CameraViewModel", "=== runDetection START: ${originalWidth}x${originalHeight} -> scaled=${scaledWidth}x${scaledHeight} ===")
 
+        // Capture original frame before any processing.
+        val originalFrame = mat.fixRotation(rotation).toBitmap()
+            .copy(Bitmap.Config.ARGB_8888, false)
+        _originalBitmap.value = originalFrame
+
         try {
             // Preprocess: resize → grayscale → blur → CLAHE → morph → Canny → strong close → directional suppression
             detector.preprocess(mat, scaledWidth, scaledHeight, params)
 
             // Capture intermediate stage previews before releaseAll().
             // Clone before emitting to StateFlow so Compose gets its own independent copy.
-            _blurBitmap.value = matBundle.getBlurred().fixRotation(rotation).toBitmap()
-                .copy(Bitmap.Config.ARGB_8888, false)
-            _claheBitmap.value = matBundle.getEnhanced().fixRotation(rotation).toBitmap()
-                .copy(Bitmap.Config.ARGB_8888, false)
-            _morphBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
-                .copy(Bitmap.Config.ARGB_8888, false)
-
-            // Capture ONNX mask as a debug preview (binary mask visualization)
             if (detector is OnnxDocumentDetector) {
+                // ONNX detector skips the classical pipeline — no blur/CLAHE/morph stages.
+                // Show the original frame as the baseline, and the binary mask separately.
                 val maskMat = matBundle.getMorph().clone()
                 val maskBitmap = maskMat.fixRotation(rotation).toBitmap()
                     .copy(Bitmap.Config.ARGB_8888, false)
                 _onnxMaskBitmap.value = maskBitmap
+                _filteredBitmap.value = originalFrame
                 maskMat.release()
+            } else {
+                _blurBitmap.value = matBundle.getBlurred().fixRotation(rotation).toBitmap()
+                    .copy(Bitmap.Config.ARGB_8888, false)
+                _claheBitmap.value = matBundle.getEnhanced().fixRotation(rotation).toBitmap()
+                    .copy(Bitmap.Config.ARGB_8888, false)
+                _morphBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
+                    .copy(Bitmap.Config.ARGB_8888, false)
+                _filteredBitmap.value = _morphBitmap.value
             }
-
-            // Set filtered bitmap from the morph result (alias of morph for backward compatibility)
-            _filteredBitmap.value = _morphBitmap.value
 
             // Detect document
             val morphBeforeDetect = matBundle.getMorph()

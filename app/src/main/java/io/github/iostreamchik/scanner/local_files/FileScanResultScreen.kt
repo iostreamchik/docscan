@@ -54,6 +54,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.BitmapCard
 import io.github.iostreamchik.scanner.DetectionParameters
+import io.github.iostreamchik.scanner.MockDocumentDetector
 import io.github.iostreamchik.scanner.camera.CameraViewModel
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
@@ -674,7 +675,8 @@ private fun FileScanResultPreview() {
         FileScanResultScreen(
             viewModel = viewModel {
                 CameraViewModel(
-                    matBundle = MockMatBundle()
+                    matBundle = MockMatBundle(),
+                    detector = MockDocumentDetector()
                 )
             },
             onBack = {}
