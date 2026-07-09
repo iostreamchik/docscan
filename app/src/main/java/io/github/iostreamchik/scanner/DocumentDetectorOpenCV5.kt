@@ -39,12 +39,37 @@ class DocumentDetectorOpenCV5(
         Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
         smallMat.release()
 
-        Imgproc.GaussianBlur(matBundle.getGray(), matBundle.getBlurred(), Size(5.0, 5.0), 0.0)
+        val blurKsize = params.medianBlurKsize.coerceAtLeast(3)
+        Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
+
+        // --- CLAHE (auto when params is Auto, user-configured) ---
+        val useAutoClahe = params.isClaheAuto
+        val claheClipLimit: Double = if (useAutoClahe) {
+            Core.meanStdDev(matBundle.getBlurred(), matBundle.getMean(), matBundle.getStd())
+            val brightness = matBundle.getMean().toArray()[0].coerceIn(20.0, 200.0)
+            val dimBoost = if (brightness < 80.0) {
+                100.0 / (brightness + 10.0)
+            } else {
+                0.0
+            }
+            val brightBoost = if (brightness > 130.0) {
+                (brightness - 130.0) / 30.0
+            } else {
+                0.0
+            }
+            (1.5 + dimBoost + brightBoost).coerceIn(1.0, 4.0)
+        } else {
+            params.claheClipLimit.toDouble().coerceIn(1.0, 4.0)
+        }
+        Log.d("DocScan5", "  CLAHE: clipLimit=${"%.2f".format(claheClipLimit)}, useAutoClahe=$useAutoClahe")
+        val tileSize = params.claheTileSize.coerceAtLeast(8).toDouble()
+        val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
+        clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
 
         // Adaptive Canny thresholds via Sobel gradient + Otsu + EMA smoothing.
         // Sobel on the pre-Canny blurred image directly matches what Canny measures.
-        Imgproc.Sobel(matBundle.getBlurred(), matBundle.getSobelX(), CvType.CV_32F, 1, 0, 3)
-        Imgproc.Sobel(matBundle.getBlurred(), matBundle.getSobelY(), CvType.CV_32F, 0, 1, 3)
+        Imgproc.Sobel(matBundle.getEnhanced(), matBundle.getSobelX(), CvType.CV_32F, 1, 0, 3)
+        Imgproc.Sobel(matBundle.getEnhanced(), matBundle.getSobelY(), CvType.CV_32F, 0, 1, 3)
 
         Core.convertScaleAbs(matBundle.getSobelX(), matBundle.getOtsuThreshold(), 1.0, 0.0)
         Core.convertScaleAbs(matBundle.getSobelY(), matBundle.getTemp(), 1.0, 0.0)
@@ -74,7 +99,7 @@ class DocumentDetectorOpenCV5(
 
         Log.d("DocScan5", "  Adaptive Canny: high=${"%.1f".format(cannyHigh)}, low=${"%.1f".format(cannyLow)}")
 
-        Imgproc.Canny(matBundle.getBlurred(), matBundle.getEdges(), cannyLow, cannyHigh)
+        Imgproc.Canny(matBundle.getEnhanced(), matBundle.getEdges(), cannyLow, cannyHigh)
 
         // Copy edges to morph so ViewModel can access it for bitmap conversion
         matBundle.getEdges().copyTo(matBundle.getMorph())
@@ -146,6 +171,21 @@ class DocumentDetectorOpenCV5(
     }
 
     companion object {
+        fun computeAutoClaheClipLimit(avgBrightness: Double): Double {
+            val brightness = avgBrightness.coerceIn(20.0, 200.0)
+            val dimBoost = if (brightness < 80.0) {
+                100.0 / (brightness + 10.0)
+            } else {
+                0.0
+            }
+            val brightBoost = if (brightness > 130.0) {
+                (brightness - 130.0) / 30.0
+            } else {
+                0.0
+            }
+            return (1.5 + dimBoost + brightBoost).coerceIn(1.0, 4.0)
+        }
+
         fun isRectangle(approx: MatOfPoint2f): Boolean {
             val pts = approx.toArray()
             var maxDeviation = 0.0

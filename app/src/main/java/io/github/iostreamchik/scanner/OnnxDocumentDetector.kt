@@ -240,12 +240,18 @@ class OnnxDocumentDetector(
                 if (value > 0) maskNonzero++
             }
         }
-        Log.d(TAG, "preprocess: fullMask nonzero=$maskNonzero / ${fullMask.total()} (${"%.1f".format(100.0 * maskNonzero / fullMask.total())}%) at threshold=0.5")
+        Log.d(TAG, "preprocess: fullMask nonzero=$maskNonzero / ${fullMask.total()} (${"%.1f".format(100.0 * maskNonzero / fullMask.total())}%) at threshold=${"%.2f".format(maskThreshold)}")
 
-        // Crop mask to the unpadded region, then resize to target dimensions
+        // Crop mask to the unpadded region
         val croppedMask = fullMask.submat(0, resizedH, 0, resizedW).clone()
         fullMask.release()
         rgbPadded.release()
+
+        // Tighten the blob: close fills gaps in document edges, open removes noise specks
+        val kernel = Mat(3, 3, CvType.CV_8UC1)
+        Imgproc.morphologyEx(croppedMask, croppedMask, Imgproc.MORPH_CLOSE, kernel)
+        Imgproc.morphologyEx(croppedMask, croppedMask, Imgproc.MORPH_OPEN, kernel)
+        kernel.release()
 
         val morph = matBundle.getMorph()
         Imgproc.resize(croppedMask, morph, Size(scaledWidth.toDouble(), scaledHeight.toDouble()), 0.0, 0.0, Imgproc.INTER_NEAREST)
@@ -337,6 +343,9 @@ class OnnxDocumentDetector(
 
         val candidates = mutableListOf<MatOfPoint>()
         val approx = matBundle.getApprox()
+        val hullPoints = matBundle.getHullPoints()
+        hullPoints.release()
+        hullPoints.create(0, 1, CvType.CV_32FC2)
         var skippedArea = 0
         var skippedPoints = 0
         var skippedNot4 = 0
@@ -360,9 +369,6 @@ class OnnxDocumentDetector(
             val hullCount = hull.rows() * hull.cols()
             val hullData = IntArray(hullCount * hull.channels())
             hull.get(0, 0, hullData)
-            val hullPoints = matBundle.getHullPoints()
-            hullPoints.release()
-            hullPoints.create(0, 1, CvType.CV_32FC2)
             val hullPointList = mutableListOf<Point>()
             for (i in hullData.indices step 2) {
                 if (i + 1 < hullData.size) {
@@ -374,12 +380,12 @@ class OnnxDocumentDetector(
             val hullPtCount = hullPointList.size
             val peri = Geometry.arcLength(hullPoints, true)
             var foundQuad = false
-            val epsilons = listOf(0.02, 0.035, 0.055, 0.08, 0.12, 0.18)
+            val epsilons = listOf(0.015, 0.025, 0.04, 0.06, 0.10)
 
             for (tol in epsilons) {
                 val epsilon = tol * peri
                 Geometry.approxPolyDP(hullPoints, approx, epsilon, true)
-                if (approx.total() == 4L) {
+                if (approx.total() == 4L && isRectangle(approx)) {
                     Log.d(TAG, "    approxPolyDP: tol=$tol, peri=${"%.0f".format(peri)}, hullPts=$hullPtCount -> QUAD at epsilon=${"%.2f".format(epsilon)}")
                     foundQuad = true
                     break
@@ -387,7 +393,37 @@ class OnnxDocumentDetector(
             }
 
             if (!foundQuad) {
-                skippedNot4++
+                // approxPolyDP couldn't reduce the hull to 4 points — use diagonal
+                // extremes of the contour (min/max x+y, min/max y-x) as corners.
+                val pts = contour.toArray()
+                var tlIdx = 0; var brIdx = 0; var trIdx = 0; var blIdx = 0
+                var tlSum = Long.MAX_VALUE; var brSum = Long.MIN_VALUE
+                var trDiff = Long.MAX_VALUE; var blDiff = Long.MIN_VALUE
+                for (i in pts.indices) {
+                    val x = pts[i].x.toLong(); val y = pts[i].y.toLong()
+                    val sum = x + y; val diff = y - x
+                    if (sum < tlSum) { tlSum = sum; tlIdx = i }
+                    if (sum > brSum) { brSum = sum; brIdx = i }
+                    if (diff < trDiff) { trDiff = diff; trIdx = i }
+                    if (diff > blDiff) { blDiff = diff; blIdx = i }
+                }
+                val fallbackPts = arrayOf(pts[tlIdx], pts[trIdx], pts[blIdx], pts[brIdx])
+                val fallbackApprox = matBundle.getApprox()
+                fallbackApprox.fromArray(*fallbackPts)
+                val rectCheck = Geometry.boundingRect(fallbackApprox)
+                val rectAreaCheck = rectCheck.width * rectCheck.height
+                val solidityCheck = area / rectAreaCheck.toDouble()
+                Log.d(TAG, "    fallback diagonal extremes: solidity=${"%.2f".format(solidityCheck)}")
+                if (solidityCheck >= 0.15) {
+                    val scaleX = originalWidth.toDouble() / scaledWidth
+                    val scaleY = originalHeight.toDouble() / scaledHeight
+                    val scaledFallback = fallbackPts.map { Point(it.x * scaleX, it.y * scaleY) }
+                    val quadFallback = MatOfPoint(*scaledFallback.toTypedArray())
+                    candidates.add(quadFallback)
+                    Log.d(TAG, "    fallback: ADDED quad (solidity=${"%.2f".format(solidityCheck)})")
+                } else {
+                    skippedSolidity++
+                }
                 continue
             }
 
@@ -415,7 +451,7 @@ class OnnxDocumentDetector(
 
         Log.d(TAG, "  detectQuad summary: contours=${contours.size}, candidates=${candidates.size}, skippedArea=$skippedArea, skippedPoints=$skippedPoints, skippedNot4=$skippedNot4, skippedNotRect=$skippedNotRect, skippedSolidity=$skippedSolidity")
 
-        val best = candidates.maxByOrNull { abs(Geometry.contourArea(it)) }
+        val best = candidates.maxByOrNull { scoreContourWithParams(it, originalWidth, originalHeight, params) }
         val result = best?.let { MatOfPoint(*it.toArray()) }
         candidates.forEach { it.release() }
         Log.d(TAG, "  detectQuad END: result=${if (result != null) "found (${result.total()} pts)" else "null"}")
@@ -462,6 +498,7 @@ class OnnxDocumentDetector(
 
         fun isRectangle(approx: MatOfPoint2f): Boolean {
             val pts = approx.toArray()
+            val deviations = mutableListOf<Float>()
             var maxDeviation = 0.0
             for (i in 0..3) {
                 val angle = computeAngle(
@@ -469,8 +506,11 @@ class OnnxDocumentDetector(
                     pts[(i + 3) % 4],
                     pts[i]
                 )
-                maxDeviation = max(maxDeviation, abs(90.0 - angle))
+                val deviation = abs(90.0 - angle)
+                deviations.add(deviation.toFloat())
+                maxDeviation = max(maxDeviation, deviation)
             }
+            Log.d(TAG, "    isRectangle: angles=[${"%.1f".format(pts[0].x)},${"%.1f".format(pts[0].y)};${"%.1f".format(pts[1].x)},${"%.1f".format(pts[1].y)};${"%.1f".format(pts[2].x)},${"%.1f".format(pts[2].y)};${"%.1f".format(pts[3].x)},${"%.1f".format(pts[3].y)}], deviations=[${deviations.joinToString(", ") { "%.1f".format(it) }}]°, max=${"%.1f".format(maxDeviation)}° -> ${if (maxDeviation < 25) "PASS" else "FAIL"}")
             return maxDeviation < 25
         }
 
