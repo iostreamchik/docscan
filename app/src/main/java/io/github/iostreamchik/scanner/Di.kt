@@ -36,6 +36,7 @@ val appModule = module {
         CameraViewModel(
             matBundle = get(),
             thresholdCalculator = get(),
+//            detector = get()
             detector = get(named("onnx"))
         )
     }

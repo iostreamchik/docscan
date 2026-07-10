@@ -207,9 +207,11 @@ fun CameraScreen(
                     .height(260.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                BitmapCard(
-                    bitmap = filteredBitmap,
-                )
+                if (onnxMaskBitmap == null) {
+                    BitmapCard(
+                        bitmap = filteredBitmap,
+                    )
+                }
                 Spacer(modifier = Modifier.width(16.dp))
                 BitmapCard(
                     bitmap = onnxMaskBitmap,

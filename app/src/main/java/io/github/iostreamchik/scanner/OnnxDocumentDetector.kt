@@ -407,7 +407,7 @@ class OnnxDocumentDetector(
                     if (diff < trDiff) { trDiff = diff; trIdx = i }
                     if (diff > blDiff) { blDiff = diff; blIdx = i }
                 }
-                val fallbackPts = arrayOf(pts[tlIdx], pts[trIdx], pts[blIdx], pts[brIdx])
+                val fallbackPts = arrayOf(pts[tlIdx], pts[trIdx], pts[brIdx], pts[blIdx])
                 val fallbackApprox = matBundle.getApprox()
                 fallbackApprox.fromArray(*fallbackPts)
                 val rectCheck = Geometry.boundingRect(fallbackApprox)
@@ -452,7 +452,10 @@ class OnnxDocumentDetector(
         Log.d(TAG, "  detectQuad summary: contours=${contours.size}, candidates=${candidates.size}, skippedArea=$skippedArea, skippedPoints=$skippedPoints, skippedNot4=$skippedNot4, skippedNotRect=$skippedNotRect, skippedSolidity=$skippedSolidity")
 
         val best = candidates.maxByOrNull { scoreContourWithParams(it, originalWidth, originalHeight, params) }
-        val result = best?.let { MatOfPoint(*it.toArray()) }
+        val result = best?.let { quad ->
+            val sorted = sortQuadPoints(quad.toArray().toList())
+            if (sorted.size == 4) MatOfPoint(*sorted.toTypedArray()) else quad
+        }
         candidates.forEach { it.release() }
         Log.d(TAG, "  detectQuad END: result=${if (result != null) "found (${result.total()} pts)" else "null"}")
         return result

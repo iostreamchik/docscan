@@ -131,7 +131,7 @@ class DocumentDetectorOpenCV5(
         }
         _smoothedHigh = smoothedHigh
 
-        val cannyHigh = smoothedHigh.coerceIn(thresholdFloor, thresholdCeiling)
+        val cannyHigh = smoothedHigh//.coerceIn(thresholdFloor, thresholdCeiling)
         val cannyLow = cannyHigh * lowHighRatio
 
         _detectionParams.value = _detectionParams.value.copy(
