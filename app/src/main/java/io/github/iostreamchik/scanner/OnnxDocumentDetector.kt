@@ -30,13 +30,13 @@ class OnnxDocumentDetector(
     private val context: Context,
     private val matBundle: IMatBundle,
     private val modelPath: String = "onnx/deeplabv3_mbv3_docseg.onnx",
-    private val useCustomNormalization: Boolean = false
+    private val useCustomNormalization: Boolean = true
 ) : IDocumentDetector {
 
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
     private val sessionOptions: OrtSession.SessionOptions = OrtSession.SessionOptions()
 
-    var maskThreshold: Float = 0.35f
+    var maskThreshold: Float = 0.5f
         set(value) {
             field = value.coerceIn(0.1f, 0.7f)
             _detectionParams.value = _detectionParams.value.copy(
@@ -108,9 +108,9 @@ class OnnxDocumentDetector(
         Imgproc.cvtColor(resized, rgb, Imgproc.COLOR_RGBA2RGB)
         resized.release()
 
-        // Pad RGB to square with black borders
+        // Pad RGB to square with neutral gray borders
         val rgbPadded = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_8UC3)
-        rgbPadded.setTo(org.opencv.core.Scalar(0.0, 0.0, 0.0))
+        rgbPadded.setTo(org.opencv.core.Scalar(128.0, 128.0, 128.0))
         val roi = rgbPadded.submat(0, rgb.rows(), 0, rgb.cols())
         rgb.copyTo(roi)
         roi.release()
@@ -217,8 +217,7 @@ class OnnxDocumentDetector(
             Log.d(TAG, "preprocess: output distribution: <0=$below0, <0.5=$below05, >0.5=$above05, >0.8=$above08, total=${outputBuffer.size}")
         }
 
-        val fullMask = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_8UC1)
-        var maskNonzero = 0
+        val probMap = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_32FC1)
 
         if (isDeepLabV3) {
             for (y in 0 until INPUT_SIZE) {
@@ -227,34 +226,69 @@ class OnnxDocumentDetector(
                     val bgLogit = outputBuffer[idx]
                     val fgLogit = outputBuffer[INPUT_SIZE * INPUT_SIZE + idx]
                     val documentProb = 1f / (1f + kotlin.math.exp(-(fgLogit - bgLogit)))
-                    val value = if (documentProb > maskThreshold) 255 else 0
-                    fullMask.put(y, x, value.toDouble())
-                    if (value > 0) maskNonzero++
+                    probMap.put(y, x, documentProb.toDouble())
                 }
             }
         } else {
             val totalPixels = INPUT_SIZE * INPUT_SIZE
             for (i in 0 until totalPixels) {
-                val value = if (outputBuffer[i] > maskThreshold) 255 else 0
-                fullMask.put(i / INPUT_SIZE, i % INPUT_SIZE, value.toDouble())
-                if (value > 0) maskNonzero++
+                probMap.put(i / INPUT_SIZE, i % INPUT_SIZE, outputBuffer[i].toDouble())
             }
         }
+
+        Imgproc.GaussianBlur(probMap, probMap, Size(5.0, 5.0), 1.5)
+
+        // Convert to 8-bit [0,255] before threshold — prevents CV_32FC1 leak
+        // through Imgproc.threshold which would break connectedComponentsWithStats.
+        val prob8 = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_8UC1)
+        probMap.convertTo(prob8, CvType.CV_8UC1, 255.0)
+        probMap.release()
+
+        val fullMask = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_8UC1)
+        Imgproc.threshold(prob8, fullMask, (maskThreshold * 255.0).toDouble(), 255.0, Imgproc.THRESH_BINARY)
+        prob8.release()
+
+        var maskNonzero = Core.countNonZero(fullMask)
         Log.d(TAG, "preprocess: fullMask nonzero=$maskNonzero / ${fullMask.total()} (${"%.1f".format(100.0 * maskNonzero / fullMask.total())}%) at threshold=${"%.2f".format(maskThreshold)}")
 
-        // Crop mask to the unpadded region
-        val croppedMask = fullMask.submat(0, resizedH, 0, resizedW).clone()
+        // Multi-stage morphological cleanup
+        val kernelSmall = Mat(3, 3, CvType.CV_8UC1, org.opencv.core.Scalar.all(1.0))
+        val kernelLarge = Mat(5, 5, CvType.CV_8UC1, org.opencv.core.Scalar.all(1.0))
+        Imgproc.morphologyEx(fullMask, fullMask, Imgproc.MORPH_CLOSE, kernelLarge)
+        Imgproc.morphologyEx(fullMask, fullMask, Imgproc.MORPH_OPEN, kernelSmall)
+        Imgproc.morphologyEx(fullMask, fullMask, Imgproc.MORPH_CLOSE, kernelSmall)
+        kernelSmall.release()
+        kernelLarge.release()
+
+        // Connected component filtering — remove small noise blobs
+        Log.d(TAG, "preprocess: fullMask before CCW: rows=${fullMask.rows()}, cols=${fullMask.cols()}, type=${fullMask.type()}, depth=${fullMask.depth()}, channels=${fullMask.channels()}, empty=${fullMask.empty()}")
+        val labels = Mat()
+        val stats = Mat()
+        val centroids = Mat()
+        val nLabels = Imgproc.connectedComponentsWithStats(fullMask, labels, stats, centroids, 8, CvType.CV_32S)
+        val minBlobArea = (INPUT_SIZE * INPUT_SIZE * 0.001).toInt()
+        val cleanedMask = Mat.zeros(fullMask.size(), CvType.CV_8UC1)
+        for (label in 1 until nLabels) {
+            val area = stats.get(label, Imgproc.CC_STAT_AREA)[0].toInt()
+            if (area >= minBlobArea) {
+                val compMask = Mat()
+                Core.compare(labels, org.opencv.core.Scalar(label.toDouble()), compMask, Core.CMP_EQ)
+                Core.bitwise_or(cleanedMask, compMask, cleanedMask)
+                compMask.release()
+            }
+        }
+        labels.release()
+        stats.release()
+        centroids.release()
         fullMask.release()
+
+        // Crop to unpadded region
+        val croppedMask = cleanedMask.submat(0, resizedH, 0, resizedW).clone()
+        cleanedMask.release()
         rgbPadded.release()
 
-        // Tighten the blob: close fills gaps in document edges, open removes noise specks
-        val kernel = Mat(3, 3, CvType.CV_8UC1)
-        Imgproc.morphologyEx(croppedMask, croppedMask, Imgproc.MORPH_CLOSE, kernel)
-        Imgproc.morphologyEx(croppedMask, croppedMask, Imgproc.MORPH_OPEN, kernel)
-        kernel.release()
-
         val morph = matBundle.getMorph()
-        Imgproc.resize(croppedMask, morph, Size(scaledWidth.toDouble(), scaledHeight.toDouble()), 0.0, 0.0, Imgproc.INTER_NEAREST)
+        Imgproc.resize(croppedMask, morph, Size(scaledWidth.toDouble(), scaledHeight.toDouble()), 0.0, 0.0, Imgproc.INTER_LINEAR)
         croppedMask.release()
 
         // Cache the mask for detectQuad() — matBundle.getMorph() may be corrupted
