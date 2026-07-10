@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -123,15 +124,26 @@ fun ContourCanvas(
         val dy = (size.height - (rotatedH * scale)) / 2f
 
         contours.forEach { points ->
-            for (i in points.indices) {
-                val p1 = points[i]
-                val p2 = points[(i + 1) % points.size]
+            val scaledPoints = points.map { Offset(it.x * scale + dx, it.y * scale + dy) }
 
-                drawLine(
-                    color = Color.Red.copy(alpha = 0.9f),
-                    start = Offset(p1.x * scale + dx, p1.y * scale + dy),
-                    end = Offset(p2.x * scale + dx, p2.y * scale + dy),
-                    strokeWidth = 8f
+            if (scaledPoints.size >= 3) {
+                val path = Path().apply {
+                    moveTo(scaledPoints[0].x, scaledPoints[0].y)
+                    for (i in 1 until scaledPoints.size) {
+                        lineTo(scaledPoints[i].x, scaledPoints[i].y)
+                    }
+                    close()
+                }
+
+                drawPath(
+                    path = path,
+                    color = Color.Green.copy(alpha = 0.25f)
+                )
+
+                drawPath(
+                    path = path,
+                    color = Color.Green.copy(alpha = 0.9f),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f)
                 )
             }
         }
