@@ -236,6 +236,15 @@ class OnnxDocumentDetector(
             }
         }
 
+        // Zero out padding region — the model was trained on real content, not gray borders.
+        // Leaving padding untouched lets the model hallucinate edges at the borders.
+        val padTop = 0
+        val padBottom = INPUT_SIZE - resizedH
+        val padLeft = 0
+        val padRight = INPUT_SIZE - resizedW
+        if (padBottom > 0) probMap.submat(resizedH, INPUT_SIZE, 0, INPUT_SIZE).setTo(org.opencv.core.Scalar(0.0))
+        if (padRight > 0) probMap.submat(0, resizedH, resizedW, INPUT_SIZE).setTo(org.opencv.core.Scalar(0.0))
+
         Imgproc.GaussianBlur(probMap, probMap, Size(5.0, 5.0), 1.5)
 
         // Convert to 8-bit [0,255] before threshold — prevents CV_32FC1 leak
@@ -244,38 +253,89 @@ class OnnxDocumentDetector(
         probMap.convertTo(prob8, CvType.CV_8UC1, 255.0)
         probMap.release()
 
-        val fullMask = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_8UC1)
-        Imgproc.threshold(prob8, fullMask, (maskThreshold * 255.0).toDouble(), 255.0, Imgproc.THRESH_BINARY)
+        // Adaptive threshold: try Otsu first on the content region only (no padding).
+        // Otsu finds the natural bimodal split between document and background pixels.
+        // Falls back to manual threshold if Otsu produces nothing (flat histogram).
+        val contentProb = prob8.submat(padTop, resizedH, padLeft, resizedW)
+        val otsuMask = Mat(resizedH, resizedW, CvType.CV_8UC1)
+        val otsuVal = Imgproc.threshold(contentProb, otsuMask, 0.0, 255.0, Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU)
+        Log.d(TAG, "preprocess: Otsu threshold=${"%.1f".format(otsuVal)} (manual=${"%.2f".format(maskThreshold * 255.0)})")
+
+        val fullMask = if (Core.countNonZero(otsuMask) > INPUT_SIZE * INPUT_SIZE * 0.0005) {
+            // Otsu found a valid split — compose full-size mask with padding zeroed
+            val m = Mat.zeros(INPUT_SIZE, INPUT_SIZE, CvType.CV_8UC1)
+            otsuMask.copyTo(m.submat(padTop, resizedH, padLeft, resizedW))
+            otsuMask.release()
+            m
+        } else {
+            // Fallback: manual threshold on full image
+            otsuMask.release()
+            val m = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_8UC1)
+            Imgproc.threshold(prob8, m, maskThreshold * 255.0, 255.0, Imgproc.THRESH_BINARY)
+            m
+        }
         prob8.release()
 
         var maskNonzero = Core.countNonZero(fullMask)
-        Log.d(TAG, "preprocess: fullMask nonzero=$maskNonzero / ${fullMask.total()} (${"%.1f".format(100.0 * maskNonzero / fullMask.total())}%) at threshold=${"%.2f".format(maskThreshold)}")
+        Log.d(TAG, "preprocess: fullMask nonzero=$maskNonzero / ${fullMask.total()} (${"%.1f".format(100.0 * maskNonzero / fullMask.total())}%)")
 
-        // Multi-stage morphological cleanup
-        val kernelSmall = Mat(3, 3, CvType.CV_8UC1, org.opencv.core.Scalar.all(1.0))
-        val kernelLarge = Mat(5, 5, CvType.CV_8UC1, org.opencv.core.Scalar.all(1.0))
-        Imgproc.morphologyEx(fullMask, fullMask, Imgproc.MORPH_CLOSE, kernelLarge)
-        Imgproc.morphologyEx(fullMask, fullMask, Imgproc.MORPH_OPEN, kernelSmall)
-        Imgproc.morphologyEx(fullMask, fullMask, Imgproc.MORPH_CLOSE, kernelSmall)
-        kernelSmall.release()
-        kernelLarge.release()
+        // Estimate document size from mask to scale morphological kernels proportionally.
+        // Fixed 3x3/5x5 kernels are ineffective on 384x384 — they don't bridge real gaps.
+        val tmpLabels = Mat(); val tmpStats = Mat(); val tmpCentroids = Mat()
+        val tmpNLabels = Imgproc.connectedComponentsWithStats(fullMask, tmpLabels, tmpStats, tmpCentroids, 8, CvType.CV_32S)
+        var docArea = 0
+        for (l in 1 until tmpNLabels) {
+            val a = tmpStats.get(l, Imgproc.CC_STAT_AREA)[0].toInt()
+            if (a > docArea) docArea = a
+        }
+        tmpLabels.release(); tmpStats.release(); tmpCentroids.release()
 
-        // Connected component filtering — remove small noise blobs
+        // Kernel size scales with largest blob: sqrt(area) gives a linear measure,
+        // clamped so kernels are 5–21 (always odd). Small fragments get light cleanup;
+        // large document masks get strong gap-bridging closes.
+        val docLinear = kotlin.math.sqrt(docArea.toDouble()).coerceIn(10.0, 200.0)
+        val kernelCloseK = ((docLinear / 6.0).toInt().coerceIn(5, 21)).takeIf { it % 2 == 1 } ?: ((docLinear / 6.0).toInt().coerceIn(5, 21) - 1)
+        val kernelOpenK = ((docLinear / 12.0).toInt().coerceIn(3, 9)).takeIf { it % 2 == 1 } ?: ((docLinear / 12.0).toInt().coerceIn(3, 9) - 1)
+
+        val kernelClose = Mat(kernelCloseK, kernelCloseK, CvType.CV_8UC1, org.opencv.core.Scalar.all(1.0))
+        val kernelOpen = Mat(kernelOpenK, kernelOpenK, CvType.CV_8UC1, org.opencv.core.Scalar.all(1.0))
+        Log.d(TAG, "preprocess: morph kernels close=${kernelCloseK}x${kernelCloseK}, open=${kernelOpenK}x${kernelOpenK}, docArea=$docArea")
+
+        Imgproc.morphologyEx(fullMask, fullMask, Imgproc.MORPH_CLOSE, kernelClose)
+        Imgproc.morphologyEx(fullMask, fullMask, Imgproc.MORPH_OPEN, kernelOpen)
+        Imgproc.morphologyEx(fullMask, fullMask, Imgproc.MORPH_CLOSE, kernelOpen)
+        kernelClose.release()
+        kernelOpen.release()
+
+        // Connected component filtering — keep only the largest blob (the document).
+        // Noise, page numbers, watermarks, and table fragments are always smaller.
         Log.d(TAG, "preprocess: fullMask before CCW: rows=${fullMask.rows()}, cols=${fullMask.cols()}, type=${fullMask.type()}, depth=${fullMask.depth()}, channels=${fullMask.channels()}, empty=${fullMask.empty()}")
         val labels = Mat()
         val stats = Mat()
         val centroids = Mat()
         val nLabels = Imgproc.connectedComponentsWithStats(fullMask, labels, stats, centroids, 8, CvType.CV_32S)
-        val minBlobArea = (INPUT_SIZE * INPUT_SIZE * 0.001).toInt()
-        val cleanedMask = Mat.zeros(fullMask.size(), CvType.CV_8UC1)
+
+        // Find largest component (skip label 0 = background)
+        var largestLabel = 0
+        var largestArea = 0
         for (label in 1 until nLabels) {
             val area = stats.get(label, Imgproc.CC_STAT_AREA)[0].toInt()
-            if (area >= minBlobArea) {
-                val compMask = Mat()
-                Core.compare(labels, org.opencv.core.Scalar(label.toDouble()), compMask, Core.CMP_EQ)
-                Core.bitwise_or(cleanedMask, compMask, cleanedMask)
-                compMask.release()
+            if (area > largestArea) {
+                largestArea = area
+                largestLabel = label
             }
+        }
+
+        val minBlobArea = (INPUT_SIZE * INPUT_SIZE * 0.0005).toInt()
+        val cleanedMask = Mat.zeros(fullMask.size(), CvType.CV_8UC1)
+        if (largestArea >= minBlobArea) {
+            Log.d(TAG, "preprocess: largest CC label=$largestLabel area=$largestArea — keeping")
+            val compMask = Mat()
+            Core.compare(labels, org.opencv.core.Scalar(largestLabel.toDouble()), compMask, Core.CMP_EQ)
+            compMask.copyTo(cleanedMask)
+            compMask.release()
+        } else {
+            Log.d(TAG, "preprocess: largest CC area=$largestArea below min=$minBlobArea — discarding all")
         }
         labels.release()
         stats.release()
@@ -288,7 +348,8 @@ class OnnxDocumentDetector(
         rgbPadded.release()
 
         val morph = matBundle.getMorph()
-        Imgproc.resize(croppedMask, morph, Size(scaledWidth.toDouble(), scaledHeight.toDouble()), 0.0, 0.0, Imgproc.INTER_LINEAR)
+        // Use INTER_NEAREST for binary mask — preserves sharp edges, no interpolation artifacts
+        Imgproc.resize(croppedMask, morph, Size(scaledWidth.toDouble(), scaledHeight.toDouble()), 0.0, 0.0, Imgproc.INTER_NEAREST)
         croppedMask.release()
 
         // Cache the mask for detectQuad() — matBundle.getMorph() may be corrupted
