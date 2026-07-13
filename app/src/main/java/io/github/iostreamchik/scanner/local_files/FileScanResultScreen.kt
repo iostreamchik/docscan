@@ -53,8 +53,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.BitmapCard
-import io.github.iostreamchik.scanner.DetectionParameters
-import io.github.iostreamchik.scanner.MockDocumentDetector
+import io.github.iostreamchik.scanner.detector.DetectionParameters
+import io.github.iostreamchik.scanner.detector.MockDocumentDetector
 import io.github.iostreamchik.scanner.camera.CameraViewModel
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
@@ -405,36 +405,38 @@ private fun PipelineParametersSection(
             var modeAuto by remember { mutableStateOf(params.isClaheAuto) }
             var claheClip by remember { mutableFloatStateOf(params.claheClipLimit) }
             var claheTile by remember { mutableIntStateOf(params.claheTileSize) }
+            var enabled by remember { mutableStateOf(params.isClaheEnabled) }
 
-            // Auto/Manual toggle
+            // Enable/Disable toggle
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = if (modeAuto) "Auto (brightness-adaptive)" else "Manual",
+                    text = if (enabled) "CLAHE Enhancement" else "CLAHE disabled — detection may degrade",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 )
                 Switch(
-                    checked = modeAuto,
+                    checked = enabled,
                     onCheckedChange = { newValue ->
-                        modeAuto = newValue
+                        enabled = newValue
                         if (newValue) {
-                            onParamsChange(params.copy(isClaheAuto = true))
+                            onParamsChange(params.copy(isClaheEnabled = true, isClaheAuto = true))
                         } else {
-                            claheClip = params.claheClipLimit
-                            claheTile = params.claheTileSize
-                            onParamsChange(
-                                params.copy(
-                                    isClaheAuto = false,
-                                    claheClipLimit = params.claheClipLimit,
-                                    claheTileSize = params.claheTileSize
-                                )
-                            )
+                            onParamsChange(params.copy(isClaheEnabled = false))
                         }
                     }
+                )
+            }
+
+            if (!enabled) {
+                Text(
+                    text = "CLAHE boosts contrast for edge detection. Disabling may cause missed documents.",
+                    fontSize = 11.sp,
+                    color = Color(0xFFFF9800),
+                    modifier = Modifier.padding(top = 4.dp)
                 )
             }
 
@@ -497,18 +499,55 @@ private fun PipelineParametersSection(
             stageName = "Morph Close",
         ) {
             var kernelSize by remember { mutableIntStateOf(params.morphCloseSize) }
-            ParameterSlider(
-                label = "Kernel Size",
-                value = kernelSize.toFloat(),
-                valueRange = 3f..21f,
-                step = 2f,
-                valueFormatter = { "${it.toInt()}" },
-                onValueChange = {
-                    val v = it.toInt().coerceIn(3, 21)
-                    if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
-                    onParamsChange(params.copy(morphCloseSize = kernelSize))
-                }
-            )
+            var enabled by remember { mutableStateOf(params.isMorphCloseEnabled) }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (enabled) "Morphological Close" else "Morph Close disabled — detection may degrade",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { newValue ->
+                        enabled = newValue
+                        if (newValue) {
+                            onParamsChange(params.copy(isMorphCloseEnabled = true, morphCloseSize = kernelSize))
+                        } else {
+                            onParamsChange(params.copy(isMorphCloseEnabled = false))
+                        }
+                    }
+                )
+            }
+
+            if (!enabled) {
+                Text(
+                    text = "Fills gaps in edges before Canny. Disabling may cause broken contours.",
+                    fontSize = 11.sp,
+                    color = Color(0xFFFF9800),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+
+            if (enabled) {
+                Spacer(modifier = Modifier.height(4.dp))
+                ParameterSlider(
+                    label = "Kernel Size",
+                    value = kernelSize.toFloat(),
+                    valueRange = 3f..21f,
+                    step = 2f,
+                    valueFormatter = { "${it.toInt()}" },
+                    onValueChange = {
+                        val v = it.toInt().coerceIn(3, 21)
+                        if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
+                        onParamsChange(params.copy(isMorphCloseEnabled = true, morphCloseSize = kernelSize))
+                    }
+                )
+            }
         }
 
         // Canny Edges
@@ -606,18 +645,55 @@ private fun PipelineParametersSection(
             stageName = "Strong Close",
         ) {
             var kernelSize by remember { mutableIntStateOf(params.strongCloseSize) }
-            ParameterSlider(
-                label = "Kernel Size",
-                value = kernelSize.toFloat(),
-                valueRange = 3f..15f,
-                step = 2f,
-                valueFormatter = { "${it.toInt()}" },
-                onValueChange = {
-                    val v = it.toInt().coerceIn(3, 15)
-                    if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
-                    onParamsChange(params.copy(strongCloseSize = kernelSize))
-                }
-            )
+            var enabled by remember { mutableStateOf(params.isStrongCloseEnabled) }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (enabled) "Strong Closing (post-Canny)" else "Strong Close disabled — detection may degrade",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { newValue ->
+                        enabled = newValue
+                        if (newValue) {
+                            onParamsChange(params.copy(isStrongCloseEnabled = true, strongCloseSize = kernelSize))
+                        } else {
+                            onParamsChange(params.copy(isStrongCloseEnabled = false))
+                        }
+                    }
+                )
+            }
+
+            if (!enabled) {
+                Text(
+                    text = "Closes gaps in detected edges. Disabling may cause fragmented contours.",
+                    fontSize = 11.sp,
+                    color = Color(0xFFFF9800),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+
+            if (enabled) {
+                Spacer(modifier = Modifier.height(4.dp))
+                ParameterSlider(
+                    label = "Kernel Size",
+                    value = kernelSize.toFloat(),
+                    valueRange = 3f..15f,
+                    step = 2f,
+                    valueFormatter = { "${it.toInt()}" },
+                    onValueChange = {
+                        val v = it.toInt().coerceIn(3, 15)
+                        if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
+                        onParamsChange(params.copy(isStrongCloseEnabled = true, strongCloseSize = kernelSize))
+                    }
+                )
+            }
         }
 
         // Directional Suppression
@@ -625,17 +701,54 @@ private fun PipelineParametersSection(
             stageName = "Directional Suppression",
         ) {
             var kernelSize by remember { mutableIntStateOf(params.directionalKernelSize) }
-            ParameterSlider(
-                label = "Kernel Size",
-                value = kernelSize.toFloat(),
-                valueRange = 1f..31f,
-                step = 2f,
-                valueFormatter = { "${it.toInt()}" },
-                onValueChange = {
-                    kernelSize = it.toInt().coerceIn(1, 31)
-                    onParamsChange(params.copy(directionalKernelSize = kernelSize))
-                }
-            )
+            var enabled by remember { mutableStateOf(params.isDirectionalSuppressionEnabled) }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (enabled) "Directional Suppression" else "Directional Suppression disabled — detection may degrade",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { newValue ->
+                        enabled = newValue
+                        if (newValue) {
+                            onParamsChange(params.copy(isDirectionalSuppressionEnabled = true, directionalKernelSize = kernelSize))
+                        } else {
+                            onParamsChange(params.copy(isDirectionalSuppressionEnabled = false))
+                        }
+                    }
+                )
+            }
+
+            if (!enabled) {
+                Text(
+                    text = "Suppresses non-directional noise. Disabling may cause false contours.",
+                    fontSize = 11.sp,
+                    color = Color(0xFFFF9800),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+
+            if (enabled) {
+                Spacer(modifier = Modifier.height(4.dp))
+                ParameterSlider(
+                    label = "Kernel Size",
+                    value = kernelSize.toFloat(),
+                    valueRange = 1f..31f,
+                    step = 2f,
+                    valueFormatter = { "${it.toInt()}" },
+                    onValueChange = {
+                        kernelSize = it.toInt().coerceIn(1, 31)
+                        onParamsChange(params.copy(isDirectionalSuppressionEnabled = true, directionalKernelSize = kernelSize))
+                    }
+                )
+            }
         }
     }
 }

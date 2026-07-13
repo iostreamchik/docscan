@@ -1,4 +1,4 @@
-package io.github.iostreamchik.scanner
+package io.github.iostreamchik.scanner.detector
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
@@ -7,6 +7,8 @@ import android.content.Context
 import android.util.Log
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
+import io.github.iostreamchik.scanner.scoreContourWithParams
+import io.github.iostreamchik.scanner.sortQuadPoints
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.opencv.core.Core
@@ -15,15 +17,19 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
+import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.geometry.Geometry
 import org.opencv.imgproc.Imgproc
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.collections.copy
 import kotlin.math.abs
 import kotlin.math.acos
+import kotlin.math.exp
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sqrt
 
 class OnnxDocumentDetector(
@@ -110,7 +116,7 @@ class OnnxDocumentDetector(
 
         // Pad RGB to square with neutral gray borders
         val rgbPadded = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_8UC3)
-        rgbPadded.setTo(org.opencv.core.Scalar(128.0, 128.0, 128.0))
+        rgbPadded.setTo(Scalar(128.0, 128.0, 128.0))
         val roi = rgbPadded.submat(0, rgb.rows(), 0, rgb.cols())
         rgb.copyTo(roi)
         roi.release()
@@ -225,7 +231,7 @@ class OnnxDocumentDetector(
                     val idx = y * INPUT_SIZE + x
                     val bgLogit = outputBuffer[idx]
                     val fgLogit = outputBuffer[INPUT_SIZE * INPUT_SIZE + idx]
-                    val documentProb = 1f / (1f + kotlin.math.exp(-(fgLogit - bgLogit)))
+                    val documentProb = 1f / (1f + exp(-(fgLogit - bgLogit)))
                     probMap.put(y, x, documentProb.toDouble())
                 }
             }
@@ -242,8 +248,8 @@ class OnnxDocumentDetector(
         val padBottom = INPUT_SIZE - resizedH
         val padLeft = 0
         val padRight = INPUT_SIZE - resizedW
-        if (padBottom > 0) probMap.submat(resizedH, INPUT_SIZE, 0, INPUT_SIZE).setTo(org.opencv.core.Scalar(0.0))
-        if (padRight > 0) probMap.submat(0, resizedH, resizedW, INPUT_SIZE).setTo(org.opencv.core.Scalar(0.0))
+        if (padBottom > 0) probMap.submat(resizedH, INPUT_SIZE, 0, INPUT_SIZE).setTo(Scalar(0.0))
+        if (padRight > 0) probMap.submat(0, resizedH, resizedW, INPUT_SIZE).setTo(Scalar(0.0))
 
         Imgproc.GaussianBlur(probMap, probMap, Size(5.0, 5.0), 1.5)
 
@@ -293,12 +299,12 @@ class OnnxDocumentDetector(
         // Kernel size scales with largest blob: sqrt(area) gives a linear measure,
         // clamped so kernels are 5–21 (always odd). Small fragments get light cleanup;
         // large document masks get strong gap-bridging closes.
-        val docLinear = kotlin.math.sqrt(docArea.toDouble()).coerceIn(10.0, 200.0)
+        val docLinear = sqrt(docArea.toDouble()).coerceIn(10.0, 200.0)
         val kernelCloseK = ((docLinear / 6.0).toInt().coerceIn(5, 21)).takeIf { it % 2 == 1 } ?: ((docLinear / 6.0).toInt().coerceIn(5, 21) - 1)
         val kernelOpenK = ((docLinear / 12.0).toInt().coerceIn(3, 9)).takeIf { it % 2 == 1 } ?: ((docLinear / 12.0).toInt().coerceIn(3, 9) - 1)
 
-        val kernelClose = Mat(kernelCloseK, kernelCloseK, CvType.CV_8UC1, org.opencv.core.Scalar.all(1.0))
-        val kernelOpen = Mat(kernelOpenK, kernelOpenK, CvType.CV_8UC1, org.opencv.core.Scalar.all(1.0))
+        val kernelClose = Mat(kernelCloseK, kernelCloseK, CvType.CV_8UC1, Scalar.all(1.0))
+        val kernelOpen = Mat(kernelOpenK, kernelOpenK, CvType.CV_8UC1, Scalar.all(1.0))
         Log.d(TAG, "preprocess: morph kernels close=${kernelCloseK}x${kernelCloseK}, open=${kernelOpenK}x${kernelOpenK}, docArea=$docArea")
 
         Imgproc.morphologyEx(fullMask, fullMask, Imgproc.MORPH_CLOSE, kernelClose)
@@ -331,7 +337,7 @@ class OnnxDocumentDetector(
         if (largestArea >= minBlobArea) {
             Log.d(TAG, "preprocess: largest CC label=$largestLabel area=$largestArea — keeping")
             val compMask = Mat()
-            Core.compare(labels, org.opencv.core.Scalar(largestLabel.toDouble()), compMask, Core.CMP_EQ)
+            Core.compare(labels, Scalar(largestLabel.toDouble()), compMask, Core.CMP_EQ)
             compMask.copyTo(cleanedMask)
             compMask.release()
         } else {
@@ -349,7 +355,8 @@ class OnnxDocumentDetector(
 
         val morph = matBundle.getMorph()
         // Use INTER_NEAREST for binary mask — preserves sharp edges, no interpolation artifacts
-        Imgproc.resize(croppedMask, morph, Size(scaledWidth.toDouble(), scaledHeight.toDouble()), 0.0, 0.0, Imgproc.INTER_NEAREST)
+        Imgproc.resize(croppedMask, morph,
+            Size(scaledWidth.toDouble(), scaledHeight.toDouble()), 0.0, 0.0, Imgproc.INTER_NEAREST)
         croppedMask.release()
 
         // Cache the mask for detectQuad() — matBundle.getMorph() may be corrupted
@@ -391,7 +398,7 @@ class OnnxDocumentDetector(
         Log.d(TAG, "  workingMask nonzero pixels: $morphNonZero / ${workingMask.total()}")
 
         var hasNonZero = false
-        val sampleN = kotlin.math.min(5000, workingMask.total().toInt())
+        val sampleN = min(5000, workingMask.total().toInt())
         for (i in 0 until sampleN) {
             val r = i / workingMask.cols()
             val c = i % workingMask.cols()
@@ -419,9 +426,9 @@ class OnnxDocumentDetector(
 
         if (contours.isEmpty() && workingMask.total() > 0) {
             Log.d(TAG, "  [DEBUG] workingMask pixel samples (top-left 10x10):")
-            for (r in 0 until kotlin.math.min(10, workingMask.rows())) {
+            for (r in 0 until min(10, workingMask.rows())) {
                 val rowStr = mutableListOf<String>()
-                for (c in 0 until kotlin.math.min(10, workingMask.cols())) {
+                for (c in 0 until min(10, workingMask.cols())) {
                     val v = workingMask.get(r, c)
                     rowStr.add(if (v != null) "${"%.0f".format(v[0])}" else "?")
                 }
@@ -546,7 +553,14 @@ class OnnxDocumentDetector(
 
         Log.d(TAG, "  detectQuad summary: contours=${contours.size}, candidates=${candidates.size}, skippedArea=$skippedArea, skippedPoints=$skippedPoints, skippedNot4=$skippedNot4, skippedNotRect=$skippedNotRect, skippedSolidity=$skippedSolidity")
 
-        val best = candidates.maxByOrNull { scoreContourWithParams(it, originalWidth, originalHeight, params) }
+        val best = candidates.maxByOrNull {
+            scoreContourWithParams(
+                it,
+                originalWidth,
+                originalHeight,
+                params
+            )
+        }
         val result = best?.let { quad ->
             val sorted = sortQuadPoints(quad.toArray().toList())
             if (sorted.size == 4) MatOfPoint(*sorted.toTypedArray()) else quad

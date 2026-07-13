@@ -1,4 +1,4 @@
-package io.github.iostreamchik.scanner
+package io.github.iostreamchik.scanner.detector
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.opencv.core.Mat

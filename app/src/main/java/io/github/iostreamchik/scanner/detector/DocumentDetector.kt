@@ -1,4 +1,4 @@
-package io.github.iostreamchik.scanner
+package io.github.iostreamchik.scanner.detector
 
 import android.util.Log
 import org.opencv.core.Core
@@ -14,6 +14,7 @@ import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import io.github.iostreamchik.scanner.opencv.*
+import io.github.iostreamchik.scanner.scoreContourWithParams
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.lang.Math.PI
@@ -336,13 +337,27 @@ class DocumentDetector(
                 continue
             }
 
-            Log.d("DocScan", "  CANDIDATE: area=$area, solidity=${"%.2f".format(solidity)}, rect=${rect.width}x${rect.height}, score=${scoreContourWithParams(quad, originalWidth, originalHeight, params)}")
+            Log.d("DocScan", "  CANDIDATE: area=$area, solidity=${"%.2f".format(solidity)}, rect=${rect.width}x${rect.height}, score=${
+                scoreContourWithParams(
+                    quad,
+                    originalWidth,
+                    originalHeight,
+                    params
+                )
+            }")
             candidates.add(quad)
         }
 
         Log.d("DocScan", "  detectQuad summary: totalContours=${contours.size}, candidates=${candidates.size}, skippedArea=$skippedArea, skippedPoints=$skippedPoints, skippedNot4=$skippedNot4, skippedNotRect=$skippedNotRect, skippedSolidity=$skippedSolidity")
 
-        val best = candidates.maxByOrNull { scoreContourWithParams(it, originalWidth, originalHeight, params) }
+        val best = candidates.maxByOrNull {
+            scoreContourWithParams(
+                it,
+                originalWidth,
+                originalHeight,
+                params
+            )
+        }
         // Clone winner before releasing all candidate Mats to avoid native memory leak.
         val result = best?.let { MatOfPoint(*it.toArray()) }
         candidates.forEach { it.release() }

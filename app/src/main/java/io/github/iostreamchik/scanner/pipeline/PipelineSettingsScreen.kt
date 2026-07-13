@@ -371,17 +371,21 @@ private fun getParametersForStage(
                 var clipLimit by remember { mutableFloatStateOf(p.claheClipLimit) }
                 var tileSize by remember { mutableIntStateOf(p.claheTileSize) }
                 var modeAuto by remember { mutableStateOf(isClaheAuto) }
+                var enabled by remember { mutableStateOf(p.isClaheEnabled) }
 
                 val debouncedClip = debounceFloat(clipLimit, 300)
                 val debouncedTile = debounceInt(tileSize, 300)
-                LaunchedEffect(modeAuto, debouncedClip, debouncedTile) {
-                    if (modeAuto) {
+                LaunchedEffect(modeAuto, debouncedClip, debouncedTile, enabled) {
+                    if (!enabled) {
+                        viewModel.updateParamSafely(p.copy(isClaheEnabled = false)) { context }
+                    } else if (modeAuto) {
                         viewModel.updateParamSafely(PipelineParams()) { context }
                     } else if (debouncedClip != p.claheClipLimit ||
                         debouncedTile != p.claheTileSize
                     ) {
                         viewModel.updateParamSafely(
                             p.copy(
+                                isClaheEnabled = true,
                                 isClaheAuto = false,
                                 claheClipLimit = debouncedClip,
                                 claheTileSize = debouncedTile
@@ -390,20 +394,29 @@ private fun getParametersForStage(
                     }
                 }
 
-                // Auto/Manual toggle
+                // Enable/Disable toggle
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = if (modeAuto) "Auto (brightness-adaptive)" else "Manual",
+                        text = if (enabled) "CLAHE Enhancement" else "CLAHE disabled — detection may degrade",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
                     Switch(
-                        checked = modeAuto,
-                        onCheckedChange = { modeAuto = it }
+                        checked = enabled,
+                        onCheckedChange = { enabled = it }
+                    )
+                }
+
+                if (!enabled) {
+                    Text(
+                        text = "CLAHE boosts contrast for edge detection. Disabling may cause missed documents.",
+                        fontSize = 11.sp,
+                        color = Color(0xFFFF9800),
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
 
@@ -430,27 +443,59 @@ private fun getParametersForStage(
 
             "Morph Close" -> {
                 var kernelSize by remember { mutableIntStateOf(p.morphCloseSize) }
+                var enabled by remember { mutableStateOf(p.isMorphCloseEnabled) }
                 val debouncedKernel = debounceInt(kernelSize, 300)
-                LaunchedEffect(debouncedKernel) {
-                    if (debouncedKernel != p.morphCloseSize) {
+                LaunchedEffect(debouncedKernel, enabled) {
+                    if (!enabled) {
+                        viewModel.updateParamSafely(p.copy(isMorphCloseEnabled = false)) { context }
+                    } else if (debouncedKernel != p.morphCloseSize) {
                         viewModel.updateParamSafely(
                             p.copy(
                                 isClaheAuto = false,
+                                isMorphCloseEnabled = true,
                                 morphCloseSize = debouncedKernel)
                         ) { context }
                     }
                 }
-                ParameterSlider(
-                    label = "Kernel Size",
-                    value = kernelSize.toFloat(),
-                    valueRange = 3f..21f,
-                    step = 2f,
-                    valueFormatter = { "${it.toInt()}" },
-                    onValueChange = {
-                        val v = it.toInt().coerceIn(3, 21)
-                        if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
-                    }
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (enabled) "Morphological Close" else "Morph Close disabled — detection may degrade",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = { enabled = it }
+                    )
+                }
+
+                if (!enabled) {
+                    Text(
+                        text = "Fills gaps in edges before Canny. Disabling may cause broken contours.",
+                        fontSize = 11.sp,
+                        color = Color(0xFFFF9800),
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+
+                if (enabled) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ParameterSlider(
+                        label = "Kernel Size",
+                        value = kernelSize.toFloat(),
+                        valueRange = 3f..21f,
+                        step = 2f,
+                        valueFormatter = { "${it.toInt()}" },
+                        onValueChange = {
+                            val v = it.toInt().coerceIn(3, 21)
+                            if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
+                        }
+                    )
+                }
             }
 
             "Canny Edges" -> {
@@ -493,47 +538,116 @@ private fun getParametersForStage(
 
             "Strong Close" -> {
                 var kernelSize by remember { mutableIntStateOf(p.strongCloseSize) }
+                var enabled by remember { mutableStateOf(p.isStrongCloseEnabled) }
                 val debouncedKernel = debounceInt(kernelSize, 300)
-                LaunchedEffect(debouncedKernel) {
-                    if (debouncedKernel != p.strongCloseSize) {
+                LaunchedEffect(debouncedKernel, enabled) {
+                    if (!enabled) {
+                        viewModel.updateParamSafely(p.copy(isStrongCloseEnabled = false)) { context }
+                    } else if (debouncedKernel != p.strongCloseSize) {
                         viewModel.updateParamSafely(
-                            p.copy(strongCloseSize = debouncedKernel)
+                            p.copy(
+                                isStrongCloseEnabled = true,
+                                strongCloseSize = debouncedKernel
+                            )
                         ) { context }
                     }
                 }
-                ParameterSlider(
-                    label = "Kernel Size",
-                    value = kernelSize.toFloat(),
-                    valueRange = 3f..15f,
-                    step = 2f,
-                    valueFormatter = { "${it.toInt()}" },
-                    onValueChange = {
-                        val v = it.toInt().coerceIn(3, 15)
-                        if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
-                    }
-                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (enabled) "Strong Closing (post-Canny)" else "Strong Close disabled — detection may degrade",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = { enabled = it }
+                    )
+                }
+
+                if (!enabled) {
+                    Text(
+                        text = "Closes gaps in detected edges. Disabling may cause fragmented contours.",
+                        fontSize = 11.sp,
+                        color = Color(0xFFFF9800),
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+
+                if (enabled) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ParameterSlider(
+                        label = "Kernel Size",
+                        value = kernelSize.toFloat(),
+                        valueRange = 3f..15f,
+                        step = 2f,
+                        valueFormatter = { "${it.toInt()}" },
+                        onValueChange = {
+                            val v = it.toInt().coerceIn(3, 15)
+                            if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
+                        }
+                    )
+                }
             }
 
             "Directional Suppression" -> {
                 var kernelSize by remember { mutableIntStateOf(p.directionalKernelSize) }
+                var enabled by remember { mutableStateOf(p.isDirectionalSuppressionEnabled) }
 
                 val debouncedKernel = debounceInt(kernelSize, 300)
-                LaunchedEffect(debouncedKernel) {
-                    if (debouncedKernel != p.directionalKernelSize) {
+                LaunchedEffect(debouncedKernel, enabled) {
+                    if (!enabled) {
+                        viewModel.updateParamSafely(p.copy(isDirectionalSuppressionEnabled = false)) { context }
+                    } else if (debouncedKernel != p.directionalKernelSize) {
                         viewModel.updateParamSafely(
-                            p.copy(directionalKernelSize = debouncedKernel)
+                            p.copy(
+                                isDirectionalSuppressionEnabled = true,
+                                directionalKernelSize = debouncedKernel
+                            )
                         ) { context }
                     }
                 }
 
-                ParameterSlider(
-                    label = "Kernel Size",
-                    value = kernelSize.toFloat(),
-                    valueRange = 1f..31f,
-                    step = 2f,
-                    valueFormatter = { "${it.toInt()}" },
-                    onValueChange = { kernelSize = it.toInt().coerceIn(1, 31) }
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (enabled) "Directional Suppression" else "Directional Suppression disabled — detection may degrade",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = { enabled = it }
+                    )
+                }
+
+                if (!enabled) {
+                    Text(
+                        text = "Suppresses non-directional noise. Disabling may cause false contours.",
+                        fontSize = 11.sp,
+                        color = Color(0xFFFF9800),
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+
+                if (enabled) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    ParameterSlider(
+                        label = "Kernel Size",
+                        value = kernelSize.toFloat(),
+                        valueRange = 1f..31f,
+                        step = 2f,
+                        valueFormatter = { "${it.toInt()}" },
+                        onValueChange = { kernelSize = it.toInt().coerceIn(1, 31) }
+                    )
+                }
             }
 
             "Quad" -> {}

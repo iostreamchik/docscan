@@ -2,16 +2,18 @@ package io.github.iostreamchik.scanner.opencv
 
 data class PipelineParams(
     val isClaheAuto: Boolean = true,
-    val isCannyAuto: Boolean = true,
+    val isCannyAuto: Boolean = false,
     // Blur
-    val medianBlurKsize: Int = 5,
+    val medianBlurKsize: Int = 7,
 
     // CLAHE
+    val isClaheEnabled: Boolean = true,
     val claheClipLimit: Float = 1.5f,
     val claheTileSize: Int = 8,
 
     // Morph Close (pre-Canny)
-    val morphCloseSize: Int = 5,
+    val isMorphCloseEnabled: Boolean = true,
+    val morphCloseSize: Int = 7,
 
     // Canny
     val cannyLow: Float = 0f,
@@ -19,10 +21,12 @@ data class PipelineParams(
     val cannyAutoDetect: Boolean = true,
 
     // Strong Closing (post-Canny)
-    val strongCloseSize: Int = 3,
+    val isStrongCloseEnabled: Boolean = true,
+    val strongCloseSize: Int = 7,
 
     // Directional Suppression
-    val directionalKernelSize: Int = 6,
+    val isDirectionalSuppressionEnabled: Boolean = true,
+    val directionalKernelSize: Int = 4,
 
     // Contour Detection
     val approxPolyDPTolerance: Float = 0.025f,
