@@ -284,7 +284,12 @@ class CameraViewModel(
                     .copy(Bitmap.Config.ARGB_8888, false)
                 _morphBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
                     .copy(Bitmap.Config.ARGB_8888, false)
-                _filteredBitmap.value = _morphBitmap.value
+                // Capture post-Canny edges for the "Filtered" preview.
+                // matBundle.getEdges() holds Canny output; matBundle.getMorph() is
+                // overwritten with edges inside preprocess() after Canny runs.
+                // Using getEdges() ensures the preview reflects Canny threshold changes.
+                _filteredBitmap.value = matBundle.getEdges().fixRotation(rotation).toBitmap()
+                    .copy(Bitmap.Config.ARGB_8888, false)
             }
 
             // Detect document
@@ -424,7 +429,7 @@ class CameraViewModel(
      * pre-Canny blurred enhanced image — no separate calculation needed here.
      */
     fun enableCannyAuto() {
-        updateParams(_pipelineParams.value.copy(cannyAutoDetect = true))
+        updateParams(_pipelineParams.value.copy(isCannyAuto = true, cannyAutoDetect = true))
     }
 
     /**
@@ -433,9 +438,7 @@ class CameraViewModel(
      * by the caller to avoid double-processing.
      */
     fun disableCannyAuto() {
-        _pipelineParams.value = _pipelineParams.value.copy(
-            cannyAutoDetect = false
-        )
+        updateParams(_pipelineParams.value.copy(isCannyAuto = false, cannyAutoDetect = false))
     }
 
     override fun onCleared() {

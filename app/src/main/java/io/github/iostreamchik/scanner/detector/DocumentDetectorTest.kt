@@ -57,7 +57,7 @@ class DocumentDetectorTest(
         } else {
             0.0
         }
-        val claheClipLimit = (0.3 + dimBoost + brightBoost).coerceIn(1.0, 4.0)
+        val claheClipLimit = (0.3 + dimBoost + brightBoost).coerceIn(1.0, 3.0)
         _detectionParams.value = _detectionParams.value.copy(
             claheClipLimit = claheClipLimit.toString()
         )

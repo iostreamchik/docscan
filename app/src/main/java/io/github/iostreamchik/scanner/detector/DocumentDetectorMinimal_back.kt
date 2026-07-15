@@ -1,6 +1,5 @@
 package io.github.iostreamchik.scanner.detector
 
-import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
@@ -11,9 +10,12 @@ import org.opencv.imgproc.Imgproc
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import io.github.iostreamchik.scanner.scoreContourWithParams
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.acos
+import kotlin.math.sqrt
 
-class DocumentDetectorMinimal(
+class DocumentDetectorMinimal_back(
     private val matBundle: IMatBundle
 ) : IDocumentDetector {
 
@@ -28,69 +30,7 @@ class DocumentDetectorMinimal(
         Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
         smallMat.release()
 
-        val blurKsize = params.medianBlurKsize.coerceAtLeast(3)
-        Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
-
-        val useClahe =  params.isClaheEnabled
-        val useAutoClahe = params.isClaheAuto
-        val avgBrightness = if (useAutoClahe && useClahe) {
-            Core.meanStdDev(matBundle.getBlurred(), matBundle.getMean(), matBundle.getStd())
-            matBundle.getMean().toArray()[0]
-        } else {
-            -1.0
-        }
-        val claheClipLimit: Double = if (useAutoClahe && useClahe) {
-            val brightness = avgBrightness.coerceIn(20.0, 200.0)
-            val dimBoost = if (brightness < 80.0) {
-                40.0 / (brightness + 10.0)
-            } else {
-                0.0
-            }
-            val brightBoost = if (brightness > 130.0) {
-                (brightness - 130.0) / 60.0
-            } else {
-                0.0
-            }
-            (0.5 + dimBoost + brightBoost).coerceIn(1.0, 1.5)
-        } else if (useClahe) {
-            params.claheClipLimit.toDouble().coerceIn(1.0, 4.0)
-        } else {
-            -1.0
-        }
-
-        val morphSource: Mat
-        if (useClahe) {
-            val tileSize = params.claheTileSize.coerceAtLeast(8).toDouble()
-            val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
-            clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
-
-            val useMorphClose = params.isMorphCloseEnabled
-            Core.meanStdDev(matBundle.getEnhanced(), matBundle.getMean(), matBundle.getStd())
-            val enhancedContrast = matBundle.getStd().toArray()[0]
-            val skipMorphClose = useMorphClose && enhancedContrast < 25.0
-
-            if (skipMorphClose) {
-                matBundle.getEnhanced().copyTo(matBundle.getMorph())
-            } else {
-                val morphCloseKsize = params.morphCloseSize.coerceAtLeast(3).toDouble()
-                Imgproc.getStructuringElement(
-                    Imgproc.MORPH_RECT,
-                    Size(morphCloseKsize, morphCloseKsize)
-                ).also { kernel ->
-                    matBundle.getKernel().release()
-                    kernel.copyTo(matBundle.getKernel())
-                }
-                Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
-            }
-
-            morphSource = if (skipMorphClose) matBundle.getEnhanced() else matBundle.getMorph()
-        } else {
-            matBundle.getBlurred().copyTo(matBundle.getEnhanced())
-            matBundle.getEnhanced().copyTo(matBundle.getMorph())
-            morphSource = matBundle.getMorph()
-        }
-
-        Imgproc.GaussianBlur(morphSource, matBundle.getTemp(), Size(5.0, 5.0), 2.0)
+        Imgproc.GaussianBlur(matBundle.getGray(), matBundle.getTemp(), Size(3.0, 3.0), 0.8)
 
         val otsu = Imgproc.threshold(
             matBundle.getTemp(),
@@ -99,27 +39,11 @@ class DocumentDetectorMinimal(
             Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
         )
 
-        val high = otsu
-        val low = (high * 0.2)
+        val high = otsu.coerceIn(40.0, 80.0)
+        val low = (high * 0.25).coerceIn(5.0, 40.0)
 
         Imgproc.Canny(matBundle.getTemp(), matBundle.getEdges(), low, high)
-
-        // Edge Connect: MORPH_CLOSE bridges fragmented Canny edges caused by shadows, wrinkles, low contrast.
-        // Kernel size 7 bridges ~5px gaps without significant noise amplification.
-        // Reuses pooled getKernel() — no new MatBundle slot needed.
-        Imgproc.getStructuringElement(
-            Imgproc.MORPH_RECT,
-            Size(7.0, 7.0)
-        ).also { kernel ->
-            matBundle.getKernel().release()
-            kernel.copyTo(matBundle.getKernel())
-        }
-        Imgproc.morphologyEx(
-            matBundle.getEdges(),
-            matBundle.getMorph(),
-            Imgproc.MORPH_CLOSE,
-            matBundle.getKernel()
-        )
+        matBundle.getEdges().copyTo(matBundle.getMorph())
 
         return matBundle.getMorph()
     }
@@ -221,9 +145,9 @@ class DocumentDetectorMinimal(
             val dx2 = p2.x - center.x
             val dy2 = p2.y - center.y
             val dot = dx1 * dx2 + dy1 * dy2
-            val norm1 = kotlin.math.sqrt(dx1 * dx1 + dy1 * dy1)
-            val norm2 = kotlin.math.sqrt(dx2 * dx2 + dy2 * dy2)
-            return kotlin.math.acos(dot / (norm1 * norm2)) * 180.0 / kotlin.math.PI
+            val norm1 = sqrt(dx1 * dx1 + dy1 * dy1)
+            val norm2 = sqrt(dx2 * dx2 + dy2 * dy2)
+            return acos(dot / (norm1 * norm2)) * 180.0 / PI
         }
     }
 }

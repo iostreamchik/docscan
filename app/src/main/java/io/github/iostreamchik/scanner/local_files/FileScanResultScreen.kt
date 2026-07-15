@@ -405,38 +405,36 @@ private fun PipelineParametersSection(
             var modeAuto by remember { mutableStateOf(params.isClaheAuto) }
             var claheClip by remember { mutableFloatStateOf(params.claheClipLimit) }
             var claheTile by remember { mutableIntStateOf(params.claheTileSize) }
-            var enabled by remember { mutableStateOf(params.isClaheEnabled) }
 
-            // Enable/Disable toggle
+            // Auto/Manual toggle
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = if (enabled) "CLAHE Enhancement" else "CLAHE disabled — detection may degrade",
+                    text = if (modeAuto) "Auto (brightness-adaptive)" else "Manual",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 )
                 Switch(
-                    checked = enabled,
+                    checked = modeAuto,
                     onCheckedChange = { newValue ->
-                        enabled = newValue
+                        modeAuto = newValue
                         if (newValue) {
-                            onParamsChange(params.copy(isClaheEnabled = true, isClaheAuto = true))
+                            onParamsChange(params.copy(isClaheAuto = true))
                         } else {
-                            onParamsChange(params.copy(isClaheEnabled = false))
+                            claheClip = params.claheClipLimit
+                            claheTile = params.claheTileSize
+                            onParamsChange(
+                                params.copy(
+                                    isClaheAuto = false,
+                                    claheClipLimit = params.claheClipLimit,
+                                    claheTileSize = params.claheTileSize
+                                )
+                            )
                         }
                     }
-                )
-            }
-
-            if (!enabled) {
-                Text(
-                    text = "CLAHE boosts contrast for edge detection. Disabling may cause missed documents.",
-                    fontSize = 11.sp,
-                    color = Color(0xFFFF9800),
-                    modifier = Modifier.padding(top = 4.dp)
                 )
             }
 
@@ -499,55 +497,18 @@ private fun PipelineParametersSection(
             stageName = "Morph Close",
         ) {
             var kernelSize by remember { mutableIntStateOf(params.morphCloseSize) }
-            var enabled by remember { mutableStateOf(params.isMorphCloseEnabled) }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = if (enabled) "Morphological Close" else "Morph Close disabled — detection may degrade",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Switch(
-                    checked = enabled,
-                    onCheckedChange = { newValue ->
-                        enabled = newValue
-                        if (newValue) {
-                            onParamsChange(params.copy(isMorphCloseEnabled = true, morphCloseSize = kernelSize))
-                        } else {
-                            onParamsChange(params.copy(isMorphCloseEnabled = false))
-                        }
-                    }
-                )
-            }
-
-            if (!enabled) {
-                Text(
-                    text = "Fills gaps in edges before Canny. Disabling may cause broken contours.",
-                    fontSize = 11.sp,
-                    color = Color(0xFFFF9800),
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-
-            if (enabled) {
-                Spacer(modifier = Modifier.height(4.dp))
-                ParameterSlider(
-                    label = "Kernel Size",
-                    value = kernelSize.toFloat(),
-                    valueRange = 3f..21f,
-                    step = 2f,
-                    valueFormatter = { "${it.toInt()}" },
-                    onValueChange = {
-                        val v = it.toInt().coerceIn(3, 21)
-                        if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
-                        onParamsChange(params.copy(isMorphCloseEnabled = true, morphCloseSize = kernelSize))
-                    }
-                )
-            }
+            ParameterSlider(
+                label = "Kernel Size",
+                value = kernelSize.toFloat(),
+                valueRange = 3f..21f,
+                step = 2f,
+                valueFormatter = { "${it.toInt()}" },
+                onValueChange = {
+                    val v = it.toInt().coerceIn(3, 21)
+                    if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
+                    onParamsChange(params.copy(morphCloseSize = kernelSize))
+                }
+            )
         }
 
         // Canny Edges
@@ -589,6 +550,7 @@ private fun PipelineParametersSection(
                     onParamsChange(
                         params.copy(
                             isCannyAuto = false,
+                            cannyAutoDetect = false,
                             cannyLow = it,
                             cannyHigh = highThreshold
                         )
@@ -606,6 +568,7 @@ private fun PipelineParametersSection(
                     onParamsChange(
                         params.copy(
                             isCannyAuto = false,
+                            cannyAutoDetect = false,
                             cannyLow = lowThreshold,
                             cannyHigh = it
                         )

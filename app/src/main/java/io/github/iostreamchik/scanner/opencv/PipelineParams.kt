@@ -4,16 +4,16 @@ data class PipelineParams(
     val isClaheAuto: Boolean = true,
     val isCannyAuto: Boolean = false,
     // Blur
-    val medianBlurKsize: Int = 7,
+    val medianBlurKsize: Int = 5,
 
     // CLAHE
     val isClaheEnabled: Boolean = true,
     val claheClipLimit: Float = 1.5f,
-    val claheTileSize: Int = 8,
+    val claheTileSize: Int = 5,
 
     // Morph Close (pre-Canny)
     val isMorphCloseEnabled: Boolean = true,
-    val morphCloseSize: Int = 7,
+    val morphCloseSize: Int = 5,
 
     // Canny
     val cannyLow: Float = 0f,
@@ -22,11 +22,11 @@ data class PipelineParams(
 
     // Strong Closing (post-Canny)
     val isStrongCloseEnabled: Boolean = true,
-    val strongCloseSize: Int = 7,
+    val strongCloseSize: Int = 5,
 
     // Directional Suppression
     val isDirectionalSuppressionEnabled: Boolean = true,
-    val directionalKernelSize: Int = 4,
+    val directionalKernelSize: Int = 6,
 
     // Contour Detection
     val approxPolyDPTolerance: Float = 0.025f,

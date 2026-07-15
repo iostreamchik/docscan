@@ -47,10 +47,11 @@ val appModule = module {
         CameraViewModel(
             matBundle = get(),
             thresholdCalculator = get(),
-            detector = get()
+//            detector = get()
 //            detector = get(named("onnx"))
+//            detector = get(named("classic"))
 //            detector = get(named("test"))
-//            detector = get(named("minimal"))
+            detector = get(named("minimal"))
         )
     }
     viewModel<CameraViewModel>(named("fileScan")) {

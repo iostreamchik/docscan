@@ -13,7 +13,7 @@ import io.github.iostreamchik.scanner.opencv.PipelineParams
 import io.github.iostreamchik.scanner.scoreContourWithParams
 import kotlin.math.abs
 
-class DocumentDetectorMinimal(
+class DocumentDetectorMinimalgfhjfj(
     private val matBundle: IMatBundle
 ) : IDocumentDetector {
 
@@ -100,26 +100,10 @@ class DocumentDetectorMinimal(
         )
 
         val high = otsu
-        val low = (high * 0.2)
+        val low = (high * 0.25)
 
         Imgproc.Canny(matBundle.getTemp(), matBundle.getEdges(), low, high)
-
-        // Edge Connect: MORPH_CLOSE bridges fragmented Canny edges caused by shadows, wrinkles, low contrast.
-        // Kernel size 7 bridges ~5px gaps without significant noise amplification.
-        // Reuses pooled getKernel() — no new MatBundle slot needed.
-        Imgproc.getStructuringElement(
-            Imgproc.MORPH_RECT,
-            Size(7.0, 7.0)
-        ).also { kernel ->
-            matBundle.getKernel().release()
-            kernel.copyTo(matBundle.getKernel())
-        }
-        Imgproc.morphologyEx(
-            matBundle.getEdges(),
-            matBundle.getMorph(),
-            Imgproc.MORPH_CLOSE,
-            matBundle.getKernel()
-        )
+        matBundle.getEdges().copyTo(matBundle.getMorph())
 
         return matBundle.getMorph()
     }

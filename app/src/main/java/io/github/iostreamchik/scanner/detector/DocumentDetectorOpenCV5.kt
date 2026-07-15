@@ -140,14 +140,17 @@ class DocumentDetectorOpenCV5(
         }
         _smoothedHigh = smoothedHigh
 
-        val cannyHigh = smoothedHigh.coerceIn(thresholdFloor, thresholdCeiling)
-        val cannyLow = cannyHigh * lowHighRatio
+        val autoCannyHigh = smoothedHigh
+        val autoCannyLow = autoCannyHigh * lowHighRatio
+
+        val cannyHigh = if (params.cannyAutoDetect) autoCannyHigh else params.cannyHigh.toDouble()
+        val cannyLow = if (params.cannyAutoDetect) autoCannyLow else params.cannyLow.toDouble()
 
         _detectionParams.value = _detectionParams.value.copy(
             cannyHigh = cannyHigh.toInt().toString(),
             cannyLow = cannyLow.toInt().toString()
         )
-        Log.d("DocScan5", "  Adaptive Canny: high=${"%.1f".format(cannyHigh)}, low=${"%.1f".format(cannyLow)}")
+        Log.d("DocScan5", "  Canny: high=${"%.1f".format(cannyHigh)}, low=${"%.1f".format(cannyLow)}, auto=${params.cannyAutoDetect}")
 
         Imgproc.Canny(matBundle.getTemp(), matBundle.getEdges(), cannyLow, cannyHigh)
 
@@ -171,7 +174,7 @@ class DocumentDetectorOpenCV5(
         // --- Directional Suppression (H+V MORPH_CLOSE) ---
         val useDirSuppression = params.isDirectionalSuppressionEnabled
         if (useDirSuppression) {
-            val dirKsize = params.directionalKernelSize.coerceIn(1, 7)
+            val dirKsize = params.directionalKernelSize.coerceIn(1, 5)
             Log.d("DocScan5", "  Directional Suppression: kernel=$dirKsize")
             Imgproc.getStructuringElement(
                 Imgproc.MORPH_RECT,

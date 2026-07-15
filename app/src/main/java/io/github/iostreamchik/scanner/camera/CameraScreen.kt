@@ -128,9 +128,10 @@ fun CameraScreen(
         )
 
         // Torch toggle button - top right corner
-        Box(modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
         ) {
             Row(
                 modifier = Modifier
@@ -197,7 +198,7 @@ fun CameraScreen(
                     fontSize = 10.sp,
                 )
             }
-            
+
             Row(
                 Modifier
                     .navigationBarsPadding()
@@ -205,14 +206,8 @@ fun CameraScreen(
                     .height(260.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                if (onnxMaskBitmap == null) {
-                    BitmapCard(
-                        bitmap = filteredBitmap,
-                    )
-                }
-                Spacer(modifier = Modifier.width(16.dp))
                 BitmapCard(
-                    bitmap = onnxMaskBitmap,
+                    bitmap =onnxMaskBitmap ?: filteredBitmap,
                 )
                 Spacer(modifier = Modifier.width(16.dp))
                 BitmapCard(
