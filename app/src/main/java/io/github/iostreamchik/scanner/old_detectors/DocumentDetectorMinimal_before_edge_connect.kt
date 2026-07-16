@@ -1,5 +1,7 @@
-package io.github.iostreamchik.scanner.detector
+package io.github.iostreamchik.scanner.old_detectors
 
+import io.github.iostreamchik.scanner.detector.IDocumentDetector
+import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
@@ -15,7 +17,7 @@ import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.sqrt
 
-class DocumentDetectorMinimal_back(
+class DocumentDetectorMinimalgfhjfj(
     private val matBundle: IMatBundle
 ) : IDocumentDetector {
 
@@ -30,7 +32,69 @@ class DocumentDetectorMinimal_back(
         Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
         smallMat.release()
 
-        Imgproc.GaussianBlur(matBundle.getGray(), matBundle.getTemp(), Size(3.0, 3.0), 0.8)
+        val blurKsize = params.medianBlurKsize.coerceAtLeast(3)
+        Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
+
+        val useClahe =  params.isClaheEnabled
+        val useAutoClahe = params.isClaheAuto
+        val avgBrightness = if (useAutoClahe && useClahe) {
+            Core.meanStdDev(matBundle.getBlurred(), matBundle.getMean(), matBundle.getStd())
+            matBundle.getMean().toArray()[0]
+        } else {
+            -1.0
+        }
+        val claheClipLimit: Double = if (useAutoClahe && useClahe) {
+            val brightness = avgBrightness.coerceIn(20.0, 200.0)
+            val dimBoost = if (brightness < 80.0) {
+                40.0 / (brightness + 10.0)
+            } else {
+                0.0
+            }
+            val brightBoost = if (brightness > 130.0) {
+                (brightness - 130.0) / 60.0
+            } else {
+                0.0
+            }
+            (0.5 + dimBoost + brightBoost).coerceIn(1.0, 1.5)
+        } else if (useClahe) {
+            params.claheClipLimit.toDouble().coerceIn(1.0, 4.0)
+        } else {
+            -1.0
+        }
+
+        val morphSource: Mat
+        if (useClahe) {
+            val tileSize = params.claheTileSize.coerceAtLeast(8).toDouble()
+            val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
+            clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
+
+            val useMorphClose = params.isMorphCloseEnabled
+            Core.meanStdDev(matBundle.getEnhanced(), matBundle.getMean(), matBundle.getStd())
+            val enhancedContrast = matBundle.getStd().toArray()[0]
+            val skipMorphClose = useMorphClose && enhancedContrast < 25.0
+
+            if (skipMorphClose) {
+                matBundle.getEnhanced().copyTo(matBundle.getMorph())
+            } else {
+                val morphCloseKsize = params.morphCloseSize.coerceAtLeast(3).toDouble()
+                Imgproc.getStructuringElement(
+                    Imgproc.MORPH_RECT,
+                    Size(morphCloseKsize, morphCloseKsize)
+                ).also { kernel ->
+                    matBundle.getKernel().release()
+                    kernel.copyTo(matBundle.getKernel())
+                }
+                Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
+            }
+
+            morphSource = if (skipMorphClose) matBundle.getEnhanced() else matBundle.getMorph()
+        } else {
+            matBundle.getBlurred().copyTo(matBundle.getEnhanced())
+            matBundle.getEnhanced().copyTo(matBundle.getMorph())
+            morphSource = matBundle.getMorph()
+        }
+
+        Imgproc.GaussianBlur(morphSource, matBundle.getTemp(), Size(5.0, 5.0), 2.0)
 
         val otsu = Imgproc.threshold(
             matBundle.getTemp(),
@@ -39,8 +103,8 @@ class DocumentDetectorMinimal_back(
             Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
         )
 
-        val high = otsu.coerceIn(40.0, 80.0)
-        val low = (high * 0.25).coerceIn(5.0, 40.0)
+        val high = otsu
+        val low = (high * 0.25)
 
         Imgproc.Canny(matBundle.getTemp(), matBundle.getEdges(), low, high)
         matBundle.getEdges().copyTo(matBundle.getMorph())

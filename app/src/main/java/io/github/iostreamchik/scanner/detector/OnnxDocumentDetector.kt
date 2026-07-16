@@ -5,6 +5,7 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.util.Log
+import io.github.iostreamchik.scanner.old_detectors.DetectionParameters
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import io.github.iostreamchik.scanner.scoreContourWithParams
@@ -25,7 +26,6 @@ import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.exp
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sqrt
 
 class OnnxDocumentDetector(
@@ -57,8 +57,11 @@ class OnnxDocumentDetector(
 
     private fun initModel() {
         try {
-            sessionOptions.setIntraOpNumThreads(1)
-            sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
+            sessionOptions.addXnnpack(emptyMap())           // optimized ARM CPU backend
+            sessionOptions.setIntraOpNumThreads(1)          // no intra-op parallelism
+            sessionOptions.setMemoryPatternOptimization(true) // reuse tensor memory
+            sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.LAYOUT_OPT) // max graph opts
+            sessionOptions.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL) // linear graph, no need for PARALLEL
 
             val modelBytes = context.assets.open(modelPath).use { it.readBytes() }
 
@@ -133,8 +136,10 @@ class OnnxDocumentDetector(
             }
         }
 
-        val inputShape = longArrayOf(1, INPUT_CHANNELS.toLong(), INPUT_SIZE.toLong(), INPUT_SIZE.toLong())
-        val inputTensor = OnnxTensor.createTensor(env, java.nio.FloatBuffer.wrap(nchwData), inputShape)
+        val inputShape =
+            longArrayOf(1, INPUT_CHANNELS.toLong(), INPUT_SIZE.toLong(), INPUT_SIZE.toLong())
+        val inputTensor =
+            OnnxTensor.createTensor(env, java.nio.FloatBuffer.wrap(nchwData), inputShape)
 
         val output: OrtSession.Result = try {
             sess.run(mapOf(inputName!! to inputTensor))
@@ -180,8 +185,10 @@ class OnnxDocumentDetector(
             }
         }
 
-        if (resizedH < INPUT_SIZE) probMap.submat(resizedH, INPUT_SIZE, 0, INPUT_SIZE).setTo(Scalar(0.0))
-        if (resizedW < INPUT_SIZE) probMap.submat(0, resizedH, resizedW, INPUT_SIZE).setTo(Scalar(0.0))
+        if (resizedH < INPUT_SIZE) probMap.submat(resizedH, INPUT_SIZE, 0, INPUT_SIZE)
+            .setTo(Scalar(0.0))
+        if (resizedW < INPUT_SIZE) probMap.submat(0, resizedH, resizedW, INPUT_SIZE)
+            .setTo(Scalar(0.0))
 
         Imgproc.GaussianBlur(probMap, probMap, Size(5.0, 5.0), 1.5)
 
@@ -191,7 +198,13 @@ class OnnxDocumentDetector(
 
         val contentProb = prob8.submat(0, resizedH, 0, resizedW)
         val otsuMask = Mat(resizedH, resizedW, CvType.CV_8UC1)
-        val otsuVal = Imgproc.threshold(contentProb, otsuMask, 0.0, 255.0, Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU)
+        val otsuVal = Imgproc.threshold(
+            contentProb,
+            otsuMask,
+            0.0,
+            255.0,
+            Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
+        )
 
         val fullMask = if (Core.countNonZero(otsuMask) > INPUT_SIZE * INPUT_SIZE * 0.0005) {
             val m = Mat.zeros(INPUT_SIZE, INPUT_SIZE, CvType.CV_8UC1)
@@ -206,22 +219,35 @@ class OnnxDocumentDetector(
         }
         prob8.release()
 
-        val tmpLabels = Mat()
-        val tmpStats = Mat()
-        val tmpCentroids = Mat()
-        val tmpNLabels = Imgproc.connectedComponentsWithStats(fullMask, tmpLabels, tmpStats, tmpCentroids, 8, CvType.CV_32S)
+        val labels = Mat()
+        val stats = Mat()
+        val centroids = Mat()
+        val nLabels = Imgproc.connectedComponentsWithStats(
+            fullMask,
+            labels,
+            stats,
+            centroids,
+            8,
+            CvType.CV_32S
+        )
+
         var docArea = 0
-        for (l in 1 until tmpNLabels) {
-            val a = tmpStats.get(l, Imgproc.CC_STAT_AREA)[0].toInt()
-            if (a > docArea) docArea = a
+        var largestLabel = 0
+        var largestArea = 0
+        for (label in 1 until nLabels) {
+            val area = stats.get(label, Imgproc.CC_STAT_AREA)[0].toInt()
+            if (area > docArea) docArea = area
+            if (area > largestArea) {
+                largestArea = area
+                largestLabel = label
+            }
         }
-        tmpLabels.release()
-        tmpStats.release()
-        tmpCentroids.release()
 
         val docLinear = sqrt(docArea.toDouble()).coerceIn(10.0, 200.0)
-        val kernelCloseK = ((docLinear / 6.0).toInt().coerceIn(5, 21)).takeIf { it % 2 == 1 } ?: ((docLinear / 6.0).toInt().coerceIn(5, 21) - 1)
-        val kernelOpenK = ((docLinear / 12.0).toInt().coerceIn(3, 9)).takeIf { it % 2 == 1 } ?: ((docLinear / 12.0).toInt().coerceIn(3, 9) - 1)
+        val kernelCloseK = ((docLinear / 6.0).toInt().coerceIn(5, 21)).takeIf { it % 2 == 1 }
+            ?: ((docLinear / 6.0).toInt().coerceIn(5, 21) - 1)
+        val kernelOpenK = ((docLinear / 12.0).toInt().coerceIn(3, 9)).takeIf { it % 2 == 1 }
+            ?: ((docLinear / 12.0).toInt().coerceIn(3, 9) - 1)
 
         val kernelClose = Mat(kernelCloseK, kernelCloseK, CvType.CV_8UC1, Scalar.all(1.0))
         val kernelOpen = Mat(kernelOpenK, kernelOpenK, CvType.CV_8UC1, Scalar.all(1.0))
@@ -231,21 +257,6 @@ class OnnxDocumentDetector(
         Imgproc.morphologyEx(fullMask, fullMask, Imgproc.MORPH_CLOSE, kernelOpen)
         kernelClose.release()
         kernelOpen.release()
-
-        val labels = Mat()
-        val stats = Mat()
-        val centroids = Mat()
-        val nLabels = Imgproc.connectedComponentsWithStats(fullMask, labels, stats, centroids, 8, CvType.CV_32S)
-
-        var largestLabel = 0
-        var largestArea = 0
-        for (label in 1 until nLabels) {
-            val area = stats.get(label, Imgproc.CC_STAT_AREA)[0].toInt()
-            if (area > largestArea) {
-                largestArea = area
-                largestLabel = label
-            }
-        }
 
         val minBlobArea = (INPUT_SIZE * INPUT_SIZE * 0.0005).toInt()
         val cleanedMask = Mat.zeros(fullMask.size(), CvType.CV_8UC1)
@@ -265,8 +276,10 @@ class OnnxDocumentDetector(
         rgbPadded.release()
 
         val morph = matBundle.getMorph()
-        Imgproc.resize(croppedMask, morph,
-            Size(scaledWidth.toDouble(), scaledHeight.toDouble()), 0.0, 0.0, Imgproc.INTER_NEAREST)
+        Imgproc.resize(
+            croppedMask, morph,
+            Size(scaledWidth.toDouble(), scaledHeight.toDouble()), 0.0, 0.0, Imgproc.INTER_NEAREST
+        )
         croppedMask.release()
 
         cachedMask = morph.clone()
@@ -331,13 +344,10 @@ class OnnxDocumentDetector(
             val peri = Geometry.arcLength(hullPoints, true)
             var foundQuad = false
 
-            for (tol in listOf(0.015, 0.025, 0.04, 0.06, 0.10)) {
-                val epsilon = tol * peri
-                Geometry.approxPolyDP(hullPoints, approx, epsilon, true)
-                if (approx.total() == 4L && isRectangle(approx)) {
-                    foundQuad = true
-                    break
-                }
+            val epsilon = 0.02 * peri
+            Geometry.approxPolyDP(hullPoints, approx, epsilon, true)
+            if (approx.total() == 4L && isRectangle(approx)) {
+                foundQuad = true
             }
 
             if (!foundQuad) {
@@ -356,10 +366,18 @@ class OnnxDocumentDetector(
                     val y = pts[i].y.toLong()
                     val sum = x + y
                     val diff = y - x
-                    if (sum < tlSum) { tlSum = sum; tlIdx = i }
-                    if (sum > brSum) { brSum = sum; brIdx = i }
-                    if (diff < trDiff) { trDiff = diff; trIdx = i }
-                    if (diff > blDiff) { blDiff = diff; blIdx = i }
+                    if (sum < tlSum) {
+                        tlSum = sum; tlIdx = i
+                    }
+                    if (sum > brSum) {
+                        brSum = sum; brIdx = i
+                    }
+                    if (diff < trDiff) {
+                        trDiff = diff; trIdx = i
+                    }
+                    if (diff > blDiff) {
+                        blDiff = diff; blIdx = i
+                    }
                 }
 
                 val fallbackPts = arrayOf(pts[tlIdx], pts[trIdx], pts[brIdx], pts[blIdx])

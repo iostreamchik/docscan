@@ -1,6 +1,7 @@
-package io.github.iostreamchik.scanner.detector
+package io.github.iostreamchik.scanner.old_detectors
 
 import android.util.Log
+import io.github.iostreamchik.scanner.detector.IDocumentDetector
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat

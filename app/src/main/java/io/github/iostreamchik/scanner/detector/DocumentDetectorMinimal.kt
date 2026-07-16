@@ -31,7 +31,7 @@ class DocumentDetectorMinimal(
         val blurKsize = params.medianBlurKsize.coerceAtLeast(3)
         Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
 
-        val useClahe =  params.isClaheEnabled
+        val useClahe = params.isClaheEnabled
         val useAutoClahe = params.isClaheAuto
         val avgBrightness = if (useAutoClahe && useClahe) {
             Core.meanStdDev(matBundle.getBlurred(), matBundle.getMean(), matBundle.getStd())
@@ -80,7 +80,12 @@ class DocumentDetectorMinimal(
                     matBundle.getKernel().release()
                     kernel.copyTo(matBundle.getKernel())
                 }
-                Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
+                Imgproc.morphologyEx(
+                    matBundle.getEnhanced(),
+                    matBundle.getMorph(),
+                    Imgproc.MORPH_CLOSE,
+                    matBundle.getKernel()
+                )
             }
 
             morphSource = if (skipMorphClose) matBundle.getEnhanced() else matBundle.getMorph()
@@ -152,7 +157,12 @@ class DocumentDetectorMinimal(
 
             val pts2f = MatOfPoint2f(*contour.toArray().map { Point(it.x, it.y) }.toTypedArray())
             val peri = Geometry.arcLength(pts2f, true)
-            Geometry.approxPolyDP(pts2f, approx, params.approxPolyDPTolerance.toDouble() * peri, true)
+            Geometry.approxPolyDP(
+                pts2f,
+                approx,
+                params.approxPolyDPTolerance.toDouble() * peri,
+                true
+            )
 
             if (approx.total() != 4L || !isRectangle(approx)) {
                 pts2f.release()

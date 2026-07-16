@@ -1,6 +1,11 @@
-package io.github.iostreamchik.scanner.detector
+package io.github.iostreamchik.scanner.old_detectors
 
 import android.util.Log
+import io.github.iostreamchik.scanner.detector.IDocumentDetector
+import io.github.iostreamchik.scanner.opencv.IMatBundle
+import io.github.iostreamchik.scanner.opencv.PipelineParams
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
@@ -10,11 +15,6 @@ import org.opencv.core.Point
 import org.opencv.core.Size
 import org.opencv.geometry.Geometry
 import org.opencv.imgproc.Imgproc
-import io.github.iostreamchik.scanner.opencv.IMatBundle
-import io.github.iostreamchik.scanner.opencv.PipelineParams
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import java.lang.Math.PI
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.max
@@ -164,7 +164,10 @@ class DocumentDetectorOpenCV5(
             var closeKsize = params.strongCloseSize.coerceIn(3, 5)
             if (closeKsize % 2 == 0) closeKsize++
             Log.d("DocScan5", "  Strong Close: kernel=$closeKsize")
-            Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(closeKsize.toDouble(), closeKsize.toDouble())).also { kernel ->
+            Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT,
+                Size(closeKsize.toDouble(), closeKsize.toDouble())
+            ).also { kernel ->
                 matBundle.getKernel2().release()
                 kernel.copyTo(matBundle.getKernel2())
             }
@@ -321,7 +324,7 @@ class DocumentDetectorOpenCV5(
             val dot = dx1 * dx2 + dy1 * dy2
             val norm1 = sqrt(dx1 * dx1 + dy1 * dy1)
             val norm2 = sqrt(dx2 * dx2 + dy2 * dy2)
-            return acos(dot / (norm1 * norm2)) * 180.0 / PI
+            return acos(dot / (norm1 * norm2)) * 180.0 / Math.PI
         }
     }
 }

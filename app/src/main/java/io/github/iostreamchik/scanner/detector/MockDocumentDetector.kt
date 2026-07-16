@@ -1,5 +1,6 @@
 package io.github.iostreamchik.scanner.detector
 
+import io.github.iostreamchik.scanner.old_detectors.DetectionParameters
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint

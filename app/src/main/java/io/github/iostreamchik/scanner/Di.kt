@@ -1,10 +1,10 @@
 package io.github.iostreamchik.scanner
 
 import io.github.iostreamchik.scanner.camera.CameraViewModel
-import io.github.iostreamchik.scanner.detector.DocumentDetector
-import io.github.iostreamchik.scanner.detector.DocumentDetectorOpenCV5
+import io.github.iostreamchik.scanner.old_detectors.DocumentDetector
+import io.github.iostreamchik.scanner.old_detectors.DocumentDetectorOpenCV5
 import io.github.iostreamchik.scanner.detector.DocumentDetectorMinimal
-import io.github.iostreamchik.scanner.detector.DocumentDetectorTest
+import io.github.iostreamchik.scanner.old_detectors.DocumentDetectorTest
 import io.github.iostreamchik.scanner.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.detector.OnnxDocumentDetector
 import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculatorV3
@@ -47,11 +47,8 @@ val appModule = module {
         CameraViewModel(
             matBundle = get(),
             thresholdCalculator = get(),
-//            detector = get()
-//            detector = get(named("onnx"))
-//            detector = get(named("classic"))
-//            detector = get(named("test"))
-            detector = get(named("minimal"))
+            detector = get(named("onnx"))
+//            detector = get(named("minimal"))
         )
     }
     viewModel<CameraViewModel>(named("fileScan")) {
