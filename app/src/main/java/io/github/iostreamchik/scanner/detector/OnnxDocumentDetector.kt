@@ -26,6 +26,7 @@ import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.exp
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sqrt
 
 class OnnxDocumentDetector(
@@ -53,15 +54,15 @@ class OnnxDocumentDetector(
     private var inputName: String? = null
     private var isInit = false
 
-    private var cachedMask: Mat? = null
+    internal var cachedMask: Mat? = null
 
     private fun initModel() {
         try {
-            sessionOptions.addXnnpack(emptyMap())           // optimized ARM CPU backend
-            sessionOptions.setIntraOpNumThreads(1)          // no intra-op parallelism
-            sessionOptions.setMemoryPatternOptimization(true) // reuse tensor memory
-            sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.LAYOUT_OPT) // max graph opts
-            sessionOptions.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL) // linear graph, no need for PARALLEL
+            sessionOptions.addXnnpack(emptyMap())
+            sessionOptions.setIntraOpNumThreads(1)
+            sessionOptions.setMemoryPatternOptimization(true)
+            sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.LAYOUT_OPT)
+            sessionOptions.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
 
             val modelBytes = context.assets.open(modelPath).use { it.readBytes() }
 
@@ -91,7 +92,7 @@ class OnnxDocumentDetector(
 
         val sess = session ?: return matBundle.getMorph()
 
-        val scale = INPUT_SIZE.toDouble() / maxOf(rawMat.cols(), rawMat.rows())
+        val scale = INPUT_SIZE.toDouble() / max(rawMat.cols(), rawMat.rows())
         val resizedW = (rawMat.cols() * scale).toInt()
         val resizedH = (rawMat.rows() * scale).toInt()
 
@@ -293,16 +294,50 @@ class OnnxDocumentDetector(
         return morph
     }
 
+    private fun computeMaskConfidence(mask: Mat): Float {
+        val totalPixels = mask.rows() * mask.cols()
+        val foregroundPixels = Core.countNonZero(mask)
+        return foregroundPixels.toFloat() / totalPixels
+    }
+
+    private fun isQuadRectangular(pts: Array<Point>): Boolean {
+        var maxDeviation = 0.0
+        for (i in 0..3) {
+            val angle = computeAngle(
+                pts[(i + 1) % 4],
+                pts[(i + 3) % 4],
+                pts[i]
+            )
+            maxDeviation = max(maxDeviation, abs(90.0 - angle))
+        }
+        return maxDeviation < 15
+    }
+
+    private fun getAspectRatio(pts: Array<Point>): Double {
+        val xs = pts.map { it.x }
+        val ys = pts.map { it.y }
+        val width = xs.maxOrNull()!! - xs.minOrNull()!!
+        val height = ys.maxOrNull()!! - ys.minOrNull()!!
+        return min(width, height) / max(width, height)
+    }
+
     override fun detectQuad(
         morphImage: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
+        rotation: Int,
         params: PipelineParams
     ): MatOfPoint? {
         val useCached = cachedMask != null && !cachedMask!!.empty()
         val workingMask = if (useCached) cachedMask!! else morphImage
+
+        val maskConfidence = computeMaskConfidence(workingMask)
+        if (maskConfidence < 0.03) {
+            Log.d(TAG, "Mask confidence too low: %.4f, skipping detection".format(maskConfidence))
+            return null
+        }
 
         val contours = mutableListOf<MatOfPoint>()
         val hierarchy = matBundle.getHierarchy()
@@ -387,7 +422,7 @@ class OnnxDocumentDetector(
                 val rectAreaCheck = rectCheck.width * rectCheck.height
                 val solidityCheck = area / rectAreaCheck.toDouble()
 
-                if (solidityCheck >= 0.15) {
+                if (solidityCheck >= 0.5 && isQuadRectangular(fallbackPts) && getAspectRatio(fallbackPts) >= 0.35) {
                     val scaleX = originalWidth.toDouble() / scaledWidth
                     val scaleY = originalHeight.toDouble() / scaledHeight
                     val scaledFallback = fallbackPts.map { Point(it.x * scaleX, it.y * scaleY) }
@@ -468,7 +503,7 @@ class OnnxDocumentDetector(
                 )
                 maxDeviation = max(maxDeviation, abs(90.0 - angle))
             }
-            return maxDeviation < 25
+            return maxDeviation < 15
         }
 
         fun computeAngle(p1: Point, p2: Point, center: Point): Double {

@@ -27,7 +27,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
 import io.github.iostreamchik.scanner.camera.ContourData
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.sin
+import kotlin.random.Random
 
 @Composable
 fun rememberDeviceCornerRadiusDp(

@@ -135,6 +135,7 @@ class DocumentDetectorMinimal(
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
+        rotation: Int,
         params: PipelineParams
     ): MatOfPoint? {
         val contours = mutableListOf<MatOfPoint>()

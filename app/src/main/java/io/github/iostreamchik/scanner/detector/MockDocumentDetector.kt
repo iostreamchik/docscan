@@ -28,6 +28,7 @@ class MockDocumentDetector : IDocumentDetector {
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
+        rotation: Int,
         params: PipelineParams
     ): MatOfPoint? = null
 

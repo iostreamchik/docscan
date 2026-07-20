@@ -3,6 +3,7 @@ package io.github.iostreamchik.scanner
 import io.github.iostreamchik.scanner.camera.CameraViewModel
 import io.github.iostreamchik.scanner.old_detectors.DocumentDetector
 import io.github.iostreamchik.scanner.old_detectors.DocumentDetectorOpenCV5
+import io.github.iostreamchik.scanner.detector.CombinedDocumentDetector
 import io.github.iostreamchik.scanner.detector.DocumentDetectorMinimal
 import io.github.iostreamchik.scanner.old_detectors.DocumentDetectorTest
 import io.github.iostreamchik.scanner.detector.IDocumentDetector
@@ -43,16 +44,21 @@ val appModule = module {
     single<IDocumentDetector>(named("minimal")) {
         DocumentDetectorMinimal(get())
     }
+    single<IDocumentDetector>(named("combined")) {
+        CombinedDocumentDetector(
+            primary = get(named("minimal")),
+            fallback = get(named("onnx")),
+        )
+    }
     viewModel<CameraViewModel>(named("camera")) {
         CameraViewModel(
             matBundle = get(),
             thresholdCalculator = get(),
-            detector = get(named("onnx"))
-//            detector = get(named("minimal"))
+            detector = get(named("combined"))
         )
     }
     viewModel<CameraViewModel>(named("fileScan")) {
-        CameraViewModel(matBundle = get(), thresholdCalculator = get(), detector = get())
+        CameraViewModel(matBundle = get(), thresholdCalculator = get(), detector = get(named("combined")))
     }
     viewModel<PipelineSettingsViewModel>(named("pipelineSettings")) {
         PipelineSettingsViewModel(matBundle = get(), detector = get())

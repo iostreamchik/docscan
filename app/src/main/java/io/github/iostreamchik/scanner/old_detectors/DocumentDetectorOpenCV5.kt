@@ -220,6 +220,7 @@ class DocumentDetectorOpenCV5(
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
+        rotation: Int,
         params: PipelineParams
     ): MatOfPoint? {
         Log.d("DocScan5", "=== detectQuad START ===")

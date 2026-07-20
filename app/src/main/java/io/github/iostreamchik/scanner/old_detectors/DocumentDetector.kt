@@ -228,6 +228,7 @@ class DocumentDetector(
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
+        rotation: Int,
         params: PipelineParams
     ): MatOfPoint? {
         Log.d("DocScan", "=== detectQuad START ===")
