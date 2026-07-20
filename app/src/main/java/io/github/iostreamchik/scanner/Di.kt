@@ -5,7 +5,6 @@ import io.github.iostreamchik.scanner.old_detectors.DocumentDetector
 import io.github.iostreamchik.scanner.old_detectors.DocumentDetectorOpenCV5
 import io.github.iostreamchik.scanner.detector.CombinedDocumentDetector
 import io.github.iostreamchik.scanner.detector.DocumentDetectorMinimal
-import io.github.iostreamchik.scanner.old_detectors.DocumentDetectorTest
 import io.github.iostreamchik.scanner.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.detector.OnnxDocumentDetector
 import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculatorV3
@@ -22,7 +21,7 @@ import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 val appModule = module {
-    single<IMatBundle> { MatBundle() }
+    factory<IMatBundle> { MatBundle() }
     single<ICannyThresholdCalculator> { CannyThresholdCalculatorV3(get()) }
     single<IDocumentDetector> {
         DocumentDetectorOpenCV5(get())
@@ -38,17 +37,14 @@ val appModule = module {
             useCustomNormalization = true
         )
     }
-    single<IDocumentDetector>(named("test")) {
-        DocumentDetectorTest(get())
+    single<IDocumentDetector>(named("complex")) {
+        DocumentDetectorOpenCV5(get())
     }
     single<IDocumentDetector>(named("minimal")) {
         DocumentDetectorMinimal(get())
     }
     single<IDocumentDetector>(named("combined")) {
-        CombinedDocumentDetector(
-            primary = get(named("minimal")),
-            fallback = get(named("onnx")),
-        )
+        CombinedDocumentDetector(get())
     }
     viewModel<CameraViewModel>(named("camera")) {
         CameraViewModel(

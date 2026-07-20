@@ -7,7 +7,6 @@ import io.github.iostreamchik.scanner.opencv.PipelineParams
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.opencv.core.Core
-import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
@@ -23,8 +22,6 @@ import kotlin.math.sqrt
 class DocumentDetectorOpenCV5(
     private val matBundle: IMatBundle
 ) : IDocumentDetector {
-
-    private var _smoothedHigh = -1.0
 
     private val _detectionParams = MutableStateFlow(DetectionParameters())
     override val detectionParams = _detectionParams.asStateFlow()
@@ -112,45 +109,21 @@ class DocumentDetectorOpenCV5(
         }
         Imgproc.GaussianBlur(morphSource, matBundle.getTemp(), Size(5.0, 5.0), 2.0)
 
-        // Adaptive Canny thresholds via Sobel gradient + Otsu + EMA smoothing.
-        // Sobel on the pre-Canny blurred image matches what Canny actually operates on.
-        Imgproc.Sobel(matBundle.getTemp(), matBundle.getSobelX(), CvType.CV_32F, 1, 0, 3)
-        Imgproc.Sobel(matBundle.getTemp(), matBundle.getSobelY(), CvType.CV_32F, 0, 1, 3)
-
-        Core.convertScaleAbs(matBundle.getSobelX(), matBundle.getOtsuThreshold(), 1.0, 0.0)
-        Core.convertScaleAbs(matBundle.getSobelY(), matBundle.getTemp(), 1.0, 0.0)
-        Core.add(matBundle.getOtsuThreshold(), matBundle.getTemp(), matBundle.getOtsuThreshold())
-
-        val rawOtsu = Imgproc.threshold(
-            matBundle.getOtsuThreshold(),
+        val otsu = Imgproc.threshold(
             matBundle.getTemp(),
+            matBundle.getEdges(),
             0.0, 255.0,
             Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
         )
 
-        val emaAlpha = 0.15
-        val thresholdFloor = 25.0
-        val thresholdCeiling = 60.0
-        val lowHighRatio = 0.25
-
-        val smoothedHigh = if (_smoothedHigh < 0.0) {
-            rawOtsu
-        } else {
-            (emaAlpha * rawOtsu) + ((1.0 - emaAlpha) * _smoothedHigh)
-        }
-        _smoothedHigh = smoothedHigh
-
-        val autoCannyHigh = smoothedHigh
-        val autoCannyLow = autoCannyHigh * lowHighRatio
-
-        val cannyHigh = if (params.cannyAutoDetect) autoCannyHigh else params.cannyHigh.toDouble()
-        val cannyLow = if (params.cannyAutoDetect) autoCannyLow else params.cannyLow.toDouble()
+        val cannyHigh = otsu
+        val cannyLow = cannyHigh * 0.2
 
         _detectionParams.value = _detectionParams.value.copy(
             cannyHigh = cannyHigh.toInt().toString(),
             cannyLow = cannyLow.toInt().toString()
         )
-        Log.d("DocScan5", "  Canny: high=${"%.1f".format(cannyHigh)}, low=${"%.1f".format(cannyLow)}, auto=${params.cannyAutoDetect}")
+        Log.d("DocScan5", "  Canny: high=${"%.1f".format(cannyHigh)}, low=${"%.1f".format(cannyLow)}")
 
         Imgproc.Canny(matBundle.getTemp(), matBundle.getEdges(), cannyLow, cannyHigh)
 

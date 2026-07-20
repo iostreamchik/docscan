@@ -9,9 +9,9 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.viewModelScope
+import io.github.iostreamchik.scanner.detector.AsyncDetectorSource
 import io.github.iostreamchik.scanner.old_detectors.DetectionParameters
 import io.github.iostreamchik.scanner.detector.CombinedDocumentDetector
-import io.github.iostreamchik.scanner.detector.DetectorSource
 import io.github.iostreamchik.scanner.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.detector.OnnxDocumentDetector
 import io.github.iostreamchik.scanner.old_detectors.PROCESS_WIDTH
@@ -306,14 +306,6 @@ class CameraViewModel(
                 rotation = rotation,
                 params = params
             )
-
-            if (detector is CombinedDocumentDetector && detector.lastUsedDetector == DetectorSource.FALLBACK) {
-                _onnxMaskBitmap.value = detector.lastFallbackMaskBitmap
-                _filteredBitmap.value = originalFrame
-                _blurBitmap.value = null
-                _claheBitmap.value = null
-                _morphBitmap.value = null
-            }
 
             if (bestQuad == null) {
                 Log.d("CameraViewModel", "  runDetection: NO QUAD DETECTED")
