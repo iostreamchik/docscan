@@ -60,9 +60,9 @@ class CameraViewModel(
 
     private val quadHistory = ArrayDeque<MatOfPoint>()
     private var lastFrameSize: Size? = null
-    private val MAX_HISTORY = 10
+    private val MAX_HISTORY = 8
     private var frameCounter = 0
-    private val STABILITY_CHECK_INTERVAL = 3
+    private val STABILITY_CHECK_INTERVAL = 2
 
     private var lastWarpedQuadHash: Long = 0
     private var lastWarpedBitmap: Bitmap? = null

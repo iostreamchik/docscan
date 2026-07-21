@@ -24,7 +24,6 @@ import org.opencv.geometry.Geometry
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
 import kotlin.math.acos
-import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -61,14 +60,13 @@ class OnnxDocumentDetector(
             sessionOptions.addXnnpack(emptyMap())
             sessionOptions.setIntraOpNumThreads(1)
             sessionOptions.setMemoryPatternOptimization(true)
-            sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.LAYOUT_OPT)
+            sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
             sessionOptions.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
 
             val modelBytes = context.assets.open(modelPath).use { it.readBytes() }
 
             session = env.createSession(modelBytes, sessionOptions)
             inputName = session!!.inputNames.iterator().next()
-            Log.d(TAG, "Model loaded: $modelPath, input=$inputName, size=${INPUT_SIZE}x$INPUT_SIZE")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load ONNX model", e)
         } finally {
@@ -112,30 +110,29 @@ class OnnxDocumentDetector(
 
         Core.normalize(rgbPadded, rgbPadded, 0.0, 1.0, Core.NORM_MINMAX, CvType.CV_32FC3)
 
-        val meanR = if (useCustomNormalization) CUSTOM_MEAN[0].toDouble() else 0.0
-        val meanG = if (useCustomNormalization) CUSTOM_MEAN[1].toDouble() else 0.0
-        val meanB = if (useCustomNormalization) CUSTOM_MEAN[2].toDouble() else 0.0
-        val stdR = if (useCustomNormalization) 1.0 / CUSTOM_STD[0] else 1.0
-        val stdG = if (useCustomNormalization) 1.0 / CUSTOM_STD[1] else 1.0
-        val stdB = if (useCustomNormalization) 1.0 / CUSTOM_STD[2] else 1.0
+        val meanR = if (useCustomNormalization) IMAGE_MEAN[0].toDouble() else 0.0
+        val meanG = if (useCustomNormalization) IMAGE_MEAN[1].toDouble() else 0.0
+        val meanB = if (useCustomNormalization) IMAGE_MEAN[2].toDouble() else 0.0
+        val stdR = if (useCustomNormalization) 1.0 / IMAGE_STD[0] else 1.0
+        val stdG = if (useCustomNormalization) 1.0 / IMAGE_STD[1] else 1.0
+        val stdB = if (useCustomNormalization) 1.0 / IMAGE_STD[2] else 1.0
 
         val mean = Scalar(meanR, meanG, meanB)
         val std = Scalar(stdR, stdG, stdB)
         Core.subtract(rgbPadded, mean, rgbPadded)
         Core.multiply(rgbPadded, std, rgbPadded)
 
-        val hwcData = FloatArray(INPUT_SIZE * INPUT_SIZE * INPUT_CHANNELS)
-        rgbPadded.get(0, 0, hwcData)
+        val channels = mutableListOf<Mat>()
+        Core.split(rgbPadded, channels)
 
         val nchwData = FloatArray(INPUT_SIZE * INPUT_SIZE * INPUT_CHANNELS)
+        val channelSize = INPUT_SIZE * INPUT_SIZE
         for (c in 0 until INPUT_CHANNELS) {
-            for (h in 0 until INPUT_SIZE) {
-                for (w in 0 until INPUT_SIZE) {
-                    nchwData[c * INPUT_SIZE * INPUT_SIZE + h * INPUT_SIZE + w] =
-                        hwcData[(h * INPUT_SIZE + w) * INPUT_CHANNELS + c]
-                }
-            }
+            val channelData = FloatArray(channelSize)
+            channels[c].get(0, 0, channelData)
+            System.arraycopy(channelData, 0, nchwData, c * channelSize, channelSize)
         }
+        channels.forEach { it.release() }
 
         val inputShape =
             longArrayOf(1, INPUT_CHANNELS.toLong(), INPUT_SIZE.toLong(), INPUT_SIZE.toLong())
@@ -153,38 +150,48 @@ class OnnxDocumentDetector(
             inputTensor.close()
         }
 
-        val outputBuffer = FloatArray(INPUT_SIZE * INPUT_SIZE * OUTPUT_CHANNELS)
-        val isNchw: Boolean
-        output.use {
-            val outputTensor = output.get(0) as OnnxTensor
-            outputTensor.floatBuffer.get(outputBuffer)
-            val shape = outputTensor.getInfo().shape
-            isNchw = shape[0] == 2L || shape.size == 4
-        }
+        val outputTensor = output.get(0) as OnnxTensor
+        val shape = outputTensor.getInfo().shape
+        val isNchw = shape[0] == 2L || shape.size == 4
 
-        val probMap = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_32FC1)
+        val bgMat = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_32FC1)
+        val fgMat = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_32FC1)
 
+        val totalSize = INPUT_SIZE * INPUT_SIZE
+        val flatData = FloatArray(totalSize * 2)
+        outputTensor.floatBuffer.get(flatData)
         if (isNchw) {
-            val channelStride = INPUT_SIZE * INPUT_SIZE
-            for (y in 0 until INPUT_SIZE) {
-                for (x in 0 until INPUT_SIZE) {
-                    val bgLogit = outputBuffer[y * INPUT_SIZE + x]
-                    val fgLogit = outputBuffer[channelStride + y * INPUT_SIZE + x]
-                    val documentProb = 1f / (1f + exp(-(fgLogit - bgLogit)))
-                    probMap.put(y, x, documentProb.toDouble())
-                }
-            }
+            bgMat.put(0, 0, flatData.copyOfRange(0, totalSize))
+            fgMat.put(0, 0, flatData.copyOfRange(totalSize, totalSize * 2))
         } else {
-            for (y in 0 until INPUT_SIZE) {
-                for (x in 0 until INPUT_SIZE) {
-                    val idx = y * INPUT_SIZE + x
-                    val bgLogit = outputBuffer[idx]
-                    val fgLogit = outputBuffer[INPUT_SIZE * INPUT_SIZE + idx]
-                    val documentProb = 1f / (1f + exp(-(fgLogit - bgLogit)))
-                    probMap.put(y, x, documentProb.toDouble())
-                }
+            val bgChan = FloatArray(totalSize)
+            val fgChan = FloatArray(totalSize)
+            for (i in 0 until totalSize) {
+                bgChan[i] = flatData[i * 2]
+                fgChan[i] = flatData[i * 2 + 1]
             }
+            bgMat.put(0, 0, bgChan)
+            fgMat.put(0, 0, fgChan)
         }
+        outputTensor.close()
+
+        val logitDiff = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_32FC1)
+        Core.subtract(fgMat, bgMat, logitDiff)
+        bgMat.release()
+        fgMat.release()
+
+        val negLogit = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_32FC1)
+        Core.multiply(logitDiff, Scalar(-1.0), negLogit)
+        logitDiff.release()
+
+        Core.exp(negLogit, negLogit)
+        Core.add(negLogit, Scalar(1.0), negLogit)
+
+        val ones = Mat.ones(INPUT_SIZE, INPUT_SIZE, CvType.CV_32FC1)
+        val probMap = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_32FC1)
+        Core.divide(ones, negLogit, probMap)
+        ones.release()
+        negLogit.release()
 
         if (resizedH < INPUT_SIZE) probMap.submat(resizedH, INPUT_SIZE, 0, INPUT_SIZE)
             .setTo(Scalar(0.0))
@@ -333,11 +340,7 @@ class OnnxDocumentDetector(
         val useCached = cachedMask != null && !cachedMask!!.empty()
         val workingMask = if (useCached) cachedMask!! else morphImage
 
-        val maskConfidence = computeMaskConfidence(workingMask)
-        if (maskConfidence < 0.03) {
-            Log.d(TAG, "Mask confidence too low: %.4f, skipping detection".format(maskConfidence))
-            return null
-        }
+        if (computeMaskConfidence(workingMask) < 0.03) return null
 
         val contours = mutableListOf<MatOfPoint>()
         val hierarchy = matBundle.getHierarchy()
@@ -482,13 +485,9 @@ class OnnxDocumentDetector(
     companion object {
         const val INPUT_SIZE = 384
         const val INPUT_CHANNELS = 3
-        const val OUTPUT_CHANNELS = 2
 
-        private val IMAGE_MEAN = floatArrayOf(0.485f, 0.456f, 0.406f)
-        private val IMAGE_STD = floatArrayOf(0.229f, 0.224f, 0.225f)
-
-        private val CUSTOM_MEAN = floatArrayOf(0.4611f, 0.4359f, 0.3905f)
-        private val CUSTOM_STD = floatArrayOf(0.2193f, 0.2150f, 0.2109f)
+        private val IMAGE_MEAN = floatArrayOf(0.4611f, 0.4359f, 0.3905f)
+        private val IMAGE_STD = floatArrayOf(0.2193f, 0.2150f, 0.2109f)
 
         private const val TAG = "OnnxDetector"
 
