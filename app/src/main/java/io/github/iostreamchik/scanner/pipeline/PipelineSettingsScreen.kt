@@ -41,7 +41,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -66,7 +65,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
-import io.github.iostreamchik.scanner.opencv.*
 
 /**
  * Pipeline Settings screen — pick an image, tweak detection parameters,
@@ -347,7 +345,6 @@ private fun getParametersForStage(
                     if (debouncedKernel != p.medianBlurKsize) {
                         viewModel.updateParamSafely(
                             p.copy(
-                                isClaheAuto = false,
                                 medianBlurKsize = debouncedKernel
                             )
                         ) { context }
@@ -367,26 +364,17 @@ private fun getParametersForStage(
             }
 
             "CLAHE" -> {
-                val isClaheAuto = currentParams.isClaheAuto
                 var clipLimit by remember { mutableFloatStateOf(p.claheClipLimit) }
                 var tileSize by remember { mutableIntStateOf(p.claheTileSize) }
-                var modeAuto by remember { mutableStateOf(isClaheAuto) }
-                var enabled by remember { mutableStateOf(p.isClaheEnabled) }
 
                 val debouncedClip = debounceFloat(clipLimit, 300)
                 val debouncedTile = debounceInt(tileSize, 300)
-                LaunchedEffect(modeAuto, debouncedClip, debouncedTile, enabled) {
-                    if (!enabled) {
-                        viewModel.updateParamSafely(p.copy(isClaheEnabled = false)) { context }
-                    } else if (modeAuto) {
-                        viewModel.updateParamSafely(PipelineParams()) { context }
-                    } else if (debouncedClip != p.claheClipLimit ||
+                LaunchedEffect(debouncedClip, debouncedTile) {
+                    if (debouncedClip != p.claheClipLimit ||
                         debouncedTile != p.claheTileSize
                     ) {
                         viewModel.updateParamSafely(
                             p.copy(
-                                isClaheEnabled = true,
-                                isClaheAuto = false,
                                 claheClipLimit = debouncedClip,
                                 claheTileSize = debouncedTile
                             )
@@ -394,108 +382,60 @@ private fun getParametersForStage(
                     }
                 }
 
-                // Enable/Disable toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = if (enabled) "CLAHE Enhancement" else "CLAHE disabled — detection may degrade",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = { enabled = it }
-                    )
-                }
+                Text(
+                    text = "CLAHE Enhancement",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
 
-                if (!enabled) {
-                    Text(
-                        text = "CLAHE boosts contrast for edge detection. Disabling may cause missed documents.",
-                        fontSize = 11.sp,
-                        color = Color(0xFFFF9800),
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-
-                if (!modeAuto) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    ParameterSlider(
-                        label = "Clip Limit",
-                        value = clipLimit,
-                        valueRange = 0.5f..8.0f,
-                        step = 0.1f,
-                        valueFormatter = { "%.1f".format(it) },
-                        onValueChange = { clipLimit = it }
-                    )
-                    ParameterSlider(
-                        label = "Tile Size",
-                        value = tileSize.toFloat(),
-                        valueRange = 8f..64f,
-                        step = 8f,
-                        valueFormatter = { "${it.toInt()}" },
-                        onValueChange = { tileSize = it.toInt().coerceIn(8, 64) }
-                    )
-                }
+                Spacer(modifier = Modifier.height(4.dp))
+                ParameterSlider(
+                    label = "Clip Limit",
+                    value = clipLimit,
+                    valueRange = 0.5f..8.0f,
+                    step = 0.1f,
+                    valueFormatter = { "%.1f".format(it) },
+                    onValueChange = { clipLimit = it }
+                )
+                ParameterSlider(
+                    label = "Tile Size",
+                    value = tileSize.toFloat(),
+                    valueRange = 8f..64f,
+                    step = 8f,
+                    valueFormatter = { "${it.toInt()}" },
+                    onValueChange = { tileSize = it.toInt().coerceIn(8, 64) }
+                )
             }
 
             "Morph Close" -> {
                 var kernelSize by remember { mutableIntStateOf(p.morphCloseSize) }
-                var enabled by remember { mutableStateOf(p.isMorphCloseEnabled) }
                 val debouncedKernel = debounceInt(kernelSize, 300)
-                LaunchedEffect(debouncedKernel, enabled) {
-                    if (!enabled) {
-                        viewModel.updateParamSafely(p.copy(isMorphCloseEnabled = false)) { context }
-                    } else if (debouncedKernel != p.morphCloseSize) {
+                LaunchedEffect(debouncedKernel) {
+                    if (debouncedKernel != p.morphCloseSize) {
                         viewModel.updateParamSafely(
                             p.copy(
-                                isClaheAuto = false,
-                                isMorphCloseEnabled = true,
                                 morphCloseSize = debouncedKernel)
                         ) { context }
                     }
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = if (enabled) "Morphological Close" else "Morph Close disabled — detection may degrade",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = { enabled = it }
-                    )
-                }
+                Text(
+                    text = "Morphological Close",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
 
-                if (!enabled) {
-                    Text(
-                        text = "Fills gaps in edges before Canny. Disabling may cause broken contours.",
-                        fontSize = 11.sp,
-                        color = Color(0xFFFF9800),
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-
-                if (enabled) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    ParameterSlider(
-                        label = "Kernel Size",
-                        value = kernelSize.toFloat(),
-                        valueRange = 3f..21f,
-                        step = 2f,
-                        valueFormatter = { "${it.toInt()}" },
-                        onValueChange = {
-                            val v = it.toInt().coerceIn(3, 21)
-                            if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
-                        }
-                    )
-                }
+                Spacer(modifier = Modifier.height(4.dp))
+                ParameterSlider(
+                    label = "Kernel Size",
+                    value = kernelSize.toFloat(),
+                    valueRange = 3f..21f,
+                    step = 2f,
+                    valueFormatter = { "${it.toInt()}" },
+                    onValueChange = {
+                        val v = it.toInt().coerceIn(3, 21)
+                        if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
+                    }
+                )
             }
 
             "Canny Edges" -> {
@@ -538,116 +478,66 @@ private fun getParametersForStage(
 
             "Strong Close" -> {
                 var kernelSize by remember { mutableIntStateOf(p.strongCloseSize) }
-                var enabled by remember { mutableStateOf(p.isStrongCloseEnabled) }
                 val debouncedKernel = debounceInt(kernelSize, 300)
-                LaunchedEffect(debouncedKernel, enabled) {
-                    if (!enabled) {
-                        viewModel.updateParamSafely(p.copy(isStrongCloseEnabled = false)) { context }
-                    } else if (debouncedKernel != p.strongCloseSize) {
+                LaunchedEffect(debouncedKernel) {
+                    if (debouncedKernel != p.strongCloseSize) {
                         viewModel.updateParamSafely(
                             p.copy(
-                                isStrongCloseEnabled = true,
                                 strongCloseSize = debouncedKernel
                             )
                         ) { context }
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = if (enabled) "Strong Closing (post-Canny)" else "Strong Close disabled — detection may degrade",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = { enabled = it }
-                    )
-                }
+                Text(
+                    text = "Strong Closing (post-Canny)",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
 
-                if (!enabled) {
-                    Text(
-                        text = "Closes gaps in detected edges. Disabling may cause fragmented contours.",
-                        fontSize = 11.sp,
-                        color = Color(0xFFFF9800),
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-
-                if (enabled) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    ParameterSlider(
-                        label = "Kernel Size",
-                        value = kernelSize.toFloat(),
-                        valueRange = 3f..15f,
-                        step = 2f,
-                        valueFormatter = { "${it.toInt()}" },
-                        onValueChange = {
-                            val v = it.toInt().coerceIn(3, 15)
-                            if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
-                        }
-                    )
-                }
+                Spacer(modifier = Modifier.height(4.dp))
+                ParameterSlider(
+                    label = "Kernel Size",
+                    value = kernelSize.toFloat(),
+                    valueRange = 3f..15f,
+                    step = 2f,
+                    valueFormatter = { "${it.toInt()}" },
+                    onValueChange = {
+                        val v = it.toInt().coerceIn(3, 15)
+                        if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
+                    }
+                )
             }
 
             "Directional Suppression" -> {
                 var kernelSize by remember { mutableIntStateOf(p.directionalKernelSize) }
-                var enabled by remember { mutableStateOf(p.isDirectionalSuppressionEnabled) }
 
                 val debouncedKernel = debounceInt(kernelSize, 300)
-                LaunchedEffect(debouncedKernel, enabled) {
-                    if (!enabled) {
-                        viewModel.updateParamSafely(p.copy(isDirectionalSuppressionEnabled = false)) { context }
-                    } else if (debouncedKernel != p.directionalKernelSize) {
+                LaunchedEffect(debouncedKernel) {
+                    if (debouncedKernel != p.directionalKernelSize) {
                         viewModel.updateParamSafely(
                             p.copy(
-                                isDirectionalSuppressionEnabled = true,
                                 directionalKernelSize = debouncedKernel
                             )
                         ) { context }
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = if (enabled) "Directional Suppression" else "Directional Suppression disabled — detection may degrade",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = { enabled = it }
-                    )
-                }
+                Text(
+                    text = "Directional Suppression",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
 
-                if (!enabled) {
-                    Text(
-                        text = "Suppresses non-directional noise. Disabling may cause false contours.",
-                        fontSize = 11.sp,
-                        color = Color(0xFFFF9800),
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-
-                if (enabled) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    ParameterSlider(
-                        label = "Kernel Size",
-                        value = kernelSize.toFloat(),
-                        valueRange = 1f..31f,
-                        step = 2f,
-                        valueFormatter = { "${it.toInt()}" },
-                        onValueChange = { kernelSize = it.toInt().coerceIn(1, 31) }
-                    )
-                }
+                Spacer(modifier = Modifier.height(4.dp))
+                ParameterSlider(
+                    label = "Kernel Size",
+                    value = kernelSize.toFloat(),
+                    valueRange = 1f..31f,
+                    step = 2f,
+                    valueFormatter = { "${it.toInt()}" },
+                    onValueChange = { kernelSize = it.toInt().coerceIn(1, 31) }
+                )
             }
 
             "Quad" -> {}

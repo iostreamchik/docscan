@@ -79,33 +79,24 @@ class DocumentDetector(
         Log.d("DocScan", "  Median Blur: ksize=$blurKsize")
         Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
 
-        // --- CLAHE (auto when params is Auto, user-configured or brightness-adaptive) ---
-        val useAutoClahe = params.isClaheAuto
-        val claheClipLimit: Double = if (useAutoClahe) {
-            // Brightness-adaptive: both very dim AND very bright scenes need stronger
-            // contrast enhancement. Dim scenes lack shadow detail; bright scenes have
-            // flat histograms with no natural contrast separation.
-            // Sweet spot is mid-range brightness (~80-120) where natural contrast exists.
-            val brightness = avgBrightness.coerceIn(20.0, 200.0)
-            val dimBoost = if (brightness < 80.0) {
-                100.0 / (brightness + 10.0)  // strong boost for dim: up to ~3.6
-            } else {
-                0.0
-            }
-            val brightBoost = if (brightness > 130.0) {
-                (brightness - 130.0) / 30.0  // ramps 0→1.7 as brightness goes 130→200
-            } else {
-                0.0
-            }
-            (1.5 + dimBoost + brightBoost).coerceIn(1.0, 4.0)
+        // --- CLAHE (brightness-adaptive) ---
+        val brightness = avgBrightness.coerceIn(20.0, 200.0)
+        val dimBoost = if (brightness < 80.0) {
+            100.0 / (brightness + 10.0)
         } else {
-            p.claheClipLimit.toDouble().coerceIn(1.0, 4.0)
+            0.0
         }
+        val brightBoost = if (brightness > 130.0) {
+            (brightness - 130.0) / 30.0
+        } else {
+            0.0
+        }
+        val claheClipLimit = (1.5 + dimBoost + brightBoost).coerceIn(1.0, 4.0)
         _detectionParams.value = _detectionParams.value.copy(
             claheClipLimit = claheClipLimit.toString()
         )
         val tileSize = p.claheTileSize.coerceAtLeast(8).toDouble()
-        Log.d("DocScan", "  CLAHE: clipLimit=${"%.2f".format(claheClipLimit)}, tileSize=${"%.1f".format(tileSize)}, useAutoClahe=$useAutoClahe")
+        Log.d("DocScan", "  CLAHE: clipLimit=${"%.2f".format(claheClipLimit)}, tileSize=${"%.1f".format(tileSize)}")
         val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
         clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
         Log.d("DocScan", "  CLAHE done: enhanced type=${matBundle.getEnhanced().type()}, channels=${matBundle.getEnhanced().channels()}")
@@ -113,7 +104,7 @@ class DocumentDetector(
         // --- Morph Close (contrast-gated skip) ---
         Core.meanStdDev(matBundle.getEnhanced(), matBundle.getMean(), matBundle.getStd())
         val enhancedContrast = matBundle.getStd().toArray()[0]
-        val skipMorphClose = params.isClaheAuto && enhancedContrast < 25.0
+        val skipMorphClose = enhancedContrast < 25.0
 
         Log.d("DocScan", "  Morph Close: kernel=${p.morphCloseSize}, enhancedContrast=${"%.1f".format(enhancedContrast)}, skip=$skipMorphClose")
 
@@ -144,15 +135,12 @@ class DocumentDetector(
         val (cannyLow, cannyHigh) = if (params.isCannyAuto) {
             Log.d("DocScan", "  [Canny] Calling thresholdCalculator.computeThreshold (Auto mode)")
             thresholdCalculator.computeThreshold(matBundle.getTemp())
-        } else if (p.cannyAutoDetect) {
-            Log.d("DocScan", "  [Canny] Calling thresholdCalculator.computeThreshold (cannyAutoDetect=true)")
-            thresholdCalculator.computeThreshold(matBundle.getTemp())
         } else {
             Log.d("DocScan", "  [Canny] Using manual thresholds: high=${p.cannyHigh}, low=${p.cannyLow}")
             Pair(p.cannyHigh.toDouble(), p.cannyLow.toDouble())
         }
 
-        Log.d("DocScan", "  Canny: low=${"%.0f".format(cannyLow)}, high=${"%.0f".format(cannyHigh)}, autoDetect=${p.cannyAutoDetect}, mode=${if (params.isCannyAuto) "Auto" else "Manual"}")
+        Log.d("DocScan", "  Canny: low=${"%.0f".format(cannyLow)}, high=${"%.0f".format(cannyHigh)}, mode=${if (params.isCannyAuto) "Auto" else "Manual"}")
         _detectionParams.value = _detectionParams.value.copy(
             cannyHigh = cannyHigh.toInt().toString(),
             cannyLow = cannyLow.toInt().toString()

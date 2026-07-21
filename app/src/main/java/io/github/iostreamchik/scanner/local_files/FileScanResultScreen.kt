@@ -31,14 +31,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -53,9 +51,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.BitmapCard
-import io.github.iostreamchik.scanner.old_detectors.DetectionParameters
-import io.github.iostreamchik.scanner.detector.MockDocumentDetector
 import io.github.iostreamchik.scanner.camera.CameraViewModel
+import io.github.iostreamchik.scanner.detector.MockDocumentDetector
+import io.github.iostreamchik.scanner.old_detectors.DetectionParameters
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import io.github.iostreamchik.scanner.pipeline.ParameterSlider
@@ -402,94 +400,54 @@ private fun PipelineParametersSection(
             stageName = "CLAHE",
         ) {
             val autoParams by detectionParams.collectAsStateWithLifecycle()
-            var modeAuto by remember { mutableStateOf(params.isClaheAuto) }
             var claheClip by remember { mutableFloatStateOf(params.claheClipLimit) }
             var claheTile by remember { mutableIntStateOf(params.claheTileSize) }
 
-            // Auto/Manual toggle
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = if (modeAuto) "Auto (brightness-adaptive)" else "Manual",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Switch(
-                    checked = modeAuto,
-                    onCheckedChange = { newValue ->
-                        modeAuto = newValue
-                        if (newValue) {
-                            onParamsChange(params.copy(isClaheAuto = true))
-                        } else {
-                            claheClip = params.claheClipLimit
-                            claheTile = params.claheTileSize
-                            onParamsChange(
-                                params.copy(
-                                    isClaheAuto = false,
-                                    claheClipLimit = params.claheClipLimit,
-                                    claheTileSize = params.claheTileSize
-                                )
-                            )
-                        }
-                    }
-                )
+            val clipText = if (autoParams.claheClipLimit.isNotBlank()) {
+                autoParams.claheClipLimit
+            } else {
+                "Computing..."
             }
+            Text(
+                text = "Auto: clipLimit=$clipText, tileSize=${params.claheTileSize}",
+                fontSize = 12.sp,
+                color = Color(0xFF2196F3),
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
 
-            // Show auto-computed CLAHE values when in auto mode
-            if (modeAuto) {
-                val clipText = if (autoParams.claheClipLimit.isNotBlank()) {
-                    autoParams.claheClipLimit
-                } else {
-                    "Computing..."
+            Spacer(modifier = Modifier.height(4.dp))
+            ParameterSlider(
+                label = "Clip Limit",
+                value = claheClip,
+                valueRange = 0.5f..8.0f,
+                step = 0.1f,
+                valueFormatter = { "%.1f".format(it) },
+                onValueChange = {
+                    claheClip = it
+                    onParamsChange(
+                        params.copy(
+                            claheClipLimit = it,
+                            claheTileSize = claheTile
+                        )
+                    )
                 }
-                Text(
-                    text = "Auto: clipLimit=$clipText, tileSize=${params.claheTileSize}",
-                    fontSize = 12.sp,
-                    color = Color(0xFF2196F3),
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-            }
-
-            if (!modeAuto) {
-                Spacer(modifier = Modifier.height(4.dp))
-                ParameterSlider(
-                    label = "Clip Limit",
-                    value = claheClip,
-                    valueRange = 0.5f..8.0f,
-                    step = 0.1f,
-                    valueFormatter = { "%.1f".format(it) },
-                    onValueChange = {
-                        claheClip = it
-                        onParamsChange(
-                            params.copy(
-                                isClaheAuto = false,
-                                claheClipLimit = it,
-                                claheTileSize = claheTile
-                            )
+            )
+            ParameterSlider(
+                label = "Tile Size",
+                value = claheTile.toFloat(),
+                valueRange = 8f..64f,
+                step = 8f,
+                valueFormatter = { "${it.toInt()}" },
+                onValueChange = {
+                    claheTile = it.toInt().coerceIn(8, 64)
+                    onParamsChange(
+                        params.copy(
+                            claheClipLimit = claheClip,
+                            claheTileSize = claheTile
                         )
-                    }
-                )
-                ParameterSlider(
-                    label = "Tile Size",
-                    value = claheTile.toFloat(),
-                    valueRange = 8f..64f,
-                    step = 8f,
-                    valueFormatter = { "${it.toInt()}" },
-                    onValueChange = {
-                        claheTile = it.toInt().coerceIn(8, 64)
-                        onParamsChange(
-                            params.copy(
-                                isClaheAuto = false,
-                                claheClipLimit = claheClip,
-                                claheTileSize = claheTile
-                            )
-                        )
-                    }
-                )
-            }
+                    )
+                }
+            )
         }
 
         // Morph Close
@@ -519,25 +477,16 @@ private fun PipelineParametersSection(
             var lowThreshold by remember { mutableFloatStateOf(params.cannyLow) }
             var highThreshold by remember { mutableFloatStateOf(params.cannyHigh) }
 
-            if (params.cannyAutoDetect) {
-                val lowText =
-                    if (autoParams.cannyLow.isNotBlank()) autoParams.cannyLow else "Computing..."
-                val highText =
-                    if (autoParams.cannyHigh.isNotBlank()) autoParams.cannyHigh else "Computing..."
-                Text(
-                    text = "Auto: $lowText / $highText",
-                    fontSize = 12.sp,
-                    color = Color(0xFF2196F3),
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-            } else {
-                Text(
-                    text = "Manual thresholds",
-                    fontSize = 12.sp,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-            }
+            val lowText =
+                autoParams.cannyLow.ifBlank { "Computing..." }
+            val highText =
+                autoParams.cannyHigh.ifBlank { "Computing..." }
+            Text(
+                text = "Auto: $lowText / $highText",
+                fontSize = 12.sp,
+                color = Color(0xFF2196F3),
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
 
             ParameterSlider(
                 label = "Low Threshold",
@@ -550,7 +499,6 @@ private fun PipelineParametersSection(
                     onParamsChange(
                         params.copy(
                             isCannyAuto = false,
-                            cannyAutoDetect = false,
                             cannyLow = it,
                             cannyHigh = highThreshold
                         )
@@ -568,39 +516,12 @@ private fun PipelineParametersSection(
                     onParamsChange(
                         params.copy(
                             isCannyAuto = false,
-                            cannyAutoDetect = false,
                             cannyLow = lowThreshold,
                             cannyHigh = it
                         )
                     )
                 }
             )
-
-            // Auto-detect switch
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Auto Detect",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color.Gray
-                )
-                Switch(
-                    checked = params.cannyAutoDetect,
-                    onCheckedChange = { newValue ->
-                        if (newValue) {
-                            onEnableCannyAuto()
-                        } else {
-                            onDisableCannyAuto()
-                        }
-                    }
-                )
-            }
         }
 
         // Strong Close
@@ -608,55 +529,26 @@ private fun PipelineParametersSection(
             stageName = "Strong Close",
         ) {
             var kernelSize by remember { mutableIntStateOf(params.strongCloseSize) }
-            var enabled by remember { mutableStateOf(params.isStrongCloseEnabled) }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = if (enabled) "Strong Closing (post-Canny)" else "Strong Close disabled — detection may degrade",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Switch(
-                    checked = enabled,
-                    onCheckedChange = { newValue ->
-                        enabled = newValue
-                        if (newValue) {
-                            onParamsChange(params.copy(isStrongCloseEnabled = true, strongCloseSize = kernelSize))
-                        } else {
-                            onParamsChange(params.copy(isStrongCloseEnabled = false))
-                        }
-                    }
-                )
-            }
+            Text(
+                text = "Strong Closing (post-Canny)",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
 
-            if (!enabled) {
-                Text(
-                    text = "Closes gaps in detected edges. Disabling may cause fragmented contours.",
-                    fontSize = 11.sp,
-                    color = Color(0xFFFF9800),
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-
-            if (enabled) {
-                Spacer(modifier = Modifier.height(4.dp))
-                ParameterSlider(
-                    label = "Kernel Size",
-                    value = kernelSize.toFloat(),
-                    valueRange = 3f..15f,
-                    step = 2f,
-                    valueFormatter = { "${it.toInt()}" },
-                    onValueChange = {
-                        val v = it.toInt().coerceIn(3, 15)
-                        if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
-                        onParamsChange(params.copy(isStrongCloseEnabled = true, strongCloseSize = kernelSize))
-                    }
-                )
-            }
+            Spacer(modifier = Modifier.height(4.dp))
+            ParameterSlider(
+                label = "Kernel Size",
+                value = kernelSize.toFloat(),
+                valueRange = 3f..15f,
+                step = 2f,
+                valueFormatter = { "${it.toInt()}" },
+                onValueChange = {
+                    val v = it.toInt().coerceIn(3, 15)
+                    if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
+                    onParamsChange(params.copy(strongCloseSize = kernelSize))
+                }
+            )
         }
 
         // Directional Suppression
@@ -664,54 +556,25 @@ private fun PipelineParametersSection(
             stageName = "Directional Suppression",
         ) {
             var kernelSize by remember { mutableIntStateOf(params.directionalKernelSize) }
-            var enabled by remember { mutableStateOf(params.isDirectionalSuppressionEnabled) }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = if (enabled) "Directional Suppression" else "Directional Suppression disabled — detection may degrade",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Switch(
-                    checked = enabled,
-                    onCheckedChange = { newValue ->
-                        enabled = newValue
-                        if (newValue) {
-                            onParamsChange(params.copy(isDirectionalSuppressionEnabled = true, directionalKernelSize = kernelSize))
-                        } else {
-                            onParamsChange(params.copy(isDirectionalSuppressionEnabled = false))
-                        }
-                    }
-                )
-            }
+            Text(
+                text = "Directional Suppression",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
 
-            if (!enabled) {
-                Text(
-                    text = "Suppresses non-directional noise. Disabling may cause false contours.",
-                    fontSize = 11.sp,
-                    color = Color(0xFFFF9800),
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-
-            if (enabled) {
-                Spacer(modifier = Modifier.height(4.dp))
-                ParameterSlider(
-                    label = "Kernel Size",
-                    value = kernelSize.toFloat(),
-                    valueRange = 1f..31f,
-                    step = 2f,
-                    valueFormatter = { "${it.toInt()}" },
-                    onValueChange = {
-                        kernelSize = it.toInt().coerceIn(1, 31)
-                        onParamsChange(params.copy(isDirectionalSuppressionEnabled = true, directionalKernelSize = kernelSize))
-                    }
-                )
-            }
+            Spacer(modifier = Modifier.height(4.dp))
+            ParameterSlider(
+                label = "Kernel Size",
+                value = kernelSize.toFloat(),
+                valueRange = 1f..31f,
+                step = 2f,
+                valueFormatter = { "${it.toInt()}" },
+                onValueChange = {
+                    kernelSize = it.toInt().coerceIn(1, 31)
+                    onParamsChange(params.copy(directionalKernelSize = kernelSize))
+                }
+            )
         }
     }
 }

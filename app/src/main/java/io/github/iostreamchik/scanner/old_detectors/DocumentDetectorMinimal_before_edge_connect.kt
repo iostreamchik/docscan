@@ -35,64 +35,44 @@ class DocumentDetectorMinimalgfhjfj(
         val blurKsize = params.medianBlurKsize.coerceAtLeast(3)
         Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
 
-        val useClahe =  params.isClaheEnabled
-        val useAutoClahe = params.isClaheAuto
-        val avgBrightness = if (useAutoClahe && useClahe) {
-            Core.meanStdDev(matBundle.getBlurred(), matBundle.getMean(), matBundle.getStd())
-            matBundle.getMean().toArray()[0]
+        Core.meanStdDev(matBundle.getBlurred(), matBundle.getMean(), matBundle.getStd())
+        val avgBrightness = matBundle.getMean().toArray()[0]
+        val brightness = avgBrightness.coerceIn(20.0, 200.0)
+        val dimBoost = if (brightness < 80.0) {
+            40.0 / (brightness + 10.0)
         } else {
-            -1.0
+            0.0
         }
-        val claheClipLimit: Double = if (useAutoClahe && useClahe) {
-            val brightness = avgBrightness.coerceIn(20.0, 200.0)
-            val dimBoost = if (brightness < 80.0) {
-                40.0 / (brightness + 10.0)
-            } else {
-                0.0
-            }
-            val brightBoost = if (brightness > 130.0) {
-                (brightness - 130.0) / 60.0
-            } else {
-                0.0
-            }
-            (0.5 + dimBoost + brightBoost).coerceIn(1.0, 1.5)
-        } else if (useClahe) {
-            params.claheClipLimit.toDouble().coerceIn(1.0, 4.0)
+        val brightBoost = if (brightness > 130.0) {
+            (brightness - 130.0) / 60.0
         } else {
-            -1.0
+            0.0
         }
+        val claheClipLimit = (0.5 + dimBoost + brightBoost).coerceIn(1.0, 1.5)
 
-        val morphSource: Mat
-        if (useClahe) {
-            val tileSize = params.claheTileSize.coerceAtLeast(8).toDouble()
-            val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
-            clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
+        val tileSize = params.claheTileSize.coerceAtLeast(8).toDouble()
+        val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
+        clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
 
-            val useMorphClose = params.isMorphCloseEnabled
-            Core.meanStdDev(matBundle.getEnhanced(), matBundle.getMean(), matBundle.getStd())
-            val enhancedContrast = matBundle.getStd().toArray()[0]
-            val skipMorphClose = useMorphClose && enhancedContrast < 25.0
+        Core.meanStdDev(matBundle.getEnhanced(), matBundle.getMean(), matBundle.getStd())
+        val enhancedContrast = matBundle.getStd().toArray()[0]
+        val skipMorphClose = enhancedContrast < 25.0
 
-            if (skipMorphClose) {
-                matBundle.getEnhanced().copyTo(matBundle.getMorph())
-            } else {
-                val morphCloseKsize = params.morphCloseSize.coerceAtLeast(3).toDouble()
-                Imgproc.getStructuringElement(
-                    Imgproc.MORPH_RECT,
-                    Size(morphCloseKsize, morphCloseKsize)
-                ).also { kernel ->
-                    matBundle.getKernel().release()
-                    kernel.copyTo(matBundle.getKernel())
-                }
-                Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
-            }
-
-            morphSource = if (skipMorphClose) matBundle.getEnhanced() else matBundle.getMorph()
-        } else {
-            matBundle.getBlurred().copyTo(matBundle.getEnhanced())
+        if (skipMorphClose) {
             matBundle.getEnhanced().copyTo(matBundle.getMorph())
-            morphSource = matBundle.getMorph()
+        } else {
+            val morphCloseKsize = params.morphCloseSize.coerceAtLeast(3).toDouble()
+            Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT,
+                Size(morphCloseKsize, morphCloseKsize)
+            ).also { kernel ->
+                matBundle.getKernel().release()
+                kernel.copyTo(matBundle.getKernel())
+            }
+            Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
         }
+
+        val morphSource = if (skipMorphClose) matBundle.getEnhanced() else matBundle.getMorph()
 
         Imgproc.GaussianBlur(morphSource, matBundle.getTemp(), Size(5.0, 5.0), 2.0)
 

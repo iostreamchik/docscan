@@ -42,71 +42,52 @@ class DocumentDetectorOpenCV5(
         val blurKsize = params.medianBlurKsize.coerceAtLeast(3)
         Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
 
-        // --- CLAHE (auto when params is Auto, user-configured) ---
-        val useClahe = params.isClaheEnabled
-        val useAutoClahe = params.isClaheAuto
-        val avgBrightness = if (useAutoClahe) {
-            Core.meanStdDev(matBundle.getBlurred(), matBundle.getMean(), matBundle.getStd())
-            matBundle.getMean().toArray()[0]
+        // --- CLAHE (brightness-adaptive) ---
+        Core.meanStdDev(matBundle.getBlurred(), matBundle.getMean(), matBundle.getStd())
+        val avgBrightness = matBundle.getMean().toArray()[0]
+        val brightness = avgBrightness.coerceIn(20.0, 200.0)
+        val dimBoost = if (brightness < 80.0) {
+            8.0 / (brightness + 10.0)
         } else {
-            -1.0
+            0.0
         }
-        val claheClipLimit: Double = if (useAutoClahe) {
-            val brightness = avgBrightness.coerceIn(20.0, 200.0)
-            val dimBoost = if (brightness < 80.0) {
-                8.0 / (brightness + 10.0)
-            } else {
-                0.0
-            }
-            val brightBoost = if (brightness > 130.0) {
-                (brightness - 130.0) / 100.0
-            } else {
-                0.0
-            }
-            (0.5 + dimBoost + brightBoost).coerceIn(1.0, 1.5)
+        val brightBoost = if (brightness > 130.0) {
+            (brightness - 130.0) / 100.0
         } else {
-            params.claheClipLimit.toDouble().coerceIn(1.0, 4.0)
+            0.0
         }
+        val claheClipLimit = (0.5 + dimBoost + brightBoost).coerceIn(1.0, 1.5)
         _detectionParams.value = _detectionParams.value.copy(
-            brightness = if (useAutoClahe) "%.1f".format(avgBrightness) else "",
+            brightness = "%.1f".format(avgBrightness),
             claheClipLimit = "%.2f".format(claheClipLimit)
         )
-        Log.d("DocScan5", "  CLAHE: clipLimit=${"%.2f".format(claheClipLimit)}, useAutoClahe=$useAutoClahe")
+        Log.d("DocScan5", "  CLAHE: clipLimit=${"%.2f".format(claheClipLimit)}")
         val tileSize = params.claheTileSize.coerceAtLeast(8).toDouble()
-        val morphSource: Mat
+        val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
+        clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
 
-        if (useClahe) {
-            val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
-            clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
+        // --- Morph Close (contrast-gated skip) ---
+        Core.meanStdDev(matBundle.getEnhanced(), matBundle.getMean(), matBundle.getStd())
+        val enhancedContrast = matBundle.getStd().toArray()[0]
+        val skipMorphClose = enhancedContrast < 25.0
 
-            // --- Morph Close (contrast-gated skip) ---
-            val useMorphClose = params.isMorphCloseEnabled
-            Core.meanStdDev(matBundle.getEnhanced(), matBundle.getMean(), matBundle.getStd())
-            val enhancedContrast = matBundle.getStd().toArray()[0]
-            val skipMorphClose = useMorphClose && enhancedContrast < 25.0
+        Log.d("DocScan5", "  Morph Close: kernel=${params.morphCloseSize}, contrast=${"%.1f".format(enhancedContrast)}, skip=$skipMorphClose")
 
-            Log.d("DocScan5", "  Morph Close: kernel=${params.morphCloseSize}, contrast=${"%.1f".format(enhancedContrast)}, skip=$skipMorphClose")
-
-            if (skipMorphClose) {
-                matBundle.getEnhanced().copyTo(matBundle.getMorph())
-            } else {
-                val morphCloseKsize = params.morphCloseSize.coerceAtLeast(3).toDouble()
-                Imgproc.getStructuringElement(
-                    Imgproc.MORPH_RECT,
-                    Size(morphCloseKsize, morphCloseKsize)
-                ).also { kernel ->
-                    matBundle.getKernel().release()
-                    kernel.copyTo(matBundle.getKernel())
-                }
-                Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
-            }
-
-            morphSource = if (skipMorphClose) matBundle.getEnhanced() else matBundle.getMorph()
-        } else {
-            matBundle.getBlurred().copyTo(matBundle.getEnhanced())
+        if (skipMorphClose) {
             matBundle.getEnhanced().copyTo(matBundle.getMorph())
-            morphSource = matBundle.getMorph()
+        } else {
+            val morphCloseKsize = params.morphCloseSize.coerceAtLeast(3).toDouble()
+            Imgproc.getStructuringElement(
+                Imgproc.MORPH_RECT,
+                Size(morphCloseKsize, morphCloseKsize)
+            ).also { kernel ->
+                matBundle.getKernel().release()
+                kernel.copyTo(matBundle.getKernel())
+            }
+            Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
         }
+
+        val morphSource = if (skipMorphClose) matBundle.getEnhanced() else matBundle.getMorph()
         Imgproc.GaussianBlur(morphSource, matBundle.getTemp(), Size(5.0, 5.0), 2.0)
 
         val otsu = Imgproc.threshold(
@@ -132,56 +113,50 @@ class DocumentDetectorOpenCV5(
         matBundle.getEdges().copyTo(matBundle.getMorph())
 
         // --- Strong Closing (post-Canny) ---
-        val useStrongClose = params.isStrongCloseEnabled
-        if (useStrongClose) {
-            var closeKsize = params.strongCloseSize.coerceIn(3, 5)
-            if (closeKsize % 2 == 0) closeKsize++
-            Log.d("DocScan5", "  Strong Close: kernel=$closeKsize")
-            Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT,
-                Size(closeKsize.toDouble(), closeKsize.toDouble())
-            ).also { kernel ->
-                matBundle.getKernel2().release()
-                kernel.copyTo(matBundle.getKernel2())
-            }
-            Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
+        var closeKsize = params.strongCloseSize.coerceIn(3, 5)
+        if (closeKsize % 2 == 0) closeKsize++
+        Log.d("DocScan5", "  Strong Close: kernel=$closeKsize")
+        Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT,
+            Size(closeKsize.toDouble(), closeKsize.toDouble())
+        ).also { kernel ->
+            matBundle.getKernel2().release()
+            kernel.copyTo(matBundle.getKernel2())
         }
+        Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
 
         // --- Directional Suppression (H+V MORPH_CLOSE) ---
-        val useDirSuppression = params.isDirectionalSuppressionEnabled
-        if (useDirSuppression) {
-            val dirKsize = params.directionalKernelSize.coerceIn(1, 5)
-            Log.d("DocScan5", "  Directional Suppression: kernel=$dirKsize")
-            Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT,
-                Size(dirKsize.toDouble(), 1.0)
-            ).also { kernel ->
-                matBundle.getHorizontalKernel().release()
-                kernel.copyTo(matBundle.getHorizontalKernel())
-            }
-            Imgproc.morphologyEx(
-                matBundle.getMorph(),
-                matBundle.getHorizontalClose(),
-                Imgproc.MORPH_CLOSE,
-                matBundle.getHorizontalKernel()
-            )
-
-            Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT,
-                Size(1.0, dirKsize.toDouble())
-            ).also { kernel ->
-                matBundle.getVerticalKernel().release()
-                kernel.copyTo(matBundle.getVerticalKernel())
-            }
-            Imgproc.morphologyEx(
-                matBundle.getHorizontalClose(),
-                matBundle.getVerticalClose(),
-                Imgproc.MORPH_CLOSE,
-                matBundle.getVerticalKernel()
-            )
-
-            matBundle.getVerticalClose().copyTo(matBundle.getMorph())
+        val dirKsize = params.directionalKernelSize.coerceIn(1, 5)
+        Log.d("DocScan5", "  Directional Suppression: kernel=$dirKsize")
+        Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT,
+            Size(dirKsize.toDouble(), 1.0)
+        ).also { kernel ->
+            matBundle.getHorizontalKernel().release()
+            kernel.copyTo(matBundle.getHorizontalKernel())
         }
+        Imgproc.morphologyEx(
+            matBundle.getMorph(),
+            matBundle.getHorizontalClose(),
+            Imgproc.MORPH_CLOSE,
+            matBundle.getHorizontalKernel()
+        )
+
+        Imgproc.getStructuringElement(
+            Imgproc.MORPH_RECT,
+            Size(1.0, dirKsize.toDouble())
+        ).also { kernel ->
+            matBundle.getVerticalKernel().release()
+            kernel.copyTo(matBundle.getVerticalKernel())
+        }
+        Imgproc.morphologyEx(
+            matBundle.getHorizontalClose(),
+            matBundle.getVerticalClose(),
+            Imgproc.MORPH_CLOSE,
+            matBundle.getVerticalKernel()
+        )
+
+        matBundle.getVerticalClose().copyTo(matBundle.getMorph())
 
         Log.d("DocScan5", "=== preprocess END ===")
         return matBundle.getMorph()

@@ -9,14 +9,12 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.viewModelScope
-import io.github.iostreamchik.scanner.detector.AsyncDetectorSource
-import io.github.iostreamchik.scanner.old_detectors.DetectionParameters
-import io.github.iostreamchik.scanner.detector.CombinedDocumentDetector
 import io.github.iostreamchik.scanner.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.detector.OnnxDocumentDetector
-import io.github.iostreamchik.scanner.old_detectors.PROCESS_WIDTH
 import io.github.iostreamchik.scanner.enhanceDocument
 import io.github.iostreamchik.scanner.fixRotation
+import io.github.iostreamchik.scanner.old_detectors.DetectionParameters
+import io.github.iostreamchik.scanner.old_detectors.PROCESS_WIDTH
 import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculatorV3
 import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
@@ -432,7 +430,7 @@ class CameraViewModel(
      * pre-Canny blurred enhanced image — no separate calculation needed here.
      */
     fun enableCannyAuto() {
-        updateParams(_pipelineParams.value.copy(isCannyAuto = true, cannyAutoDetect = true))
+        updateParams(_pipelineParams.value.copy(isCannyAuto = true))
     }
 
     /**
@@ -441,7 +439,7 @@ class CameraViewModel(
      * by the caller to avoid double-processing.
      */
     fun disableCannyAuto() {
-        updateParams(_pipelineParams.value.copy(isCannyAuto = false, cannyAutoDetect = false))
+        updateParams(_pipelineParams.value.copy(isCannyAuto = false))
     }
 
     override fun onCleared() {
