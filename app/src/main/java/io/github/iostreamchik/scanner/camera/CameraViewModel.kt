@@ -14,8 +14,6 @@ import io.github.iostreamchik.scanner.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.detector.OnnxDocumentDetector
 import io.github.iostreamchik.scanner.enhanceDocument
 import io.github.iostreamchik.scanner.fixRotation
-import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculatorV3
-import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
@@ -47,7 +45,6 @@ const val PROCESS_WIDTH = 448.0
 
 class CameraViewModel(
     val matBundle: IMatBundle = MatBundle(),
-    val thresholdCalculator: ICannyThresholdCalculator = CannyThresholdCalculatorV3(matBundle),
     val detector: IDocumentDetector
 ) : androidx.lifecycle.ViewModel() {
 

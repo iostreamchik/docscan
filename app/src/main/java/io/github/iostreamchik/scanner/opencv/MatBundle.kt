@@ -37,7 +37,6 @@ interface IMatBundle {
     fun getOtsuBlur(): Mat
     fun getOtsuThreshold(): Mat
 
-    // Sobel gradient pipeline (CannyThresholdCalculatorV2)
     fun getSobelX(): Mat
     fun getSobelY(): Mat
     fun getGradMag(): Mat
@@ -78,7 +77,6 @@ class MatBundle : IMatBundle {
     private var _otsuBlur: Mat = Mat()
     private var _otsuThreshold: Mat = Mat()
 
-    // Sobel gradient pipeline (CannyThresholdCalculatorV2)
     private var _sobelX: Mat = Mat()
     private var _sobelY: Mat = Mat()
     private var _gradMag: Mat = Mat()

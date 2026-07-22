@@ -62,7 +62,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.BitmapCard
 import io.github.iostreamchik.scanner.ContourCanvas
 import io.github.iostreamchik.scanner.detector.MockDocumentDetector
-import io.github.iostreamchik.scanner.opencv.MockCannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.rememberDeviceCornerRadiusDp
 
@@ -330,7 +329,6 @@ private fun CameraScreenPreview() {
             viewModel = viewModel {
                 CameraViewModel(
                     matBundle = MockMatBundle(),
-                    thresholdCalculator = MockCannyThresholdCalculator(),
                     detector = MockDocumentDetector()
                 )
             }

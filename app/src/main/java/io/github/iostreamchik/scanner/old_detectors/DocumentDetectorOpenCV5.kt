@@ -4,10 +4,10 @@ import android.util.Log
 import io.github.iostreamchik.scanner.detector.DetectionParameters
 import io.github.iostreamchik.scanner.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.opencv.IMatBundle
+import io.github.iostreamchik.scanner.opencv.OpenCVAdapter
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
@@ -16,9 +16,6 @@ import org.opencv.core.Size
 import org.opencv.geometry.Geometry
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
-import kotlin.math.acos
-import kotlin.math.max
-import kotlin.math.sqrt
 
 class DocumentDetectorOpenCV5(
     private val matBundle: IMatBundle
@@ -35,17 +32,12 @@ class DocumentDetectorOpenCV5(
     ): Mat {
         Log.d("DocScan5", "=== preprocess START: ${scaledWidth}x${scaledHeight} ===")
 
-        val smallMat = Mat()
-        Imgproc.resize(rawMat, smallMat, Size(scaledWidth.toDouble(), scaledHeight.toDouble()))
-        Imgproc.cvtColor(smallMat, matBundle.getGray(), Imgproc.COLOR_RGBA2GRAY)
-        smallMat.release()
+        OpenCVAdapter.resizeToGray(rawMat, scaledWidth, scaledHeight, matBundle.getGray())
 
         val blurKsize = params.medianBlurKsize.coerceAtLeast(3)
         Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
 
-        // --- CLAHE (brightness-adaptive) ---
-        Core.meanStdDev(matBundle.getBlurred(), matBundle.getMean(), matBundle.getStd())
-        val avgBrightness = matBundle.getMean().toArray()[0]
+        val avgBrightness = OpenCVAdapter.getAverageBrightness(matBundle.getBlurred(), matBundle)
         val brightness = avgBrightness.coerceIn(20.0, 200.0)
         val dimBoost = if (brightness < 80.0) {
             8.0 / (brightness + 10.0)
@@ -64,12 +56,9 @@ class DocumentDetectorOpenCV5(
         )
         Log.d("DocScan5", "  CLAHE: clipLimit=${"%.2f".format(claheClipLimit)}")
         val tileSize = params.claheTileSize.coerceAtLeast(8).toDouble()
-        val clahe = Imgproc.createCLAHE(claheClipLimit, Size(tileSize, tileSize))
-        clahe.apply(matBundle.getBlurred(), matBundle.getEnhanced())
+        OpenCVAdapter.applyClahe(matBundle.getBlurred(), matBundle.getEnhanced(), claheClipLimit, tileSize)
 
-        // --- Morph Close (contrast-gated skip) ---
-        Core.meanStdDev(matBundle.getEnhanced(), matBundle.getMean(), matBundle.getStd())
-        val enhancedContrast = matBundle.getStd().toArray()[0]
+        val enhancedContrast = OpenCVAdapter.getStdDev(matBundle.getEnhanced(), matBundle)
         val skipMorphClose = enhancedContrast < 25.0
 
         Log.d("DocScan5", "  Morph Close: kernel=${params.morphCloseSize}, contrast=${"%.1f".format(enhancedContrast)}, skip=$skipMorphClose")
@@ -78,14 +67,8 @@ class DocumentDetectorOpenCV5(
             matBundle.getEnhanced().copyTo(matBundle.getMorph())
         } else {
             val morphCloseKsize = params.morphCloseSize.coerceAtLeast(3).toDouble()
-            Imgproc.getStructuringElement(
-                Imgproc.MORPH_RECT,
-                Size(morphCloseKsize, morphCloseKsize)
-            ).also { kernel ->
-                matBundle.getKernel().release()
-                kernel.copyTo(matBundle.getKernel())
-            }
-            Imgproc.morphologyEx(matBundle.getEnhanced(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel())
+            OpenCVAdapter.createRectKernel(Size(morphCloseKsize, morphCloseKsize), matBundle.getKernel())
+            OpenCVAdapter.morphClose(matBundle.getEnhanced(), matBundle.getMorph(), matBundle.getKernel())
         }
 
         val morphSource = if (skipMorphClose) matBundle.getEnhanced() else matBundle.getMorph()
@@ -109,33 +92,17 @@ class DocumentDetectorOpenCV5(
 
         Imgproc.Canny(matBundle.getTemp(), matBundle.getEdges(), cannyLow, cannyHigh)
 
-        // Baseline: copy Canny edges to morph slot so the pipeline always has edge data.
-        // Post-processing steps (Strong Close, Directional Suppression) build on top.
         matBundle.getEdges().copyTo(matBundle.getMorph())
 
-        // --- Strong Closing (post-Canny) ---
         var closeKsize = params.strongCloseSize.coerceIn(3, 5)
         if (closeKsize % 2 == 0) closeKsize++
         Log.d("DocScan5", "  Strong Close: kernel=$closeKsize")
-        Imgproc.getStructuringElement(
-            Imgproc.MORPH_RECT,
-            Size(closeKsize.toDouble(), closeKsize.toDouble())
-        ).also { kernel ->
-            matBundle.getKernel2().release()
-            kernel.copyTo(matBundle.getKernel2())
-        }
-        Imgproc.morphologyEx(matBundle.getEdges(), matBundle.getMorph(), Imgproc.MORPH_CLOSE, matBundle.getKernel2())
+        OpenCVAdapter.createRectKernel(Size(closeKsize.toDouble(), closeKsize.toDouble()), matBundle.getKernel2())
+        OpenCVAdapter.morphClose(matBundle.getEdges(), matBundle.getMorph(), matBundle.getKernel2())
 
-        // --- Directional Suppression (H+V MORPH_CLOSE) ---
         val dirKsize = params.directionalKernelSize.coerceIn(1, 5)
         Log.d("DocScan5", "  Directional Suppression: kernel=$dirKsize")
-        Imgproc.getStructuringElement(
-            Imgproc.MORPH_RECT,
-            Size(dirKsize.toDouble(), 1.0)
-        ).also { kernel ->
-            matBundle.getHorizontalKernel().release()
-            kernel.copyTo(matBundle.getHorizontalKernel())
-        }
+        OpenCVAdapter.createRectKernel(Size(dirKsize.toDouble(), 1.0), matBundle.getHorizontalKernel())
         Imgproc.morphologyEx(
             matBundle.getMorph(),
             matBundle.getHorizontalClose(),
@@ -143,13 +110,7 @@ class DocumentDetectorOpenCV5(
             matBundle.getHorizontalKernel()
         )
 
-        Imgproc.getStructuringElement(
-            Imgproc.MORPH_RECT,
-            Size(1.0, dirKsize.toDouble())
-        ).also { kernel ->
-            matBundle.getVerticalKernel().release()
-            kernel.copyTo(matBundle.getVerticalKernel())
-        }
+        OpenCVAdapter.createRectKernel(Size(1.0, dirKsize.toDouble()), matBundle.getVerticalKernel())
         Imgproc.morphologyEx(
             matBundle.getHorizontalClose(),
             matBundle.getVerticalClose(),
@@ -174,14 +135,7 @@ class DocumentDetectorOpenCV5(
     ): MatOfPoint? {
         Log.d("DocScan5", "=== detectQuad START ===")
 
-        val contours = mutableListOf<MatOfPoint>()
-        Imgproc.findContours(
-            morphImage,
-            contours,
-            matBundle.getHierarchy(),
-            Imgproc.RETR_LIST,
-            Imgproc.CHAIN_APPROX_SIMPLE
-        )
+        val contours = OpenCVAdapter.findContours(morphImage, matBundle.getHierarchy())
         Log.d("DocScan5", "  found ${contours.size} contours")
 
         val frameArea = scaledWidth * scaledHeight
@@ -198,7 +152,7 @@ class DocumentDetectorOpenCV5(
             val peri = Geometry.arcLength(pts2f, true)
             Geometry.approxPolyDP(pts2f, approx, 0.015 * peri, true)
 
-            if (approx.total() == 4L && isRectangle(approx)) {
+            if (approx.total() == 4L && OpenCVAdapter.isRectangle(approx)) {
                 val scaleX = originalWidth.toDouble() / scaledWidth
                 val scaleY = originalHeight.toDouble() / scaledHeight
                 val scaledPoints = approx.toArray().map { Point(it.x * scaleX, it.y * scaleY) }
@@ -234,47 +188,5 @@ class DocumentDetectorOpenCV5(
         val quadArea = rect.width * rect.height
         val frameArea = originalWidth * originalHeight
         return quadArea <= frameArea * 0.95
-    }
-
-    companion object {
-        fun computeAutoClaheClipLimit(avgBrightness: Double): Double {
-            val brightness = avgBrightness.coerceIn(20.0, 200.0)
-            val dimBoost = if (brightness < 80.0) {
-                40.0 / (brightness + 10.0)
-            } else {
-                0.0
-            }
-            val brightBoost = if (brightness > 130.0) {
-                (brightness - 130.0) / 60.0
-            } else {
-                0.0
-            }
-            return (0.5 + dimBoost + brightBoost).coerceIn(1.0, 1.5)
-        }
-
-        fun isRectangle(approx: MatOfPoint2f): Boolean {
-            val pts = approx.toArray()
-            var maxDeviation = 0.0
-            for (i in 0..3) {
-                val angle = computeAngle(
-                    pts[(i + 1) % 4],
-                    pts[(i + 3) % 4],
-                    pts[i]
-                )
-                maxDeviation = max(maxDeviation, abs(90 - angle))
-            }
-            return maxDeviation < 15
-        }
-
-        fun computeAngle(p1: Point, p2: Point, center: Point): Double {
-            val dx1 = p1.x - center.x
-            val dy1 = p1.y - center.y
-            val dx2 = p2.x - center.x
-            val dy2 = p2.y - center.y
-            val dot = dx1 * dx2 + dy1 * dy2
-            val norm1 = sqrt(dx1 * dx1 + dy1 * dy1)
-            val norm2 = sqrt(dx2 * dx2 + dy2 * dy2)
-            return acos(dot / (norm1 * norm2)) * 180.0 / Math.PI
-        }
     }
 }

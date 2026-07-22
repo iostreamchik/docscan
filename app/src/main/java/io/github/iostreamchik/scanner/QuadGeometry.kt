@@ -89,7 +89,7 @@ fun quadDistance(
  * Checks if a 4-point contour approximates a rectangle by verifying
  * that all interior angles are close to 90°.
  */
-fun isRectangle(approx: MatOfPoint2f): Boolean {
+fun isRectangle(approx: MatOfPoint2f, toleranceDegrees: Double = 15.0): Boolean {
     val pts = approx.toArray()
     var maxDeviation = 0.0
 
@@ -102,7 +102,7 @@ fun isRectangle(approx: MatOfPoint2f): Boolean {
         maxDeviation = max(maxDeviation, abs(90 - angle))
     }
 
-    return maxDeviation < 15
+    return maxDeviation < toleranceDegrees
 }
 
 /**
