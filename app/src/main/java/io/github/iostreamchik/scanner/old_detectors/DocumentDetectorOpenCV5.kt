@@ -1,6 +1,7 @@
 package io.github.iostreamchik.scanner.old_detectors
 
 import android.util.Log
+import io.github.iostreamchik.scanner.detector.DetectionParameters
 import io.github.iostreamchik.scanner.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams

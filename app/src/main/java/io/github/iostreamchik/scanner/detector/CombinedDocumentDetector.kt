@@ -3,7 +3,6 @@ package io.github.iostreamchik.scanner.detector
 import android.content.Context
 import android.util.Log
 import io.github.iostreamchik.scanner.computeAngle
-import io.github.iostreamchik.scanner.old_detectors.DetectionParameters
 import io.github.iostreamchik.scanner.old_detectors.DocumentDetectorOpenCV5
 import io.github.iostreamchik.scanner.opencv.MatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams

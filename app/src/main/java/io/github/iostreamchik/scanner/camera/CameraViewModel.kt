@@ -9,12 +9,11 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.viewModelScope
+import io.github.iostreamchik.scanner.detector.DetectionParameters
 import io.github.iostreamchik.scanner.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.detector.OnnxDocumentDetector
 import io.github.iostreamchik.scanner.enhanceDocument
 import io.github.iostreamchik.scanner.fixRotation
-import io.github.iostreamchik.scanner.old_detectors.DetectionParameters
-import io.github.iostreamchik.scanner.old_detectors.PROCESS_WIDTH
 import io.github.iostreamchik.scanner.opencv.CannyThresholdCalculatorV3
 import io.github.iostreamchik.scanner.opencv.ICannyThresholdCalculator
 import io.github.iostreamchik.scanner.opencv.IMatBundle
@@ -43,6 +42,8 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.time.Duration.Companion.milliseconds
+
+const val PROCESS_WIDTH = 448.0
 
 class CameraViewModel(
     val matBundle: IMatBundle = MatBundle(),

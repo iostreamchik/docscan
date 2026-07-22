@@ -8,10 +8,10 @@ import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import androidx.lifecycle.viewModelScope
-import io.github.iostreamchik.scanner.old_detectors.DocumentDetector
-import io.github.iostreamchik.scanner.detector.IDocumentDetector
-import io.github.iostreamchik.scanner.old_detectors.PROCESS_WIDTH
 import io.github.iostreamchik.scanner.calculateWarpedDimensions
+import io.github.iostreamchik.scanner.camera.PROCESS_WIDTH
+import io.github.iostreamchik.scanner.detector.DocumentDetectorMinimal
+import io.github.iostreamchik.scanner.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.fixRotation
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
@@ -45,7 +45,7 @@ import kotlin.math.max
  */
 class PipelineSettingsViewModel(
     val matBundle: IMatBundle = MatBundle(),
-    val detector: IDocumentDetector = DocumentDetector(matBundle)
+    val detector: IDocumentDetector = DocumentDetectorMinimal(matBundle)
 ) : androidx.lifecycle.ViewModel() {
 
     private val _originalBitmap = MutableStateFlow<Bitmap?>(null)

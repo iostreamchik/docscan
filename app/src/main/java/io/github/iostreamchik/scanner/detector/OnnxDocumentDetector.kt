@@ -5,7 +5,6 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.util.Log
-import io.github.iostreamchik.scanner.old_detectors.DetectionParameters
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import io.github.iostreamchik.scanner.scoreContourWithParams

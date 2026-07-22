@@ -107,10 +107,10 @@ class CannyThresholdCalculatorV2(
         // rawOtsu < 15 → almost no edges (all-white, camera at wall, underexposed)
         // rawOtsu > 220 → almost all edges (overexposed, extreme contrast)
         // In both cases, Otsu is unreliable — use safe defaults.
-        val rawHigh = if (rawOtsu < 15.0 || rawOtsu > 220.0) {
+        val rawHigh = if (rawOtsu !in 15.0..220.0) {
             60.0
         } else {
-            rawOtsu.toDouble()
+            rawOtsu
         }
         val rawLow = rawHigh * lowHighRatio
 

@@ -1,7 +1,6 @@
 package io.github.iostreamchik.scanner
 
 import io.github.iostreamchik.scanner.camera.CameraViewModel
-import io.github.iostreamchik.scanner.old_detectors.DocumentDetector
 import io.github.iostreamchik.scanner.old_detectors.DocumentDetectorOpenCV5
 import io.github.iostreamchik.scanner.detector.CombinedDocumentDetector
 import io.github.iostreamchik.scanner.detector.DocumentDetectorMinimal
@@ -25,9 +24,6 @@ val appModule = module {
     single<ICannyThresholdCalculator> { CannyThresholdCalculatorV3(get()) }
     single<IDocumentDetector> {
         DocumentDetectorOpenCV5(get())
-    }
-    single<IDocumentDetector>(named("classic")) {
-        DocumentDetector(get())
     }
     single<IDocumentDetector>(named("onnx")) {
         OnnxDocumentDetector(
