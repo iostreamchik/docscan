@@ -11,7 +11,6 @@ import androidx.camera.core.ImageProxy
 import androidx.lifecycle.viewModelScope
 import io.github.iostreamchik.scanner.detector.DetectionParameters
 import io.github.iostreamchik.scanner.detector.IDocumentDetector
-import io.github.iostreamchik.scanner.detector.OnnxDocumentDetector
 import io.github.iostreamchik.scanner.enhanceDocument
 import io.github.iostreamchik.scanner.fixRotation
 import io.github.iostreamchik.scanner.opencv.IMatBundle
@@ -264,31 +263,16 @@ class CameraViewModel(
             // Preprocess: resize → grayscale → blur → CLAHE → morph → Canny → strong close → directional suppression
             detector.preprocess(mat, scaledWidth, scaledHeight, params)
 
-            // Capture intermediate stage previews before releaseAll().
-            // Clone before emitting to StateFlow so Compose gets its own independent copy.
-            if (detector is OnnxDocumentDetector) {
-                // ONNX detector skips the classical pipeline — no blur/CLAHE/morph stages.
-                // Show the original frame as the baseline, and the binary mask separately.
-                val maskMat = matBundle.getMorph().clone()
-                val maskBitmap = maskMat.fixRotation(rotation).toBitmap()
-                    .copy(Bitmap.Config.ARGB_8888, false)
-                _onnxMaskBitmap.value = maskBitmap
-                _filteredBitmap.value = originalFrame
-                maskMat.release()
-            } else {
-                _blurBitmap.value = matBundle.getBlurred().fixRotation(rotation).toBitmap()
-                    .copy(Bitmap.Config.ARGB_8888, false)
-                _claheBitmap.value = matBundle.getEnhanced().fixRotation(rotation).toBitmap()
-                    .copy(Bitmap.Config.ARGB_8888, false)
-                _morphBitmap.value = matBundle.getMorph().fixRotation(rotation).toBitmap()
-                    .copy(Bitmap.Config.ARGB_8888, false)
-                // Capture post-Canny edges for the "Filtered" preview.
-                // matBundle.getEdges() holds Canny output; matBundle.getMorph() is
-                // overwritten with edges inside preprocess() after Canny runs.
-                // Using getEdges() ensures the preview reflects Canny threshold changes.
-                _filteredBitmap.value = matBundle.getEdges().fixRotation(rotation).toBitmap()
-                    .copy(Bitmap.Config.ARGB_8888, false)
-            }
+            // Capture intermediate stage previews from the detector's own mat bundle
+            // before releaseAll() clears the pooled Mats.
+            // Always set both preview slots so stale values from a previous frame
+            // (e.g., mask from ONNX when classical just ran) are cleared.
+            val snapshots = detector.captureIntermediateSnapshots(rotation)
+            _blurBitmap.value = snapshots.blur
+            _claheBitmap.value = snapshots.clahe
+            _morphBitmap.value = snapshots.morph
+            _filteredBitmap.value = snapshots.edges ?: originalFrame
+            _onnxMaskBitmap.value = snapshots.mask
 
             // Detect document
             val morphBeforeDetect = matBundle.getMorph()
@@ -302,6 +286,12 @@ class CameraViewModel(
                 rotation = rotation,
                 params = params
             )
+
+            // Capture post-detection snapshots (e.g., ONNX mask from fallback path)
+            val postSnapshots = detector.capturePostDetectionSnapshots(rotation)
+            if (postSnapshots.mask != null) {
+                _onnxMaskBitmap.value = postSnapshots.mask
+            }
 
             if (bestQuad == null) {
                 Log.d("CameraViewModel", "  runDetection: NO QUAD DETECTED")

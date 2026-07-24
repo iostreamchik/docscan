@@ -4,7 +4,10 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
+import android.graphics.Bitmap
 import android.util.Log
+import io.github.iostreamchik.scanner.fixRotation
+import io.github.iostreamchik.scanner.toBitmap
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import io.github.iostreamchik.scanner.scoreContourWithParams
@@ -468,6 +471,34 @@ class OnnxDocumentDetector(
         val quadArea = rect.width * rect.height
         val frameArea = originalWidth * originalHeight
         return quadArea <= frameArea * 0.95
+    }
+
+    override fun captureIntermediateSnapshots(
+        rotation: Int
+    ): IntermediateSnapshots {
+        val maskMat = cachedMask
+        return if (maskMat != null && !maskMat.empty()) {
+            IntermediateSnapshots(
+                mask = maskMat.fixRotation(rotation).toBitmap()
+                    .copy(Bitmap.Config.ARGB_8888, false)
+            )
+        } else {
+            IntermediateSnapshots()
+        }
+    }
+
+    override fun capturePostDetectionSnapshots(
+        rotation: Int
+    ): IntermediateSnapshots {
+        val maskMat = cachedMask
+        return if (maskMat != null && !maskMat.empty()) {
+            IntermediateSnapshots(
+                mask = maskMat.fixRotation(rotation).toBitmap()
+                    .copy(Bitmap.Config.ARGB_8888, false)
+            )
+        } else {
+            IntermediateSnapshots()
+        }
     }
 
     fun release() {

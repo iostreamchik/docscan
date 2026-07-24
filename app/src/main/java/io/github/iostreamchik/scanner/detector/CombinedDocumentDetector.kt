@@ -201,6 +201,26 @@ class CombinedDocumentDetector(
         }
     }
 
+    override fun captureIntermediateSnapshots(
+        rotation: Int
+    ): IntermediateSnapshots {
+        return when (lastUsedDetector) {
+            AsyncDetectorSource.ONNX -> onnxDetector.captureIntermediateSnapshots(rotation)
+            AsyncDetectorSource.OPENCV5 -> opencv5Detector.captureIntermediateSnapshots(rotation)
+            else -> minimalDetector.captureIntermediateSnapshots(rotation)
+        }
+    }
+
+    override fun capturePostDetectionSnapshots(
+        rotation: Int
+    ): IntermediateSnapshots {
+        return if (lastUsedDetector == AsyncDetectorSource.ONNX) {
+            onnxDetector.capturePostDetectionSnapshots(rotation)
+        } else {
+            IntermediateSnapshots()
+        }
+    }
+
     private fun computeMaxAngleDeviation(quad: MatOfPoint): Double {
         val pts = sortQuadPoints(quad.toArray().toList())
         if (pts.size != 4) return Double.MAX_VALUE

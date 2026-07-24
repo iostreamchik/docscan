@@ -1,9 +1,12 @@
 package io.github.iostreamchik.scanner.detector
 
-import io.github.iostreamchik.scanner.opencv.OpenCVAdapter
+import android.graphics.Bitmap
+import io.github.iostreamchik.scanner.fixRotation
 import io.github.iostreamchik.scanner.opencv.IMatBundle
+import io.github.iostreamchik.scanner.opencv.OpenCVAdapter
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import io.github.iostreamchik.scanner.scoreContourWithParams
+import io.github.iostreamchik.scanner.toBitmap
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
@@ -14,7 +17,7 @@ import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
 
 class DocumentDetectorMinimal(
-    private val matBundle: IMatBundle
+    internal val matBundle: IMatBundle
 ) : IDocumentDetector {
 
     override fun preprocess(
@@ -149,5 +152,20 @@ class DocumentDetectorMinimal(
         val quadArea = rect.width * rect.height
         val frameArea = originalWidth * originalHeight
         return quadArea <= frameArea * 0.95
+    }
+
+    override fun captureIntermediateSnapshots(
+        rotation: Int
+    ): IntermediateSnapshots {
+        val toBitmap = { mat: Mat ->
+            mat.fixRotation(rotation).toBitmap()
+                .copy(Bitmap.Config.ARGB_8888, false)
+        }
+        return IntermediateSnapshots(
+            blur = toBitmap(matBundle.getBlurred()),
+            clahe = toBitmap(matBundle.getEnhanced()),
+            morph = toBitmap(matBundle.getMorph()),
+            edges = toBitmap(matBundle.getEdges())
+        )
     }
 }

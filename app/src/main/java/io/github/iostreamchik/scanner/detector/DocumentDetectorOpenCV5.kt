@@ -1,9 +1,12 @@
 package io.github.iostreamchik.scanner.detector
 
+import android.graphics.Bitmap
 import android.util.Log
+import io.github.iostreamchik.scanner.fixRotation
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.OpenCVAdapter
 import io.github.iostreamchik.scanner.opencv.PipelineParams
+import io.github.iostreamchik.scanner.toBitmap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.opencv.core.Mat
@@ -218,5 +221,20 @@ class DocumentDetectorOpenCV5(
         val quadArea = rect.width * rect.height
         val frameArea = originalWidth * originalHeight
         return quadArea <= frameArea * 0.95
+    }
+
+    override fun captureIntermediateSnapshots(
+        rotation: Int
+    ): IntermediateSnapshots {
+        val toBitmap = { mat: Mat ->
+            mat.fixRotation(rotation).toBitmap()
+                .copy(Bitmap.Config.ARGB_8888, false)
+        }
+        return IntermediateSnapshots(
+            blur = toBitmap(matBundle.getBlurred()),
+            clahe = toBitmap(matBundle.getEnhanced()),
+            morph = toBitmap(matBundle.getMorph()),
+            edges = toBitmap(matBundle.getEdges())
+        )
     }
 }
