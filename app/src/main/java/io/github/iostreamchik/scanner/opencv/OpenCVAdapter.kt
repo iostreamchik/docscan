@@ -42,22 +42,6 @@ object OpenCVAdapter {
         Imgproc.morphologyEx(source, dest, Imgproc.MORPH_CLOSE, kernel)
     }
 
-    fun applyContrastGatedMorphClose(
-        enhanced: Mat,
-        morph: Mat,
-        contrastThreshold: Double,
-        kernelSize: Double,
-        kernel: Mat
-    ): Mat {
-        if (contrastThreshold < 25.0) {
-            enhanced.copyTo(morph)
-            return enhanced
-        }
-        createRectKernel(Size(kernelSize, kernelSize), kernel)
-        morphClose(enhanced, morph, kernel)
-        return morph
-    }
-
     fun findContours(image: Mat, hierarchy: Mat): List<MatOfPoint> {
         val contours = mutableListOf<MatOfPoint>()
         Imgproc.findContours(
