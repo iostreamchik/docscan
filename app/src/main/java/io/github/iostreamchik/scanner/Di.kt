@@ -3,9 +3,9 @@ package io.github.iostreamchik.scanner
 import io.github.iostreamchik.scanner.camera.CameraViewModel
 import io.github.iostreamchik.scanner.detector.CombinedDocumentDetector
 import io.github.iostreamchik.scanner.detector.DocumentDetectorMinimal
+import io.github.iostreamchik.scanner.detector.DocumentDetectorOpenCV5
 import io.github.iostreamchik.scanner.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.detector.OnnxDocumentDetector
-import io.github.iostreamchik.scanner.old_detectors.DocumentDetectorOpenCV5
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
 import io.github.iostreamchik.scanner.pipeline.PipelineSettingsViewModel
