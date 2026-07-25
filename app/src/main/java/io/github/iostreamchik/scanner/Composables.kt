@@ -81,8 +81,10 @@ fun BitmapCard(
             }
         } else {
             Image(
+                modifier = Modifier.fillMaxSize(),
                 bitmap = bitmap?.asImageBitmap() ?: createBitmap(1, 1).asImageBitmap(),
                 contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
             )
         }
     }

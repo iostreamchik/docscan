@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,12 +21,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -89,7 +90,9 @@ fun CameraScreen(
     val lastContourUpdateTime = remember { mutableLongStateOf(0L) }
     val CONTOUR_UPDATE_THROTTLE_MS = 30L
 
-    Column(modifier = modifier) {
+    Box(modifier = modifier) {
+
+        Column {
 
         // Camera preview container - 70% height with rounded bottom corners
         Box(
@@ -194,29 +197,63 @@ fun CameraScreen(
         }
 
         // Bottom section - preview bitmaps
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxHeight()
-                .padding(horizontal = 16.dp)
-                .navigationBarsPadding()
+                .padding(horizontal = 8.dp)
+                .padding(top = 8.dp)
+                .navigationBarsPadding(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(),
-                horizontalArrangement = Arrangement.SpaceBetween
+            Surface(
+                modifier = Modifier.weight(1f).fillMaxSize(),
+                shape = RoundedCornerShape(cornerRadius),
+                color = MaterialTheme.colorScheme.surfaceVariant
             ) {
-                BitmapCard(
-                    bitmap = onnxMaskBitmap ?: filteredBitmap,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(modifier = Modifier.width(16.dp))
-                BitmapCard(
-                    bitmap = resultBitmap,
-                    modifier = Modifier.weight(1f)
-                )
+                val isPreview = LocalInspectionMode.current
+                if (isPreview) {
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Gray))
+                } else {
+                    BitmapCard(
+                        bitmap = onnxMaskBitmap ?: filteredBitmap,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+            Surface(
+                modifier = Modifier.weight(1f).fillMaxSize(),
+                shape = RoundedCornerShape(cornerRadius),
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                val isPreview = LocalInspectionMode.current
+                if (isPreview) {
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Gray))
+                } else {
+                    BitmapCard(
+                        bitmap = resultBitmap,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
         }
+        }
+
+        FloatingActionButton(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color.Black)
+                .padding( 8.dp)
+                .navigationBarsPadding(),
+            onClick = toScanFromFile,
+            elevation = FloatingActionButtonDefaults.elevation(0.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Image,
+                contentDescription = "Scan from file"
+            )
+        }
+
         LaunchedEffect(Unit) {
             val cameraProvider = ProcessCameraProvider
                 .getInstance(context)
@@ -316,6 +353,7 @@ fun CameraScreen(
 private fun CameraScreenPreview() {
     Surface() {
         CameraScreen(
+            modifier = Modifier.background(Color.Black),
             viewModel = viewModel {
                 CameraViewModel(
                     matBundle = MockMatBundle(),
