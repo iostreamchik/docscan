@@ -99,7 +99,7 @@ fun CameraScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight(0.7f)
-                    .clip(RoundedCornerShape(bottomStart = cornerRadius, bottomEnd = cornerRadius))
+                    .clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
             ) {
                 val isPreview = LocalInspectionMode.current
                 if (isPreview.not()) {
@@ -183,21 +183,11 @@ fun CameraScreen(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(start = 8.dp, bottom = 8.dp),
-                    shape = RoundedCornerShape(
-                        topStart = 8.dp,
-                        topEnd = 8.dp,
-                        bottomStart = cornerRadius - 6.dp,
-                        bottomEnd = 8.dp
-                    ),
+                    shape = RoundedCornerShape(8.dp),
                     color = Color.Black.copy(alpha = 0.5f)
                 ) {
                     Text(
-                        modifier = Modifier.padding(
-                            start = 8.dp,
-                            bottom = 8.dp,
-                            end = 4.dp,
-                            top = 4.dp
-                        ),
+                        modifier = Modifier.padding(8.dp),
                         text = "CLAHE: ${detectionParams.claheClipLimit}" +
                                 "\nCanny: ${detectionParams.cannyLow}/${detectionParams.cannyHigh}" +
                                 "\nBright: ${detectionParams.brightness}",
@@ -220,14 +210,21 @@ fun CameraScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxSize(),
-                    shape = RoundedCornerShape(cornerRadius),
+                    shape = RoundedCornerShape(
+                        topStart = 8.dp,
+                        topEnd = 8.dp,
+                        bottomStart = cornerRadius,
+                        bottomEnd = 8.dp
+                    ),
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     val isPreview = LocalInspectionMode.current
                     if (isPreview) {
-                        Box(modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Gray))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Gray)
+                        )
                     } else {
                         BitmapCard(
                             bitmap = onnxMaskBitmap ?: filteredBitmap,
@@ -239,14 +236,21 @@ fun CameraScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxSize(),
-                    shape = RoundedCornerShape(cornerRadius),
+                    shape = RoundedCornerShape(
+                        topStart = 8.dp,
+                        topEnd = 8.dp,
+                        bottomStart = 8.dp,
+                        bottomEnd = cornerRadius
+                    ),
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     val isPreview = LocalInspectionMode.current
                     if (isPreview) {
-                        Box(modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Gray))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Gray)
+                        )
                     } else {
                         BitmapCard(
                             bitmap = resultBitmap,
@@ -260,15 +264,14 @@ fun CameraScreen(
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(8.dp)
                 .navigationBarsPadding()
         ) {
             FloatingActionButton(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color.Black)
-                    .padding(8.dp),
+                    .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(top = 8.dp, start = 8.dp, end = 8.dp),
                 onClick = toScanFromFile,
                 elevation = FloatingActionButtonDefaults.elevation(0.dp)
             ) {
@@ -378,7 +381,7 @@ fun CameraScreen(
 private fun CameraScreenPreview() {
     Surface() {
         CameraScreen(
-            modifier = Modifier.background(Color.Black),
+            modifier = Modifier.background(MaterialTheme.colorScheme.background),
             viewModel = viewModel {
                 CameraViewModel(
                     matBundle = MockMatBundle(),
