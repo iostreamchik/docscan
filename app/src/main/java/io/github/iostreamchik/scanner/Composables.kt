@@ -68,15 +68,20 @@ fun BitmapCard(
             ) { bmp ->
                 if (bmp != null) {
                     Image(
-                        modifier = Modifier.onGloballyPositioned {
-                            if (width.value == 0.dp)
-                                width.value = with(density) { it.size.width.toDp() }
-                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onGloballyPositioned {
+                                if (width.value == 0.dp)
+                                    width.value = with(density) { it.size.width.toDp() }
+                            },
                         bitmap = bmp.asImageBitmap(),
                         contentDescription = null,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                     )
                 } else {
-                    Box(modifier = Modifier.width(width.value).fillMaxSize())
+                    Box(modifier = Modifier
+                        .width(width.value)
+                        .fillMaxSize())
                 }
             }
         } else {

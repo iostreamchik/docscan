@@ -94,164 +94,189 @@ fun CameraScreen(
 
         Column {
 
-        // Camera preview container - 70% height with rounded bottom corners
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.7f)
-                .clip(RoundedCornerShape(bottomStart = cornerRadius, bottomEnd = cornerRadius))
-        ) {
-            val isPreview = LocalInspectionMode.current
-            if (isPreview.not()) {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { previewView },
-                )
-            } else {
-                Box(modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Gray))
-            }
-
-            errorState?.let { state ->
-                Surface(
-                    color = Color.Red.copy(alpha = 0.8f),
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(16.dp)
-                ) {
-                    Text(
-                        text = state,
-                        color = Color.White,
-                        modifier = Modifier.padding(8.dp)
-                    )
-                }
-            }
-
-            ContourCanvas(
-                contourState = contourState,
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // Torch toggle button - top right corner
+            // Camera preview container - 70% height with rounded bottom corners
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp)
+                    .fillMaxHeight(0.7f)
+                    .clip(RoundedCornerShape(bottomStart = cornerRadius, bottomEnd = cornerRadius))
             ) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .clip(CircleShape)
-                        .background(color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .5f))
-                        .padding(horizontal = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = {
-                            viewModel.toggleTorch()
-                        }
+                val isPreview = LocalInspectionMode.current
+                if (isPreview.not()) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { previewView },
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Gray)
+                    )
+                }
+
+                errorState?.let { state ->
+                    Surface(
+                        color = Color.Red.copy(alpha = 0.8f),
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(16.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.FlashlightOn,
-                            contentDescription = "Toggle torch",
-                            tint = if (torchOn) Color.Black else Color.Black.copy(alpha = 0.5f)
-                        )
-                    }
-                    VerticalDivider(modifier = Modifier.height(22.dp))
-                    IconButton(
-                        onClick = toOpenSettings,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Pipeline settings"
+                        Text(
+                            text = state,
+                            color = Color.White,
+                            modifier = Modifier.padding(8.dp)
                         )
                     }
                 }
-            }
 
-            // Detection params info box - bottom of preview
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = 8.dp, bottom = 8.dp),
-                shape = RoundedCornerShape(
-                    topStart = 8.dp,
-                    topEnd = 8.dp,
-                    bottomStart = cornerRadius - 6.dp,
-                    bottomEnd = 8.dp
-                ),
-                color = Color.Black.copy(alpha = 0.5f)
-            ) {
-                Text(
-                    modifier = Modifier.padding(start = 8.dp, bottom = 8.dp, end = 4.dp, top = 4.dp),
-                    text = "CLAHE: ${detectionParams.claheClipLimit}" +
-                            "\nCanny: ${detectionParams.cannyLow}/${detectionParams.cannyHigh}" +
-                            "\nBright: ${detectionParams.brightness}",
-                    color = Color.White.copy(alpha = 0.8f),
-                    fontSize = 10.sp,
+                ContourCanvas(
+                    contourState = contourState,
+                    modifier = Modifier.fillMaxSize()
                 )
-            }
-        }
 
-        // Bottom section - preview bitmaps
-        Row(
-            modifier = Modifier
-                .fillMaxHeight()
-                .padding(horizontal = 8.dp)
-                .padding(top = 8.dp)
-                .navigationBarsPadding(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Surface(
-                modifier = Modifier.weight(1f).fillMaxSize(),
-                shape = RoundedCornerShape(cornerRadius),
-                color = MaterialTheme.colorScheme.surfaceVariant
-            ) {
-                val isPreview = LocalInspectionMode.current
-                if (isPreview) {
-                    Box(modifier = Modifier.fillMaxSize().background(Color.Gray))
-                } else {
-                    BitmapCard(
-                        bitmap = onnxMaskBitmap ?: filteredBitmap,
-                        modifier = Modifier.fillMaxSize()
+                // Torch toggle button - top right corner
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .clip(CircleShape)
+                            .background(
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(
+                                    alpha = .5f
+                                )
+                            )
+                            .padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = {
+                                viewModel.toggleTorch()
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FlashlightOn,
+                                contentDescription = "Toggle torch",
+                                tint = if (torchOn) Color.Black else Color.Black.copy(alpha = 0.5f)
+                            )
+                        }
+                        VerticalDivider(modifier = Modifier.height(22.dp))
+                        IconButton(
+                            onClick = toOpenSettings,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Pipeline settings"
+                            )
+                        }
+                    }
+                }
+
+                // Detection params info box - bottom of preview
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 8.dp, bottom = 8.dp),
+                    shape = RoundedCornerShape(
+                        topStart = 8.dp,
+                        topEnd = 8.dp,
+                        bottomStart = cornerRadius - 6.dp,
+                        bottomEnd = 8.dp
+                    ),
+                    color = Color.Black.copy(alpha = 0.5f)
+                ) {
+                    Text(
+                        modifier = Modifier.padding(
+                            start = 8.dp,
+                            bottom = 8.dp,
+                            end = 4.dp,
+                            top = 4.dp
+                        ),
+                        text = "CLAHE: ${detectionParams.claheClipLimit}" +
+                                "\nCanny: ${detectionParams.cannyLow}/${detectionParams.cannyHigh}" +
+                                "\nBright: ${detectionParams.brightness}",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 10.sp,
                     )
                 }
             }
-            Surface(
-                modifier = Modifier.weight(1f).fillMaxSize(),
-                shape = RoundedCornerShape(cornerRadius),
-                color = MaterialTheme.colorScheme.surfaceVariant
+
+            // Bottom section - preview bitmaps
+            Row(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .padding(horizontal = 8.dp)
+                    .padding(top = 8.dp)
+                    .navigationBarsPadding(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val isPreview = LocalInspectionMode.current
-                if (isPreview) {
-                    Box(modifier = Modifier.fillMaxSize().background(Color.Gray))
-                } else {
-                    BitmapCard(
-                        bitmap = resultBitmap,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize(),
+                    shape = RoundedCornerShape(cornerRadius),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    val isPreview = LocalInspectionMode.current
+                    if (isPreview) {
+                        Box(modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Gray))
+                    } else {
+                        BitmapCard(
+                            bitmap = onnxMaskBitmap ?: filteredBitmap,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize(),
+                    shape = RoundedCornerShape(cornerRadius),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    val isPreview = LocalInspectionMode.current
+                    if (isPreview) {
+                        Box(modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Gray))
+                    } else {
+                        BitmapCard(
+                            bitmap = resultBitmap,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
         }
-        }
 
-        FloatingActionButton(
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color.Black)
-                .padding( 8.dp)
-                .navigationBarsPadding(),
-            onClick = toScanFromFile,
-            elevation = FloatingActionButtonDefaults.elevation(0.dp)
+                .padding(8.dp)
+                .navigationBarsPadding()
         ) {
-            Icon(
-                imageVector = Icons.Default.Image,
-                contentDescription = "Scan from file"
-            )
+            FloatingActionButton(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color.Black)
+                    .padding(8.dp),
+                onClick = toScanFromFile,
+                elevation = FloatingActionButtonDefaults.elevation(0.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Image,
+                    contentDescription = "Scan from file"
+                )
+            }
         }
 
         LaunchedEffect(Unit) {

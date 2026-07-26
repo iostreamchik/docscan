@@ -4,27 +4,26 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -35,10 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,17 +48,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.BitmapCard
 import io.github.iostreamchik.scanner.camera.CameraViewModel
-import io.github.iostreamchik.scanner.detector.DetectionParameters
 import io.github.iostreamchik.scanner.detector.MockDocumentDetector
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
-import io.github.iostreamchik.scanner.opencv.PipelineParams
-import io.github.iostreamchik.scanner.pipeline.ParameterSlider
-import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Displays the original image with contour overlay, filtered preview, and warped result
+ * Displays the original image with intermediate stage previews and warped result
  * after a file-based scan completes.
- * Also shows configurable pipeline parameters without previews.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,7 +64,6 @@ fun FileScanResultScreen(
 ) {
     val context = LocalContext.current
 
-    val currentParams by viewModel.pipelineParams.collectAsStateWithLifecycle()
     val error by viewModel.errorState.collectAsStateWithLifecycle()
     val isProcessing by viewModel.isProcessing.collectAsStateWithLifecycle()
 
@@ -108,6 +98,7 @@ fun FileScanResultScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
+                shape = CircleShape,
                 onClick = {
                     pickMediaLauncher.launch(PickVisualMediaRequest(ImageOnly))
                 },
@@ -124,7 +115,7 @@ fun FileScanResultScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Error banner
             error?.let { msg ->
@@ -150,15 +141,13 @@ fun FileScanResultScreen(
             val originalBitmap by viewModel.originalBitmap.collectAsStateWithLifecycle()
             val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
             val hasImage = originalBitmap != null
-            AnimatedContent(
-                targetState = hasImage,
-                label = "file_scan_content"
-            ) { hasLoaded ->
-                if (!hasLoaded) {
+            val imageAspectRatio = originalBitmap?.let { it.width.toFloat() / it.height.toFloat() }
+            key(hasImage) {
+                if (!hasImage) {
                     Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
+                            .fillMaxSize()
+                            .fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
@@ -190,13 +179,17 @@ fun FileScanResultScreen(
                         }
                     }
                 } else {
-                    Column {
-                        // Intermediate pipeline stages
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Row 1: Blur | CLAHE
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // Median Blur
                             Column(
                                 modifier = Modifier.weight(1f),
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -209,14 +202,13 @@ fun FileScanResultScreen(
                                 )
                                 BitmapCard(
                                     modifier = Modifier
-                                        .height(120.dp)
+                                        .fillMaxWidth()
+                                        .aspectRatio(imageAspectRatio ?: 1f)
                                         .clip(RoundedCornerShape(8.dp)),
                                     bitmap = blurBitmap,
                                     animated = true
                                 )
                             }
-
-                            // CLAHE
                             Column(
                                 modifier = Modifier.weight(1f),
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -229,14 +221,20 @@ fun FileScanResultScreen(
                                 )
                                 BitmapCard(
                                     modifier = Modifier
-                                        .height(120.dp)
+                                        .fillMaxWidth()
+                                        .aspectRatio(imageAspectRatio ?: 1f)
                                         .clip(RoundedCornerShape(8.dp)),
                                     bitmap = claheBitmap,
                                     animated = true
                                 )
                             }
+                        }
 
-                            // Morph Close
+                        // Row 2: Morph | Filtered
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Column(
                                 modifier = Modifier.weight(1f),
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -249,21 +247,13 @@ fun FileScanResultScreen(
                                 )
                                 BitmapCard(
                                     modifier = Modifier
-                                        .height(120.dp)
+                                        .fillMaxWidth()
+                                        .aspectRatio(imageAspectRatio ?: 1f)
                                         .clip(RoundedCornerShape(8.dp)),
                                     bitmap = morphBitmap,
                                     animated = true
                                 )
                             }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Final results row
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // Filtered image
                             Column(
                                 modifier = Modifier.weight(1f),
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -276,14 +266,20 @@ fun FileScanResultScreen(
                                 )
                                 BitmapCard(
                                     modifier = Modifier
-                                        .height(120.dp)
+                                        .fillMaxWidth()
+                                        .aspectRatio(imageAspectRatio ?: 1f)
                                         .clip(RoundedCornerShape(8.dp)),
                                     bitmap = filteredBitmap,
                                     animated = true
                                 )
                             }
+                        }
 
-                            // Original image
+                        // Row 3: Original | Detected
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Column(
                                 modifier = Modifier.weight(1f),
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -296,14 +292,13 @@ fun FileScanResultScreen(
                                 )
                                 BitmapCard(
                                     modifier = Modifier
-                                        .height(120.dp)
+                                        .fillMaxWidth()
+                                        .aspectRatio(imageAspectRatio ?: 1f)
                                         .clip(RoundedCornerShape(8.dp)),
                                     bitmap = originalBitmap,
                                     animated = true
                                 )
                             }
-
-                            // Detected (warped) result
                             Column(
                                 modifier = Modifier.weight(1f),
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -316,292 +311,18 @@ fun FileScanResultScreen(
                                 )
                                 BitmapCard(
                                     modifier = Modifier
-                                        .height(120.dp)
+                                        .fillMaxWidth()
+                                        .aspectRatio(imageAspectRatio ?: 1f)
                                         .clip(RoundedCornerShape(8.dp)),
                                     bitmap = resultBitmap,
                                     animated = true
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // Pipeline parameters — fills remaining space, scrolls independently
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .verticalScroll(rememberScrollState()),
-                        ) {
-                            Text(
-                                text = "Pipeline Parameters",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(bottom = 12.dp)
-                            )
-
-                            PipelineParametersSection(
-                                params = currentParams,
-                                detectionParams = viewModel.detectionParams,
-                                onParamsChange = { newParams ->
-                                    viewModel.updateParams(newParams)
-                                    viewModel.reprocessPickedDocument(context)
-                                },
-                                onEnableCannyAuto = {
-                                    viewModel.enableCannyAuto()
-                                    viewModel.reprocessPickedDocument(context)
-                                },
-                                onDisableCannyAuto = {
-                                    viewModel.disableCannyAuto()
-                                    viewModel.reprocessPickedDocument(context)
-                                },
-                            )
-                        }
+                        Spacer(modifier = Modifier.height(84.dp))
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun PipelineParametersSection(
-    params: PipelineParams,
-    detectionParams: StateFlow<DetectionParameters>,
-    onParamsChange: (PipelineParams) -> Unit,
-    onEnableCannyAuto: () -> Unit,
-    onDisableCannyAuto: () -> Unit,
-) {
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // Median Blur
-        PipelineStageControls(
-            stageName = "Median Blur",
-        ) {
-            var kernelSize by remember { mutableIntStateOf(params.medianBlurKsize) }
-            ParameterSlider(
-                label = "Kernel Size",
-                value = kernelSize.toFloat(),
-                valueRange = 3f..21f,
-                step = 2f,
-                valueFormatter = { "${it.toInt()}" },
-                onValueChange = {
-                    val v = it.toInt().coerceIn(3, 21)
-                    if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
-                    onParamsChange(params.copy(medianBlurKsize = kernelSize))
-                }
-            )
-        }
-
-        // CLAHE
-        PipelineStageControls(
-            stageName = "CLAHE",
-        ) {
-            val autoParams by detectionParams.collectAsStateWithLifecycle()
-            var claheClip by remember { mutableFloatStateOf(params.claheClipLimit) }
-            var claheTile by remember { mutableIntStateOf(params.claheTileSize) }
-
-            val clipText = if (autoParams.claheClipLimit.isNotBlank()) {
-                autoParams.claheClipLimit
-            } else {
-                "Computing..."
-            }
-            Text(
-                text = "Auto: clipLimit=$clipText, tileSize=${params.claheTileSize}",
-                fontSize = 12.sp,
-                color = Color(0xFF2196F3),
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-            ParameterSlider(
-                label = "Clip Limit",
-                value = claheClip,
-                valueRange = 0.5f..8.0f,
-                step = 0.1f,
-                valueFormatter = { "%.1f".format(it) },
-                onValueChange = {
-                    claheClip = it
-                    onParamsChange(
-                        params.copy(
-                            claheClipLimit = it,
-                            claheTileSize = claheTile
-                        )
-                    )
-                }
-            )
-            ParameterSlider(
-                label = "Tile Size",
-                value = claheTile.toFloat(),
-                valueRange = 8f..64f,
-                step = 8f,
-                valueFormatter = { "${it.toInt()}" },
-                onValueChange = {
-                    claheTile = it.toInt().coerceIn(8, 64)
-                    onParamsChange(
-                        params.copy(
-                            claheClipLimit = claheClip,
-                            claheTileSize = claheTile
-                        )
-                    )
-                }
-            )
-        }
-
-        // Morph Close
-        PipelineStageControls(
-            stageName = "Morph Close",
-        ) {
-            var kernelSize by remember { mutableIntStateOf(params.morphCloseSize) }
-            ParameterSlider(
-                label = "Kernel Size",
-                value = kernelSize.toFloat(),
-                valueRange = 3f..21f,
-                step = 2f,
-                valueFormatter = { "${it.toInt()}" },
-                onValueChange = {
-                    val v = it.toInt().coerceIn(3, 21)
-                    if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
-                    onParamsChange(params.copy(morphCloseSize = kernelSize))
-                }
-            )
-        }
-
-        // Canny Edges
-        PipelineStageControls(
-            stageName = "Canny Edges",
-        ) {
-            val autoParams by detectionParams.collectAsStateWithLifecycle()
-            var lowThreshold by remember { mutableFloatStateOf(params.cannyLow) }
-            var highThreshold by remember { mutableFloatStateOf(params.cannyHigh) }
-
-            val lowText =
-                autoParams.cannyLow.ifBlank { "Computing..." }
-            val highText =
-                autoParams.cannyHigh.ifBlank { "Computing..." }
-            Text(
-                text = "Auto: $lowText / $highText",
-                fontSize = 12.sp,
-                color = Color(0xFF2196F3),
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-
-            ParameterSlider(
-                label = "Low Threshold",
-                value = lowThreshold,
-                valueRange = 10f..100f,
-                step = 5f,
-                valueFormatter = { "%.0f".format(it) },
-                onValueChange = {
-                    lowThreshold = it
-                    onParamsChange(
-                        params.copy(
-                            isCannyAuto = false,
-                            cannyLow = it,
-                            cannyHigh = highThreshold
-                        )
-                    )
-                }
-            )
-            ParameterSlider(
-                label = "High Threshold",
-                value = highThreshold,
-                valueRange = 30f..300f,
-                step = 10f,
-                valueFormatter = { "%.0f".format(it) },
-                onValueChange = {
-                    highThreshold = it
-                    onParamsChange(
-                        params.copy(
-                            isCannyAuto = false,
-                            cannyLow = lowThreshold,
-                            cannyHigh = it
-                        )
-                    )
-                }
-            )
-        }
-
-        // Strong Close
-        PipelineStageControls(
-            stageName = "Strong Close",
-        ) {
-            var kernelSize by remember { mutableIntStateOf(params.strongCloseSize) }
-
-            Text(
-                text = "Strong Closing (post-Canny)",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-            ParameterSlider(
-                label = "Kernel Size",
-                value = kernelSize.toFloat(),
-                valueRange = 3f..15f,
-                step = 2f,
-                valueFormatter = { "${it.toInt()}" },
-                onValueChange = {
-                    val v = it.toInt().coerceIn(3, 15)
-                    if (v % 2 == 0) kernelSize = v + 1 else kernelSize = v
-                    onParamsChange(params.copy(strongCloseSize = kernelSize))
-                }
-            )
-        }
-
-        // Directional Suppression
-        PipelineStageControls(
-            stageName = "Directional Suppression",
-        ) {
-            var kernelSize by remember { mutableIntStateOf(params.directionalKernelSize) }
-
-            Text(
-                text = "Directional Suppression",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-            ParameterSlider(
-                label = "Kernel Size",
-                value = kernelSize.toFloat(),
-                valueRange = 1f..31f,
-                step = 2f,
-                valueFormatter = { "${it.toInt()}" },
-                onValueChange = {
-                    kernelSize = it.toInt().coerceIn(1, 31)
-                    onParamsChange(params.copy(directionalKernelSize = kernelSize))
-                }
-            )
-        }
-    }
-}
-
-@Composable
-private fun PipelineStageControls(
-    stageName: String,
-    content: @Composable () -> Unit,
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        elevation = CardDefaults.cardElevation(0.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp)
-        ) {
-            Text(
-                text = stageName,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color.Gray
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            content()
         }
     }
 }
