@@ -3,7 +3,6 @@ package io.github.iostreamchik.scanner
 import io.github.iostreamchik.scanner.camera.CameraViewModel
 import io.github.iostreamchik.scanner.detector.CombinedDocumentDetector
 import io.github.iostreamchik.scanner.detector.DocumentDetectorMinimal
-import io.github.iostreamchik.scanner.detector.DocumentDetectorOpenCV5
 import io.github.iostreamchik.scanner.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.detector.OnnxDocumentDetector
 import io.github.iostreamchik.scanner.opencv.IMatBundle
@@ -18,9 +17,6 @@ import org.koin.dsl.module
 
 val appModule = module {
     factory<IMatBundle> { MatBundle() }
-    single<IDocumentDetector> {
-        DocumentDetectorOpenCV5(get())
-    }
     single<IDocumentDetector>(named("onnx")) {
         OnnxDocumentDetector(
             get(),
@@ -28,9 +24,6 @@ val appModule = module {
             "onnx/deeplabv3_mbv3_docseg.onnx",
             useCustomNormalization = true
         )
-    }
-    single<IDocumentDetector>(named("complex")) {
-        DocumentDetectorOpenCV5(get())
     }
     single<IDocumentDetector>(named("minimal")) {
         DocumentDetectorMinimal(get())

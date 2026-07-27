@@ -1,7 +1,6 @@
 package io.github.iostreamchik.scanner.detector
 
 import android.graphics.Bitmap
-import android.util.Log
 import io.github.iostreamchik.scanner.fixRotation
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.OpenCVAdapter
@@ -18,7 +17,7 @@ import org.opencv.geometry.Geometry
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
 
-class DocumentDetectorOpenCV5(
+class DocumentDetectorDirectionalSuppression(
     internal val matBundle: IMatBundle
 ) : IDocumentDetector {
 
@@ -31,8 +30,6 @@ class DocumentDetectorOpenCV5(
         scaledHeight: Int,
         params: PipelineParams
     ): Mat {
-        Log.d("DocScan5", "=== preprocess START: ${scaledWidth}x${scaledHeight} ===")
-
         OpenCVAdapter.resizeToGray(rawMat, scaledWidth, scaledHeight, matBundle.getGray())
 
         val blurKsize = params.medianBlurKsize.coerceAtLeast(3)
@@ -55,7 +52,6 @@ class DocumentDetectorOpenCV5(
             brightness = "%.1f".format(avgBrightness),
             claheClipLimit = "%.2f".format(claheClipLimit)
         )
-        Log.d("DocScan5", "  CLAHE: clipLimit=${"%.2f".format(claheClipLimit)}")
         val tileSize = params.claheTileSize.coerceAtLeast(8).toDouble()
         OpenCVAdapter.applyClahe(
             matBundle.getBlurred(),
@@ -66,13 +62,6 @@ class DocumentDetectorOpenCV5(
 
         val enhancedContrast = OpenCVAdapter.getStdDev(matBundle.getEnhanced(), matBundle)
         val skipMorphClose = enhancedContrast < 25.0
-
-        Log.d(
-            "DocScan5",
-            "  Morph Close: kernel=${params.morphCloseSize}, contrast=${
-                "%.1f".format(enhancedContrast)
-            }, skip=$skipMorphClose"
-        )
 
         if (skipMorphClose) {
             matBundle.getEnhanced().copyTo(matBundle.getMorph())
@@ -106,10 +95,6 @@ class DocumentDetectorOpenCV5(
             cannyHigh = cannyHigh.toInt().toString(),
             cannyLow = cannyLow.toInt().toString()
         )
-        Log.d(
-            "DocScan5",
-            "  Canny: high=${"%.1f".format(cannyHigh)}, low=${"%.1f".format(cannyLow)}"
-        )
 
         Imgproc.Canny(matBundle.getTemp(), matBundle.getEdges(), cannyLow, cannyHigh)
 
@@ -117,7 +102,6 @@ class DocumentDetectorOpenCV5(
 
         var closeKsize = params.strongCloseSize.coerceIn(3, 5)
         if (closeKsize % 2 == 0) closeKsize++
-        Log.d("DocScan5", "  Strong Close: kernel=$closeKsize")
         OpenCVAdapter.createRectKernel(
             Size(closeKsize.toDouble(), closeKsize.toDouble()),
             matBundle.getKernel2()
@@ -125,7 +109,6 @@ class DocumentDetectorOpenCV5(
         OpenCVAdapter.morphClose(matBundle.getEdges(), matBundle.getMorph(), matBundle.getKernel2())
 
         val dirKsize = params.directionalKernelSize.coerceIn(1, 5)
-        Log.d("DocScan5", "  Directional Suppression: kernel=$dirKsize")
         OpenCVAdapter.createRectKernel(
             Size(dirKsize.toDouble(), 1.0),
             matBundle.getHorizontalKernel()
@@ -150,7 +133,6 @@ class DocumentDetectorOpenCV5(
 
         matBundle.getVerticalClose().copyTo(matBundle.getMorph())
 
-        Log.d("DocScan5", "=== preprocess END ===")
         return matBundle.getMorph()
     }
 
@@ -163,11 +145,7 @@ class DocumentDetectorOpenCV5(
         rotation: Int,
         params: PipelineParams
     ): MatOfPoint? {
-        Log.d("DocScan5", "=== detectQuad START ===")
-
         val contours = OpenCVAdapter.findContours(morphImage, matBundle.getHierarchy())
-        Log.d("DocScan5", "  found ${contours.size} contours")
-
         val frameArea = scaledWidth * scaledHeight
         val minArea = frameArea * params.minAreaFraction
         val candidates = mutableListOf<MatOfPoint>()
@@ -204,11 +182,6 @@ class DocumentDetectorOpenCV5(
         val result = best?.let { MatOfPoint(*it.toArray()) }
         candidates.forEach { it.release() }
 
-        Log.d(
-            "DocScan5",
-            "  candidates=${candidates.size}, result=${if (result != null) "found" else "null"}"
-        )
-        Log.d("DocScan5", "=== detectQuad END ===")
         return result
     }
 

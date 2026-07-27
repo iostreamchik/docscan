@@ -20,7 +20,7 @@ import kotlin.math.max
 enum class AsyncDetectorSource {
     NONE,
     MINIMAL,
-    OPENCV5,
+    DIRECTIONAL_SUPPRESSION,
     ONNX
 }
 
@@ -33,7 +33,7 @@ class CombinedDocumentDetector(
     }
 
     private val minimalDetector = DocumentDetectorMinimal(MatBundle())
-    private val opencv5Detector = DocumentDetectorOpenCV5(MatBundle())
+    private val opencv5Detector = DocumentDetectorDirectionalSuppression(MatBundle())
     private val onnxDetector = OnnxDocumentDetector(context, MatBundle())
 
     private val cachedMorphImages = mutableMapOf<AsyncDetectorSource, Mat?>()
@@ -49,7 +49,7 @@ class CombinedDocumentDetector(
     override val detectorName: String
         get() = when (lastUsedDetector) {
             AsyncDetectorSource.MINIMAL -> "Minimal"
-            AsyncDetectorSource.OPENCV5 -> "OpenCV5"
+            AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> "DirectionalSuppression"
             AsyncDetectorSource.ONNX -> "ONNX"
             else -> "Combined"
         }
@@ -76,7 +76,7 @@ class CombinedDocumentDetector(
                     AsyncDetectorSource.MINIMAL to async {
                         minimalDetector.preprocess(rawMat, scaledWidth, scaledHeight, params)
                     },
-                    AsyncDetectorSource.OPENCV5 to async {
+                    AsyncDetectorSource.DIRECTIONAL_SUPPRESSION to async {
                         opencv5Detector.preprocess(rawMat, scaledWidth, scaledHeight, params)
                     }
                 )
@@ -92,7 +92,7 @@ class CombinedDocumentDetector(
             Log.d(TAG, "  preprocess $source done")
         }
 
-        return cachedMorphImages[AsyncDetectorSource.OPENCV5] ?: Mat()
+        return cachedMorphImages[AsyncDetectorSource.DIRECTIONAL_SUPPRESSION] ?: Mat()
     }
 
     override fun detectQuad(
@@ -109,9 +109,9 @@ class CombinedDocumentDetector(
         angleDeviations.clear()
 
         val minimalMorph = cachedMorphImages[AsyncDetectorSource.MINIMAL]
-        val opencv5Morph = cachedMorphImages[AsyncDetectorSource.OPENCV5]
+        val DIRECTIONALSUPPRESSIONMorph = cachedMorphImages[AsyncDetectorSource.DIRECTIONAL_SUPPRESSION]
 
-        if (minimalMorph == null || opencv5Morph == null) {
+        if (minimalMorph == null || DIRECTIONALSUPPRESSIONMorph == null) {
             Log.w(TAG, "detectQuad: missing cached classical morph images, skipping")
             return null
         }
@@ -125,9 +125,9 @@ class CombinedDocumentDetector(
                             originalWidth, originalHeight, rotation, params
                         )
                     },
-                    AsyncDetectorSource.OPENCV5 to async {
+                    AsyncDetectorSource.DIRECTIONAL_SUPPRESSION to async {
                         opencv5Detector.detectQuad(
-                            opencv5Morph, scaledWidth, scaledHeight,
+                            DIRECTIONALSUPPRESSIONMorph, scaledWidth, scaledHeight,
                             originalWidth, originalHeight, rotation, params
                         )
                     }
@@ -152,7 +152,7 @@ class CombinedDocumentDetector(
 
                 val classicalValid = classicalBest?.value?.quad != null && when (classicalBest.key) {
                     AsyncDetectorSource.MINIMAL -> minimalDetector.validateQuadSize(classicalBest.value.quad!!, originalWidth, originalHeight)
-                    AsyncDetectorSource.OPENCV5 -> opencv5Detector.validateQuadSize(classicalBest.value.quad!!, originalWidth, originalHeight)
+                    AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector.validateQuadSize(classicalBest.value.quad!!, originalWidth, originalHeight)
                     else -> false
                 }
 
@@ -160,7 +160,7 @@ class CombinedDocumentDetector(
                     lastUsedDetector = classicalBest.key
                     when (classicalBest.key) {
                         AsyncDetectorSource.MINIMAL -> minimalDetector.detectionParams?.value?.let { _detectionParams.value = it }
-                        AsyncDetectorSource.OPENCV5 -> _detectionParams.value = opencv5Detector.detectionParams.value
+                        AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> _detectionParams.value = opencv5Detector.detectionParams.value
                         else -> {}
                     }
                     Log.d(TAG, "  RESULT: $classicalBest.key won with deviation ${"%.2f".format(classicalBest.value.deviation)}°")
@@ -203,7 +203,7 @@ class CombinedDocumentDetector(
     ): Boolean {
         return when (lastUsedDetector) {
             AsyncDetectorSource.MINIMAL -> minimalDetector.validateQuadSize(quad, originalWidth, originalHeight)
-            AsyncDetectorSource.OPENCV5 -> opencv5Detector.validateQuadSize(quad, originalWidth, originalHeight)
+            AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector.validateQuadSize(quad, originalWidth, originalHeight)
             AsyncDetectorSource.ONNX -> onnxDetector.validateQuadSize(quad, originalWidth, originalHeight)
             else -> minimalDetector.validateQuadSize(quad, originalWidth, originalHeight)
         }
@@ -214,7 +214,7 @@ class CombinedDocumentDetector(
     ): IntermediateSnapshots {
         return when (lastUsedDetector) {
             AsyncDetectorSource.ONNX -> onnxDetector.captureIntermediateSnapshots(rotation)
-            AsyncDetectorSource.OPENCV5 -> opencv5Detector.captureIntermediateSnapshots(rotation)
+            AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector.captureIntermediateSnapshots(rotation)
             else -> minimalDetector.captureIntermediateSnapshots(rotation)
         }
     }
