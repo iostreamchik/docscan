@@ -261,7 +261,9 @@ class CameraViewModel(
 
         try {
             // Preprocess: resize → grayscale → blur → CLAHE → morph → Canny → strong close → directional suppression
-            detector.preprocess(mat, scaledWidth, scaledHeight, params)
+            // Use the returned morph mat — the detector owns its own IMatBundle instance
+            // separate from the ViewModel's matBundle, so we must use the return value.
+            val morphResult = detector.preprocess(mat, scaledWidth, scaledHeight, params)
 
             // Capture intermediate stage previews from the detector's own mat bundle
             // before releaseAll() clears the pooled Mats.
@@ -274,11 +276,10 @@ class CameraViewModel(
             _filteredBitmap.value = snapshots.edges ?: originalFrame
             _onnxMaskBitmap.value = snapshots.mask
 
-            // Detect document
-            val morphBeforeDetect = matBundle.getMorph()
-            Log.d("CameraViewModel", "  Calling detectQuad: morph=${morphBeforeDetect.rows()}x${morphBeforeDetect.cols()}, type=${morphBeforeDetect.type()}, nonzero=${org.opencv.core.Core.countNonZero(morphBeforeDetect)}")
+            // Detect document using the morph mat returned by preprocess
+            Log.d("CameraViewModel", "  Calling detectQuad: morph=${morphResult.rows()}x${morphResult.cols()}, type=${morphResult.type()}, nonzero=${org.opencv.core.Core.countNonZero(morphResult)}")
             val bestQuad = detector.detectQuad(
-                morphImage = morphBeforeDetect,
+                morphImage = morphResult,
                 scaledWidth = scaledWidth,
                 scaledHeight = scaledHeight,
                 originalWidth = originalWidth,

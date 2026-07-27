@@ -7,6 +7,9 @@ import io.github.iostreamchik.scanner.opencv.OpenCVAdapter
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 import io.github.iostreamchik.scanner.scoreContourWithParams
 import io.github.iostreamchik.scanner.toBitmap
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
@@ -19,6 +22,9 @@ import kotlin.math.abs
 class DocumentDetectorMinimal(
     internal val matBundle: IMatBundle
 ) : IDocumentDetector {
+
+    private val _detectionParams = MutableStateFlow(DetectionParameters())
+    override val detectionParams: StateFlow<DetectionParameters> = _detectionParams.asStateFlow()
 
     override fun preprocess(
         rawMat: Mat,
@@ -72,6 +78,13 @@ class DocumentDetectorMinimal(
 
         val high = otsu
         val low = (high * 0.2)
+
+        _detectionParams.value = _detectionParams.value.copy(
+            claheClipLimit = String.format("%.1f", claheClipLimit),
+            cannyHigh = String.format("%.0f", high),
+            cannyLow = String.format("%.0f", low),
+            brightness = String.format("%.0f", brightness)
+        )
 
         Imgproc.Canny(matBundle.getTemp(), matBundle.getEdges(), low, high)
 

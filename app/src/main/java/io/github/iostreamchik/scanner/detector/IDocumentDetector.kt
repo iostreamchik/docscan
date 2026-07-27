@@ -67,6 +67,12 @@ interface IDocumentDetector {
         get() = null
 
     /**
+     * Human-readable name of the detector (or the active inner detector for combined detectors).
+     */
+    val detectorName: String
+        get() = javaClass.simpleName
+
+    /**
      * Captures intermediate bitmap snapshots from the detector's internal mat bundle
      * after [preprocess] has completed. Each detector populates only the stages it produces.
      * Called before the pooled Mats are released so the intermediate results are still valid.

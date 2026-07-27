@@ -46,6 +46,14 @@ class CombinedDocumentDetector(
     private val _detectionParams = MutableStateFlow(DetectionParameters())
     override val detectionParams = _detectionParams.asStateFlow()
 
+    override val detectorName: String
+        get() = when (lastUsedDetector) {
+            AsyncDetectorSource.MINIMAL -> "Minimal"
+            AsyncDetectorSource.OPENCV5 -> "OpenCV5"
+            AsyncDetectorSource.ONNX -> "ONNX"
+            else -> "Combined"
+        }
+
     override fun preprocess(
         rawMat: Mat,
         scaledWidth: Int,
