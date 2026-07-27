@@ -21,6 +21,7 @@ enum class AsyncDetectorSource {
     NONE,
     MINIMAL,
     DIRECTIONAL_SUPPRESSION,
+    CORNER_KEYPOINT,
     ONNX
 }
 
@@ -34,6 +35,7 @@ class CombinedDocumentDetector(
 
     private val minimalDetector = DocumentDetectorMinimal(MatBundle())
     private val opencv5Detector = DocumentDetectorDirectionalSuppression(MatBundle())
+    private val cornerKeypointDetector = CornerKeypointDetector(context, MatBundle())
     private val onnxDetector = OnnxDocumentDetector(context, MatBundle())
 
     private val cachedMorphImages = mutableMapOf<AsyncDetectorSource, Mat?>()
@@ -50,6 +52,7 @@ class CombinedDocumentDetector(
         get() = when (lastUsedDetector) {
             AsyncDetectorSource.MINIMAL -> "Minimal"
             AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> "DirectionalSuppression"
+            AsyncDetectorSource.CORNER_KEYPOINT -> "CornerKeypoint"
             AsyncDetectorSource.ONNX -> "ONNX"
             else -> "Combined"
         }
@@ -78,6 +81,9 @@ class CombinedDocumentDetector(
                     },
                     AsyncDetectorSource.DIRECTIONAL_SUPPRESSION to async {
                         opencv5Detector.preprocess(rawMat, scaledWidth, scaledHeight, params)
+                    },
+                    AsyncDetectorSource.CORNER_KEYPOINT to async {
+                        cornerKeypointDetector.preprocess(rawMat, scaledWidth, scaledHeight, params)
                     }
                 )
 
@@ -130,6 +136,13 @@ class CombinedDocumentDetector(
                             DIRECTIONALSUPPRESSIONMorph, scaledWidth, scaledHeight,
                             originalWidth, originalHeight, rotation, params
                         )
+                    },
+                    AsyncDetectorSource.CORNER_KEYPOINT to async {
+                        cornerKeypointDetector.detectQuad(
+                            cachedMorphImages[AsyncDetectorSource.CORNER_KEYPOINT] ?: Mat(),
+                            scaledWidth, scaledHeight,
+                            originalWidth, originalHeight, rotation, params
+                        )
                     }
                 )
 
@@ -153,6 +166,7 @@ class CombinedDocumentDetector(
                 val classicalValid = classicalBest?.value?.quad != null && when (classicalBest.key) {
                     AsyncDetectorSource.MINIMAL -> minimalDetector.validateQuadSize(classicalBest.value.quad!!, originalWidth, originalHeight)
                     AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector.validateQuadSize(classicalBest.value.quad!!, originalWidth, originalHeight)
+                    AsyncDetectorSource.CORNER_KEYPOINT -> cornerKeypointDetector.validateQuadSize(classicalBest.value.quad!!, originalWidth, originalHeight)
                     else -> false
                 }
 
@@ -161,6 +175,7 @@ class CombinedDocumentDetector(
                     when (classicalBest.key) {
                         AsyncDetectorSource.MINIMAL -> minimalDetector.detectionParams?.value?.let { _detectionParams.value = it }
                         AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> _detectionParams.value = opencv5Detector.detectionParams.value
+                        AsyncDetectorSource.CORNER_KEYPOINT -> _detectionParams.value = cornerKeypointDetector.detectionParams.value
                         else -> {}
                     }
                     Log.d(TAG, "  RESULT: $classicalBest.key won with deviation ${"%.2f".format(classicalBest.value.deviation)}°")
@@ -204,6 +219,7 @@ class CombinedDocumentDetector(
         return when (lastUsedDetector) {
             AsyncDetectorSource.MINIMAL -> minimalDetector.validateQuadSize(quad, originalWidth, originalHeight)
             AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector.validateQuadSize(quad, originalWidth, originalHeight)
+            AsyncDetectorSource.CORNER_KEYPOINT -> cornerKeypointDetector.validateQuadSize(quad, originalWidth, originalHeight)
             AsyncDetectorSource.ONNX -> onnxDetector.validateQuadSize(quad, originalWidth, originalHeight)
             else -> minimalDetector.validateQuadSize(quad, originalWidth, originalHeight)
         }
@@ -214,6 +230,7 @@ class CombinedDocumentDetector(
     ): IntermediateSnapshots {
         return when (lastUsedDetector) {
             AsyncDetectorSource.ONNX -> onnxDetector.captureIntermediateSnapshots(rotation)
+            AsyncDetectorSource.CORNER_KEYPOINT -> cornerKeypointDetector.captureIntermediateSnapshots(rotation)
             AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector.captureIntermediateSnapshots(rotation)
             else -> minimalDetector.captureIntermediateSnapshots(rotation)
         }
@@ -248,6 +265,7 @@ class CombinedDocumentDetector(
         cachedRawMat = null
         cachedScaledWidth = 0
         cachedScaledHeight = 0
+        cornerKeypointDetector.release()
         onnxDetector.release()
     }
 

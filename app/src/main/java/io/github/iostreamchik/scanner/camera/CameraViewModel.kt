@@ -77,6 +77,9 @@ class CameraViewModel(
     private val _onnxMaskBitmap = MutableStateFlow<Bitmap?>(null)
     val onnxMaskBitmap = _onnxMaskBitmap.asStateFlow()
 
+    private val _cornersBitmap = MutableStateFlow<Bitmap?>(null)
+    val cornersBitmap = _cornersBitmap.asStateFlow()
+
     private val _originalBitmap = MutableStateFlow<Bitmap?>(null)
     val originalBitmap = _originalBitmap.asStateFlow()
 
@@ -267,14 +270,15 @@ class CameraViewModel(
 
             // Capture intermediate stage previews from the detector's own mat bundle
             // before releaseAll() clears the pooled Mats.
-            // Always set both preview slots so stale values from a previous frame
-            // (e.g., mask from ONNX when classical just ran) are cleared.
+            // Always set all preview slots so stale values from a previous frame
+            // are cleared.
             val snapshots = detector.captureIntermediateSnapshots(rotation)
             _blurBitmap.value = snapshots.blur
             _claheBitmap.value = snapshots.clahe
             _morphBitmap.value = snapshots.morph
             _filteredBitmap.value = snapshots.edges ?: originalFrame
             _onnxMaskBitmap.value = snapshots.mask
+            _cornersBitmap.value = snapshots.corners
 
             // Detect document using the morph mat returned by preprocess
             Log.d("CameraViewModel", "  Calling detectQuad: morph=${morphResult.rows()}x${morphResult.cols()}, type=${morphResult.type()}, nonzero=${org.opencv.core.Core.countNonZero(morphResult)}")
@@ -329,6 +333,7 @@ class CameraViewModel(
                 _claheBitmap.value = null
                 _morphBitmap.value = null
                 _filteredBitmap.value = null
+                _cornersBitmap.value = null
 
                 val sourceBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     ImageDecoder.decodeBitmap(
@@ -448,6 +453,7 @@ class CameraViewModel(
         _claheBitmap.value = null
         _morphBitmap.value = null
         _filteredBitmap.value = null
+        _cornersBitmap.value = null
         _originalBitmap.value = null
         _resultBitmap.value = null
         lastWarpedBitmap = null

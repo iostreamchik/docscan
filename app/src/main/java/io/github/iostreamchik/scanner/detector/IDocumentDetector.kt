@@ -15,7 +15,8 @@ data class IntermediateSnapshots(
     val clahe: Bitmap? = null,
     val morph: Bitmap? = null,
     val edges: Bitmap? = null,
-    val mask: Bitmap? = null
+    val mask: Bitmap? = null,
+    val corners: Bitmap? = null
 )
 
 /**

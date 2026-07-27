@@ -2,6 +2,8 @@ package io.github.iostreamchik.scanner
 
 import io.github.iostreamchik.scanner.camera.CameraViewModel
 import io.github.iostreamchik.scanner.detector.CombinedDocumentDetector
+import io.github.iostreamchik.scanner.detector.CornerKeypointDetector
+import io.github.iostreamchik.scanner.detector.DocumentDetectorDirectionalSuppression
 import io.github.iostreamchik.scanner.detector.DocumentDetectorMinimal
 import io.github.iostreamchik.scanner.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.detector.OnnxDocumentDetector
@@ -28,8 +30,14 @@ val appModule = module {
     single<IDocumentDetector>(named("minimal")) {
         DocumentDetectorMinimal(get())
     }
+    single<IDocumentDetector>(named("cornerKeypoint")) {
+        CornerKeypointDetector(get(), get())
+    }
     single<IDocumentDetector>(named("combined")) {
         CombinedDocumentDetector(get())
+    }
+    single<IDocumentDetector>(named("directionalSuppression")) {
+        DocumentDetectorDirectionalSuppression(get())
     }
     viewModel<CameraViewModel>(named("camera")) {
         CameraViewModel(
