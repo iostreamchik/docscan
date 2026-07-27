@@ -8,7 +8,6 @@ import io.github.iostreamchik.scanner.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.detector.OnnxDocumentDetector
 import io.github.iostreamchik.scanner.opencv.IMatBundle
 import io.github.iostreamchik.scanner.opencv.MatBundle
-import io.github.iostreamchik.scanner.pipeline.PipelineSettingsViewModel
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.startKoin
@@ -47,9 +46,6 @@ val appModule = module {
     }
     viewModel<CameraViewModel>(named("fileScan")) {
         CameraViewModel(matBundle = get(), detector = get(named("combined")))
-    }
-    viewModel<PipelineSettingsViewModel>(named("pipelineSettings")) {
-        PipelineSettingsViewModel(matBundle = get(), detector = get())
     }
 }
 

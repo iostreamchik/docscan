@@ -26,7 +26,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
@@ -34,7 +33,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -65,7 +63,6 @@ fun CameraScreen(
     modifier: Modifier = Modifier,
     viewModel: CameraViewModel,
     toScanFromFile: () -> Unit = {},
-    toOpenSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -142,39 +139,15 @@ fun CameraScreen(
                         .statusBarsPadding()
                         .padding(horizontal = 16.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .clip(CircleShape)
-                            .background(
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(
-                                    alpha = .5f
-                                )
-                            )
-                            .padding(horizontal = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    IconButton(
+                        modifier = Modifier.align(Alignment.CenterEnd),
+                        onClick = { viewModel.toggleTorch() }
                     ) {
-                        IconButton(
-                            onClick = {
-                                viewModel.toggleTorch()
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.FlashlightOn,
-                                contentDescription = "Toggle torch",
-                                tint = if (torchOn) Color.Black else Color.Black.copy(alpha = 0.5f)
-                            )
-                        }
-                        VerticalDivider(modifier = Modifier.height(22.dp))
-                        IconButton(
-                            onClick = toOpenSettings,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Pipeline settings"
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.FlashlightOn,
+                            contentDescription = "Toggle torch",
+                            tint = if (torchOn) Color.Black else Color.Black.copy(alpha = 0.5f)
+                        )
                     }
                 }
 

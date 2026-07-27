@@ -440,8 +440,7 @@ class CameraViewModel(
 
     private fun clearBitmaps() {
         // Don't recycle bitmaps here — let GC handle it to avoid a race condition
-        // with Compose composition (same issue as setPreviewBitmaps in
-        // PipelineSettingsViewModel). If we recycle while Compose is still reading
+        // with Compose composition. If we recycle while Compose is still reading
         // the old refs during composition, we get "Canvas: trying to use a recycled
         // bitmap" crashes.
         _blurBitmap.value = null
