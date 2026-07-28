@@ -96,4 +96,10 @@ interface IDocumentDetector {
     fun capturePostDetectionSnapshots(
         rotation: Int
     ): IntermediateSnapshots = IntermediateSnapshots()
+
+    /**
+     * Releases all native resources held by this detector (pooled Mats, ONNX sessions, etc.).
+     * Call once when the detector is no longer needed.
+     */
+    fun release()
 }

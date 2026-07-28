@@ -501,11 +501,12 @@ class OnnxDocumentDetector(
         }
     }
 
-    fun release() {
+    override fun release() {
         session?.close()
         session = null
         cachedMask?.release()
         cachedMask = null
+        matBundle.releaseAll()
         try {
             env.close()
         } catch (_: Exception) {

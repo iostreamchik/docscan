@@ -210,4 +210,8 @@ class DocumentDetectorDirectionalSuppression(
             edges = toBitmap(matBundle.getEdges())
         )
     }
+
+    override fun release() {
+        matBundle.releaseAll()
+    }
 }

@@ -490,7 +490,7 @@ class CornerKeypointDetector(
         return bitmap
     }
 
-    fun release() {
+    override fun release() {
         session?.close()
         session = null
         cachedCoords = null
@@ -499,6 +499,7 @@ class CornerKeypointDetector(
         cachedCornerBitmap = null
         cachedRawMat?.release()
         cachedRawMat = null
+        matBundle.releaseAll()
         try {
             env.close()
         } catch (_: Exception) {

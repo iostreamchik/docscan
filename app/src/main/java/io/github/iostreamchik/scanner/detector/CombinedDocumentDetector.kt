@@ -268,13 +268,15 @@ class CombinedDocumentDetector(
         return maxDeviation
     }
 
-    fun release() {
+    override fun release() {
         cachedMorphImages.values.forEach { it?.release() }
         cachedMorphImages.clear()
         cachedRawMat?.release()
         cachedRawMat = null
         cachedScaledWidth = 0
         cachedScaledHeight = 0
+        minimalDetector.release()
+        opencv5Detector.release()
         cornerKeypointDetector.release()
         onnxDetector.release()
     }

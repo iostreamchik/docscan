@@ -36,4 +36,7 @@ class MockDocumentDetector : IDocumentDetector {
         originalWidth: Int,
         originalHeight: Int
     ): Boolean = false
+
+    override fun release() {
+    }
 }
