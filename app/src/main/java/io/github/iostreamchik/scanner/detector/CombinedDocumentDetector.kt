@@ -81,9 +81,6 @@ class CombinedDocumentDetector(
                     },
                     AsyncDetectorSource.DIRECTIONAL_SUPPRESSION to async {
                         opencv5Detector.preprocess(rawMat, scaledWidth, scaledHeight, params)
-                    },
-                    AsyncDetectorSource.CORNER_KEYPOINT to async {
-                        cornerKeypointDetector.preprocess(rawMat, scaledWidth, scaledHeight, params)
                     }
                 )
 
@@ -115,16 +112,16 @@ class CombinedDocumentDetector(
         angleDeviations.clear()
 
         val minimalMorph = cachedMorphImages[AsyncDetectorSource.MINIMAL]
-        val DIRECTIONALSUPPRESSIONMorph = cachedMorphImages[AsyncDetectorSource.DIRECTIONAL_SUPPRESSION]
+        val directionalMorph = cachedMorphImages[AsyncDetectorSource.DIRECTIONAL_SUPPRESSION]
 
-        if (minimalMorph == null || DIRECTIONALSUPPRESSIONMorph == null) {
+        if (minimalMorph == null || directionalMorph == null) {
             Log.w(TAG, "detectQuad: missing cached classical morph images, skipping")
             return null
         }
 
         val result = runBlocking(Dispatchers.Default) {
             coroutineScope {
-                val deferredResults = mapOf(
+                val primaryDeferredResults = mapOf(
                     AsyncDetectorSource.MINIMAL to async {
                         minimalDetector.detectQuad(
                             minimalMorph, scaledWidth, scaledHeight,
@@ -133,14 +130,7 @@ class CombinedDocumentDetector(
                     },
                     AsyncDetectorSource.DIRECTIONAL_SUPPRESSION to async {
                         opencv5Detector.detectQuad(
-                            DIRECTIONALSUPPRESSIONMorph, scaledWidth, scaledHeight,
-                            originalWidth, originalHeight, rotation, params
-                        )
-                    },
-                    AsyncDetectorSource.CORNER_KEYPOINT to async {
-                        cornerKeypointDetector.detectQuad(
-                            cachedMorphImages[AsyncDetectorSource.CORNER_KEYPOINT] ?: Mat(),
-                            scaledWidth, scaledHeight,
+                            directionalMorph, scaledWidth, scaledHeight,
                             originalWidth, originalHeight, rotation, params
                         )
                     }
@@ -148,7 +138,7 @@ class CombinedDocumentDetector(
 
                 val scoredResults = mutableMapOf<AsyncDetectorSource, ScoredResult>()
 
-                deferredResults.forEach { (source, deferred) ->
+                primaryDeferredResults.forEach { (source, deferred) ->
                     val quad = deferred.await()
                     val deviation = if (quad != null) {
                         computeMaxAngleDeviation(quad)
@@ -161,26 +151,46 @@ class CombinedDocumentDetector(
                     Log.d(TAG, "  $source: quad=${if (quad != null) "${quad.total()} pts" else "null"}, deviation=${"%.2f".format(deviation)}°")
                 }
 
-                val classicalBest = scoredResults.minByOrNull { it.value.deviation }
+                val primaryBest = scoredResults.minByOrNull { it.value.deviation }
 
-                val classicalValid = classicalBest?.value?.quad != null && when (classicalBest.key) {
-                    AsyncDetectorSource.MINIMAL -> minimalDetector.validateQuadSize(classicalBest.value.quad!!, originalWidth, originalHeight)
-                    AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector.validateQuadSize(classicalBest.value.quad!!, originalWidth, originalHeight)
-                    AsyncDetectorSource.CORNER_KEYPOINT -> cornerKeypointDetector.validateQuadSize(classicalBest.value.quad!!, originalWidth, originalHeight)
+                val primaryValid = primaryBest?.value?.quad != null && when (primaryBest.key) {
+                    AsyncDetectorSource.MINIMAL -> minimalDetector.validateQuadSize(primaryBest.value.quad!!, originalWidth, originalHeight)
+                    AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector.validateQuadSize(primaryBest.value.quad!!, originalWidth, originalHeight)
                     else -> false
                 }
 
-                if (classicalValid) {
-                    lastUsedDetector = classicalBest.key
-                    when (classicalBest.key) {
+                if (primaryValid) {
+                    lastUsedDetector = primaryBest.key
+                    when (primaryBest.key) {
                         AsyncDetectorSource.MINIMAL -> minimalDetector.detectionParams?.value?.let { _detectionParams.value = it }
                         AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> _detectionParams.value = opencv5Detector.detectionParams.value
-                        AsyncDetectorSource.CORNER_KEYPOINT -> _detectionParams.value = cornerKeypointDetector.detectionParams.value
                         else -> {}
                     }
-                    Log.d(TAG, "  RESULT: $classicalBest.key won with deviation ${"%.2f".format(classicalBest.value.deviation)}°")
-                    return@coroutineScope classicalBest.value.quad
+                    Log.d(TAG, "  RESULT: $primaryBest.key won with deviation ${"%.2f".format(primaryBest.value.deviation)}°")
+                    return@coroutineScope primaryBest.value.quad
                 }
+
+                Log.d(TAG, "  Primary detectors failed, running CORNER_KEYPOINT fallback...")
+                val cornerMorph = cornerKeypointDetector.preprocess(cachedRawMat ?: Mat(), cachedScaledWidth, cachedScaledHeight, params)
+                val cornerQuad = cornerKeypointDetector.detectQuad(
+                    cornerMorph, scaledWidth, scaledHeight,
+                    originalWidth, originalHeight, rotation, params
+                )
+                if (cornerQuad != null) {
+                    val deviation = computeMaxAngleDeviation(cornerQuad)
+                    angleDeviations[AsyncDetectorSource.CORNER_KEYPOINT] = deviation
+                    Log.d(TAG, "  CORNER_KEYPOINT: quad=${cornerQuad.total()} pts, deviation=${"%.2f".format(deviation)}°")
+                } else {
+                    angleDeviations[AsyncDetectorSource.CORNER_KEYPOINT] = Double.MAX_VALUE
+                }
+
+                if (cornerQuad != null && cornerKeypointDetector.validateQuadSize(cornerQuad, originalWidth, originalHeight)) {
+                    lastUsedDetector = AsyncDetectorSource.CORNER_KEYPOINT
+                    _detectionParams.value = cornerKeypointDetector.detectionParams.value
+                    Log.d(TAG, "  RESULT: CORNER_KEYPOINT fallback detected")
+                    return@coroutineScope cornerQuad
+                }
+                cornerQuad?.release()
 
                 val rawMat = cachedRawMat
                 if (rawMat == null) {
@@ -188,7 +198,7 @@ class CombinedDocumentDetector(
                     return@coroutineScope null
                 }
 
-                Log.d(TAG, "  Classical failed, running ONNX fallback...")
+                Log.d(TAG, "  CORNER_KEYPOINT failed, running ONNX fallback...")
                 val onnxMorph = onnxDetector.preprocess(rawMat, cachedScaledWidth, cachedScaledHeight, params)
                 val onnxQuad = onnxDetector.detectQuad(
                     onnxMorph, scaledWidth, scaledHeight,
