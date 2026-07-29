@@ -222,21 +222,6 @@ class CornerKeypointDetector(
         return MatOfPoint(*finalCorners.toTypedArray())
     }
 
-    override fun validateQuadSize(
-        quad: MatOfPoint,
-        originalWidth: Int,
-        originalHeight: Int
-    ): Boolean {
-        val pts = quad.toArray()
-        val minX = pts.minOf { it.x }
-        val maxX = pts.maxOf { it.x }
-        val minY = pts.minOf { it.y }
-        val maxY = pts.maxOf { it.y }
-        val quadArea = (maxX - minX) * (maxY - minY)
-        val frameArea = originalWidth * originalHeight
-        return quadArea <= frameArea * 0.95
-    }
-
     override fun captureIntermediateSnapshots(
         rotation: Int
     ): IntermediateSnapshots {

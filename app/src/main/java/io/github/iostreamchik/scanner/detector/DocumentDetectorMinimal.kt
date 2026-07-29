@@ -156,17 +156,6 @@ class DocumentDetectorMinimal(
         return result
     }
 
-    override fun validateQuadSize(
-        quad: MatOfPoint,
-        originalWidth: Int,
-        originalHeight: Int
-    ): Boolean {
-        val rect = Geometry.boundingRect(quad)
-        val quadArea = rect.width * rect.height
-        val frameArea = originalWidth * originalHeight
-        return quadArea <= frameArea * 0.95
-    }
-
     override fun captureIntermediateSnapshots(
         rotation: Int
     ): IntermediateSnapshots {

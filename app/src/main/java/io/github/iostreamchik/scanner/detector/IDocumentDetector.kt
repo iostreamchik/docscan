@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import kotlinx.coroutines.flow.StateFlow
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
+import org.opencv.geometry.Geometry
 import io.github.iostreamchik.scanner.opencv.PipelineParams
 
 /**
@@ -58,7 +59,12 @@ interface IDocumentDetector {
         quad: MatOfPoint,
         originalWidth: Int,
         originalHeight: Int
-    ): Boolean
+    ): Boolean {
+        val rect = Geometry.boundingRect(quad)
+        val quadArea = rect.width * rect.height
+        val frameArea = originalWidth * originalHeight
+        return quadArea <= frameArea * 0.95
+    }
 
     /**
      * Current detection parameters (CLAHE clip limit, Canny thresholds, brightness).

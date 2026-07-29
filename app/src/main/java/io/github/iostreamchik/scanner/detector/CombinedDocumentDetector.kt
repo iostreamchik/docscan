@@ -221,20 +221,6 @@ class CombinedDocumentDetector(
         return result
     }
 
-    override fun validateQuadSize(
-        quad: MatOfPoint,
-        originalWidth: Int,
-        originalHeight: Int
-    ): Boolean {
-        return when (lastUsedDetector) {
-            AsyncDetectorSource.MINIMAL -> minimalDetector.validateQuadSize(quad, originalWidth, originalHeight)
-            AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector.validateQuadSize(quad, originalWidth, originalHeight)
-            AsyncDetectorSource.CORNER_KEYPOINT -> cornerKeypointDetector.validateQuadSize(quad, originalWidth, originalHeight)
-            AsyncDetectorSource.ONNX -> onnxDetector.validateQuadSize(quad, originalWidth, originalHeight)
-            else -> minimalDetector.validateQuadSize(quad, originalWidth, originalHeight)
-        }
-    }
-
     override fun captureIntermediateSnapshots(
         rotation: Int
     ): IntermediateSnapshots {
