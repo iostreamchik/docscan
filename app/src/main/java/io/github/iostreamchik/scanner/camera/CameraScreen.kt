@@ -1,7 +1,14 @@
 package io.github.iostreamchik.scanner.camera
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.provider.Settings
 import android.util.Log
 import android.util.Size
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -10,6 +17,7 @@ import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,11 +25,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FlashlightOn
@@ -49,6 +55,7 @@ import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -83,6 +90,42 @@ fun CameraScreen(
     // Store the bound Camera reference for torch state observation
     val boundCamera = remember { mutableStateOf<androidx.camera.core.Camera?>(null) }
 
+    // Camera permission handling — per Android docs: request in-context using RequestPermission contract
+    val (permissionGranted, setPermissionGranted) = remember { mutableStateOf(false) }
+    val (showRationale, setShowRationale) = remember { mutableStateOf(false) }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { granted ->
+            setPermissionGranted(granted)
+            if (!granted) {
+                val activity = context as? ComponentActivity
+                setShowRationale(activity?.shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) ?: false)
+            }
+        }
+    )
+    val settingsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+        onResult = {
+            setPermissionGranted(
+                ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            )
+        }
+    )
+
+    LaunchedEffect(Unit) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            setPermissionGranted(true)
+        } else {
+            val activity = context as? ComponentActivity
+            val shouldShow = activity?.shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) ?: false
+            setShowRationale(shouldShow)
+            if (!shouldShow) {
+                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            }
+        }
+    }
+
     // Throttle for contourState updates (matches ViewModel's UI_UPDATE_THROTTLE_MS)
     val lastContourUpdateTime = remember { mutableLongStateOf(0L) }
     val CONTOUR_UPDATE_THROTTLE_MS = 30L
@@ -98,21 +141,134 @@ fun CameraScreen(
                     .fillMaxHeight(0.7f)
                     .clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
             ) {
-                val isPreview = LocalInspectionMode.current
-                if (isPreview.not()) {
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { previewView },
-                    )
-                } else {
-                    Box(
+                if (!permissionGranted && !LocalInspectionMode.current) {
+                    // Permission denied overlay
+                    Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Gray)
-                    )
-                }
+                            .background(Color.Black.copy(alpha = 0.85f))
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Camera Access Required",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = Color.White
+                        )
+                        Text(
+                            text = if (showRationale) {
+                                "This app needs camera access to detect and scan documents in real time."
+                            } else {
+                                "Camera access was denied. Please enable it in your app settings to use the scanner."
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clickable {
+                                    if (showRationale) {
+                                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                    } else {
+                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            setData(android.net.Uri.parse("package:${context.packageName}"))
+                                        }
+                                        settingsLauncher.launch(intent)
+                                    }
+                                }
+                                .background(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    shape = RoundedCornerShape(24.dp)
+                                )
+                        ) {
+                            Text(
+                                text = if (showRationale) "Grant Camera Access" else "Open Settings",
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                    }
+                } else {
+                    val isPreview = LocalInspectionMode.current
+                    if (isPreview.not()) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { previewView },
+                        )
 
-                errorState?.let { state ->
+                        LaunchedEffect(previewView) {
+                            val cameraProvider = ProcessCameraProvider
+                                .getInstance(context)
+                                .get()
+
+                            val size = 2000
+                            val resolutionSelector = ResolutionSelector.Builder()
+                                .setResolutionStrategy(
+                                    ResolutionStrategy(
+                                        Size(size, size),
+                                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER
+                                    )
+                                )
+                                .build()
+
+                            val preview = Preview.Builder()
+                                .setResolutionSelector(resolutionSelector)
+                                .build()
+                                .also {
+                                    it.surfaceProvider = previewView.surfaceProvider
+                                }
+
+                            val imageAnalyzer = ImageAnalysis.Builder()
+                                .setResolutionSelector(resolutionSelector)
+                                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                .build()
+
+                            imageAnalyzer.setAnalyzer(viewModel.cameraExecutor) { imageProxy ->
+                                val contours = viewModel.processFrame(imageProxy)
+
+                                val now = System.currentTimeMillis()
+                                if (now - lastContourUpdateTime.longValue >= CONTOUR_UPDATE_THROTTLE_MS) {
+                                    contourState.value?.release()
+                                    contourState.value = ContourData(
+                                        contours = contours,
+                                        frameWidth = imageProxy.width,
+                                        frameHeight = imageProxy.height,
+                                        rotation = imageProxy.imageInfo.rotationDegrees
+                                    )
+                                    lastContourUpdateTime.longValue = now
+                                } else {
+                                    contours.forEach { it.release() }
+                                }
+
+                                imageProxy.close()
+                            }
+
+                            try {
+                                cameraProvider.unbindAll()
+                                boundCamera.value = cameraProvider.bindToLifecycle(
+                                    lifecycleOwner,
+                                    CameraSelector.DEFAULT_BACK_CAMERA,
+                                    preview,
+                                    imageAnalyzer
+                                )
+                            } catch (e: Exception) {
+                                Log.e("CameraX", "Use case binding failed", e)
+                                contourState.value?.release()
+                                viewModel.setError("Camera initialization failed")
+                            }
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Gray)
+                        )
+                    }
+
+                    errorState?.let { state ->
                     Surface(
                         color = Color.Red.copy(alpha = 0.8f),
                         modifier = Modifier
@@ -167,6 +323,7 @@ fun CameraScreen(
                         color = Color.White.copy(alpha = 0.8f),
                         fontSize = 10.sp,
                     )
+                }
                 }
             }
 
@@ -253,77 +410,7 @@ fun CameraScreen(
                     contentDescription = "Scan from file"
                 )
             }
-        }
-
-        LaunchedEffect(Unit) {
-            val cameraProvider = ProcessCameraProvider
-                .getInstance(context)
-                .get()
-
-            // 1. Define the Resolution Selector
-            // This tells CameraX to prefer the highest resolution possible
-            val size = 2000
-            val resolutionSelector = ResolutionSelector.Builder()
-                .setResolutionStrategy(
-                    ResolutionStrategy(
-                        // Setting a very high resolution acts as a hint to pick the max available
-                        Size(size, size),
-                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER
-                    )
-                )
-                .build()
-
-            // 2. Apply the selector to the Preview
-            val preview = Preview.Builder()
-                .setResolutionSelector(resolutionSelector)
-                .build()
-                .also {
-                    it.surfaceProvider = previewView.surfaceProvider
                 }
-
-            // 3. Apply the SAME selector to the ImageAnalyzer
-            // IMPORTANT: If you don't do this, the analyzer might use a low-res
-            // stream even if the preview is high-res.
-            val imageAnalyzer = ImageAnalysis.Builder()
-                .setResolutionSelector(resolutionSelector)
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-
-            imageAnalyzer.setAnalyzer(viewModel.cameraExecutor) { imageProxy ->
-                val contours = viewModel.processFrame(imageProxy)
-
-                val now = System.currentTimeMillis()
-                if (now - lastContourUpdateTime.longValue >= CONTOUR_UPDATE_THROTTLE_MS) {
-                    contourState.value?.release()
-                    contourState.value = ContourData(
-                        contours = contours,
-                        frameWidth = imageProxy.width,
-                        frameHeight = imageProxy.height,
-                        rotation = imageProxy.imageInfo.rotationDegrees
-                    )
-                    lastContourUpdateTime.longValue = now
-                } else {
-                    contours.forEach { it.release() }
-                }
-
-                imageProxy.close()
-            }
-
-            try {
-                cameraProvider.unbindAll()
-                boundCamera.value = cameraProvider.bindToLifecycle(
-                    lifecycleOwner,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
-                    preview,
-                    imageAnalyzer
-                )
-            } catch (e: Exception) {
-                Log.e("CameraX", "Use case binding failed", e)
-                // Release any existing contour data to prevent memory leak on error
-                contourState.value?.release()
-                viewModel.setError("Camera initialization failed")
-            }
-        }
 
         // Release contour data when the composable is disposed to prevent memory leaks
         DisposableEffect(Unit) {
