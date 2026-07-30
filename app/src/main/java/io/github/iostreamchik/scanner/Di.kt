@@ -1,14 +1,14 @@
 package io.github.iostreamchik.scanner
 
-import io.github.iostreamchik.scanner.camera.CameraViewModel
-import io.github.iostreamchik.scanner.detector.CombinedDocumentDetector
-import io.github.iostreamchik.scanner.detector.CornerKeypointDetector
-import io.github.iostreamchik.scanner.detector.DocumentDetectorDirectionalSuppression
-import io.github.iostreamchik.scanner.detector.DocumentDetectorMinimal
-import io.github.iostreamchik.scanner.detector.IDocumentDetector
-import io.github.iostreamchik.scanner.detector.OnnxDocumentDetector
-import io.github.iostreamchik.scanner.opencv.IMatBundle
-import io.github.iostreamchik.scanner.opencv.MatBundle
+import io.github.iostreamchik.scanner.presenter.camera.CameraViewModel
+import io.github.iostreamchik.scanner.data.detector.CombinedDocumentDetector
+import io.github.iostreamchik.scanner.data.detector.CornerKeypointDetector
+import io.github.iostreamchik.scanner.data.detector.DocumentDetectorDirectionalSuppression
+import io.github.iostreamchik.scanner.data.detector.DocumentDetectorMinimal
+import io.github.iostreamchik.scanner.data.detector.IDocumentDetector
+import io.github.iostreamchik.scanner.data.detector.OnnxDocumentDetector
+import io.github.iostreamchik.scanner.data.opencv.IMatBundle
+import io.github.iostreamchik.scanner.data.opencv.MatBundle
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.startKoin
