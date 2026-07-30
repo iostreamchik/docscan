@@ -47,7 +47,8 @@ class CameraViewModel(
     val detector: IDocumentDetector
 ) : androidx.lifecycle.ViewModel() {
 
-
+    private val _state = MutableStateFlow(CameraState())
+    val state: StateFlow<CameraState> = _state.asStateFlow()
 
     val detectionParams: StateFlow<DetectionParameters> = detector.detectionParams ?: MutableStateFlow(DetectionParameters()).asStateFlow()
 
@@ -62,67 +63,23 @@ class CameraViewModel(
     private var lastWarpedQuadHash: Long = 0
     private var lastWarpedBitmap: Bitmap? = null
 
-    private val _blurBitmap = MutableStateFlow<Bitmap?>(null)
-    val blurBitmap = _blurBitmap.asStateFlow()
-
-    private val _claheBitmap = MutableStateFlow<Bitmap?>(null)
-    val claheBitmap = _claheBitmap.asStateFlow()
-
-    private val _morphBitmap = MutableStateFlow<Bitmap?>(null)
-    val morphBitmap = _morphBitmap.asStateFlow()
-
-    private val _filteredBitmap = MutableStateFlow<Bitmap?>(null)
-    val filteredBitmap = _filteredBitmap.asStateFlow()
-
-    private val _onnxMaskBitmap = MutableStateFlow<Bitmap?>(null)
-    val onnxMaskBitmap = _onnxMaskBitmap.asStateFlow()
-
-    private val _cornersBitmap = MutableStateFlow<Bitmap?>(null)
-    val cornersBitmap = _cornersBitmap.asStateFlow()
-
-    private val _originalBitmap = MutableStateFlow<Bitmap?>(null)
-    val originalBitmap = _originalBitmap.asStateFlow()
-
-    private val _resultBitmap = MutableStateFlow<Bitmap?>(null)
-    val resultBitmap = _resultBitmap.asStateFlow()
-
-    // Torch state
-    private val _torchOn = MutableStateFlow(false)
-    val torchOn: StateFlow<Boolean> = _torchOn.asStateFlow()
-
-    fun setTorchOpposite(value: Boolean) {
-        _torchOn.value = value
-    }
-
-    fun toggleTorch() {
-        setTorchOpposite(!_torchOn.value)
-    }
-
-    private val _exposureStateFlow = MutableStateFlow("")
-    val exposureStateFlow = _exposureStateFlow.asStateFlow()
-
-    private val _errorState = MutableStateFlow<String?>(null)
-    val errorState = _errorState.asStateFlow()
-
-    private val _isProcessing = MutableStateFlow(false)
-    val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
-
-    // Store last picked URI for reprocessing
     private var lastPickedUri: Uri? = null
+    private var lastContext: Context? = null
+    private var processImageJob: Job? = null
 
-    fun setError(message: String?) {
-        _errorState.value = message
+    private fun setState(transform: CameraState.() -> CameraState) {
+        _state.value = _state.value.transform()
     }
 
-    // Pipeline parameters — reads from pipelineConfigurationManager
-    private val _pipelineParams = MutableStateFlow<PipelineParams>(PipelineParams())
-    val pipelineParams = _pipelineParams.asStateFlow()
-
-    /**
-     * Update pipeline parameters — called from FileScanResultScreen when parameters change.
-     */
-    fun updateParams(newParams: PipelineParams) {
-        _pipelineParams.value = newParams
+    fun process(intent: CameraIntent) {
+        when (intent) {
+            is CameraIntent.ToggleTorch -> setState { copy(torchOn = !torchOn) }
+            is CameraIntent.SetTorch -> setState { copy(torchOn = intent.on) }
+            is CameraIntent.SetError -> setState { copy(error = intent.message) }
+            is CameraIntent.UpdateParams -> setState { copy(pipelineParams = intent.params) }
+            is CameraIntent.ProcessDocument -> processDocument(intent.context, intent.uri, intent.onComplete)
+            is CameraIntent.ReprocessDocument -> reprocessDocument()
+        }
     }
 
     fun processFrame(imageProxy: ImageProxy): List<MatOfPoint> {
@@ -133,25 +90,19 @@ class CameraViewModel(
         val mat = imageProxy.toMatRGBA()
         val rotation = imageProxy.imageInfo.rotationDegrees
 
-        val result = runDetection(mat, rotation, _pipelineParams.value)
+        val result = runDetection(mat, rotation, _state.value.pipelineParams)
 
         if (result.isNotEmpty()) {
             if (isStable()) {
                 val fusedQuad = getFusedQuad()
                 if (fusedQuad != null) {
-                    // Always add detection results to history — never add the fused quad
-                    // itself, which would saturate the history with near-duplicate values
-                    // and prevent getFusedQuad() from responding to new detections.
                     result.forEach { updateHistory(it) }
                     val quadHash = quadHash(fusedQuad)
 
-                    // fusedQuad is already in original resolution (detectQuad scales up),
-                    // so use it directly — no need to re-scale.
                     Log.d(
                         "CameraViewModel",
                         "\nFused Quad: ${fusedQuad.toArray().joinToString(", ")}"
                     )
-                    // Warp only if the quad has changed — skip expensive op when hash matches
                     val warped = if (quadHash != lastWarpedQuadHash) {
                         warpDocumentHighQuality(mat, fusedQuad, rotation).also {
                             lastWarpedBitmap?.recycle()
@@ -161,19 +112,15 @@ class CameraViewModel(
                     } else {
                         lastWarpedBitmap
                     }
-                    // Clone the bitmap before emitting to state flow so Compose gets
-                    // its own independent copy that won't be affected by recycling.
-                    _resultBitmap.value =
-                        warped?.copy(Bitmap.Config.ARGB_8888, false)
-                    // Clone: fusedQuad lives in quadHistory, caller owns the clone
+                    setState {
+                        copy(resultBitmap = warped?.copy(Bitmap.Config.ARGB_8888, false))
+                    }
                     return listOf(MatOfPoint(*fusedQuad.toArray()))
                 }
             } else {
-                // Accumulate during pre-stability bootstrapping
                 result.forEach { updateHistory(it) }
             }
         }
-        // Clone each result: objects also live in quadHistory, caller owns the clones
         return result.map { MatOfPoint(*it.toArray()) }
     }
 
@@ -198,7 +145,6 @@ class CameraViewModel(
             val prevSorted = quads[i - 1].toSortedQuad()
             val currSorted = quads[i].toSortedQuad()
 
-            // Skip if either quad is invalid
             if (prevSorted.isEmpty() || currSorted.isEmpty()) continue
 
             totalMovement += quadDistance(
@@ -210,7 +156,6 @@ class CameraViewModel(
             validPairs++
         }
 
-        // Need at least one valid pair to calculate stability
         return validPairs > 0 && (totalMovement / validPairs) < 0.02
     }
 
@@ -222,7 +167,6 @@ class CameraViewModel(
             if (points.size == 4) sortQuadPoints(points) else null
         }
 
-        // Need at least some valid quads to fuse
         if (validSortedQuads.isEmpty()) return null
 
         val averaged = arrayOf(Point(0.0, 0.0), Point(0.0, 0.0), Point(0.0, 0.0), Point(0.0, 0.0))
@@ -239,10 +183,6 @@ class CameraViewModel(
         return MatOfPoint(*averaged)
     }
 
-    /**
-     * Shared detection pipeline — delegates preprocessing to [DocumentDetector]
-     * and handles quad detection + size validation. Reduced from ~120 lines to ~30.
-     */
     private fun runDetection(
         mat: Mat,
         rotation: Int,
@@ -257,30 +197,27 @@ class CameraViewModel(
 
         Log.d("CameraViewModel", "=== runDetection START: ${originalWidth}x${originalHeight} -> scaled=${scaledWidth}x${scaledHeight} ===")
 
-        // Capture original frame before any processing.
         val originalFrame = mat.fixRotation(rotation).toBitmap()
             .copy(Bitmap.Config.ARGB_8888, false)
-        _originalBitmap.value = originalFrame
+        setState { copy(originalBitmap = originalFrame) }
 
         try {
-            // Preprocess: resize → grayscale → blur → CLAHE → morph → Canny → strong close → directional suppression
-            // Use the returned morph mat — the detector owns its own IMatBundle instance
-            // separate from the ViewModel's matBundle, so we must use the return value.
             val morphResult = detector.preprocess(mat, scaledWidth, scaledHeight, params)
 
-            // Capture intermediate stage previews from the detector's own mat bundle
-            // before releaseAll() clears the pooled Mats.
-            // Always set all preview slots so stale values from a previous frame
-            // are cleared.
             val snapshots = detector.captureIntermediateSnapshots(rotation)
-            _blurBitmap.value = snapshots.blur
-            _claheBitmap.value = snapshots.clahe
-            _morphBitmap.value = snapshots.morph
-            _filteredBitmap.value = snapshots.edges ?: originalFrame
-            _onnxMaskBitmap.value = snapshots.mask
-            _cornersBitmap.value = snapshots.corners
+            setState {
+                copy(
+                    intermediateBitmaps = intermediateBitmaps.copy(
+                        blur = snapshots.blur,
+                        clahe = snapshots.clahe,
+                        morph = snapshots.morph,
+                        edges = snapshots.edges ?: originalFrame,
+                        mask = snapshots.mask,
+                        corners = snapshots.corners
+                    )
+                )
+            }
 
-            // Detect document using the morph mat returned by preprocess
             Log.d("CameraViewModel", "  Calling detectQuad: morph=${morphResult.rows()}x${morphResult.cols()}, type=${morphResult.type()}, nonzero=${org.opencv.core.Core.countNonZero(morphResult)}")
             val bestQuad = detector.detectQuad(
                 morphImage = morphResult,
@@ -292,10 +229,11 @@ class CameraViewModel(
                 params = params
             )
 
-            // Capture post-detection snapshots (e.g., ONNX mask from fallback path)
             val postSnapshots = detector.capturePostDetectionSnapshots(rotation)
             if (postSnapshots.mask != null) {
-                _onnxMaskBitmap.value = postSnapshots.mask
+                setState {
+                    copy(intermediateBitmaps = intermediateBitmaps.copy(mask = postSnapshots.mask))
+                }
             }
 
             if (bestQuad == null) {
@@ -304,7 +242,6 @@ class CameraViewModel(
             }
             Log.d("CameraViewModel", "  runDetection: bestQuad found with ${bestQuad.total()} points")
 
-            // Validate document size
             if (!detector.validateQuadSize(bestQuad, originalWidth, originalHeight)) {
                 bestQuad.release()
                 return emptyList()
@@ -320,20 +257,23 @@ class CameraViewModel(
         }
     }
 
-    fun processPickedDocument(context: Context, uri: Uri, onScanComplete: () -> Unit) {
-        _isProcessing.value = true
+    private fun processDocument(context: Context, uri: Uri, onScanComplete: () -> Unit) {
+        lastContext = context.applicationContext
+        setState { copy(isProcessing = true) }
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 lastPickedUri = uri
-                // Clear stale intermediate stage bitmaps from camera scanner
-                // Don't recycle — the new value is a clone, so the old one can be
-                // safely discarded without recycling to avoid a race condition
-                // with Compose composition.
-                _blurBitmap.value = null
-                _claheBitmap.value = null
-                _morphBitmap.value = null
-                _filteredBitmap.value = null
-                _cornersBitmap.value = null
+                setState {
+                    copy(
+                        intermediateBitmaps = intermediateBitmaps.copy(
+                            blur = null,
+                            clahe = null,
+                            morph = null,
+                            edges = null,
+                            corners = null
+                        )
+                    )
+                }
 
                 val sourceBitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     ImageDecoder.decodeBitmap(
@@ -348,92 +288,57 @@ class CameraViewModel(
                     MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
                 }
 
-                // Capture original before processing
-                // Don't recycle — let GC handle it to avoid race condition with Compose.
-                _originalBitmap.value = sourceBitmap.copy(Bitmap.Config.ARGB_8888, false)
+                setState { copy(originalBitmap = sourceBitmap.copy(Bitmap.Config.ARGB_8888, false)) }
 
                 val mat = Mat()
                 Utils.bitmapToMat(sourceBitmap, mat)
 
-                // Use 0 rotation for picked images (no camera rotation)
                 val rotation = 0
 
-                // Clone mat for runDetection since it modifies the input in-place.
-                // The original mat must stay intact for warpDocumentHighQuality.
                 val matForDetection = mat.clone()
-                val result = runDetection(matForDetection, rotation, _pipelineParams.value)
+                val result = runDetection(matForDetection, rotation, _state.value.pipelineParams)
 
                 if (result.isNotEmpty()) {
-                    // Use the best quad directly (no fusion needed for single image)
-                    // Unlike live camera, we don't have multiple frames to average
                     val bestQuad = result.first()
 
-                    // Warp using the detected quad
                     val warped = warpDocumentHighQuality(mat, bestQuad, rotation)
-                    // Clone before emitting to StateFlow so Compose gets its own
-                    // independent copy that won't be affected by recycling in
-                    // onCleared() or a subsequent processPickedDocument call.
-                    _resultBitmap.value = (warped ?: mat.enhanceDocument().toBitmap())
-                        .copy(Bitmap.Config.ARGB_8888, false)
+                    setState {
+                        copy(resultBitmap = (warped ?: mat.enhanceDocument().toBitmap())
+                            .copy(Bitmap.Config.ARGB_8888, false))
+                    }
 
-                    // Create quad overlay bitmap for FileScanResultScreen
                     val originalMat = Mat()
-                    Utils.bitmapToMat(_originalBitmap.value ?: sourceBitmap, originalMat)
+                    Utils.bitmapToMat(_state.value.originalBitmap ?: sourceBitmap, originalMat)
                     originalMat.release()
                 } else {
-                    // No document detected — show enhanced original
-                    // Clone before emitting to StateFlow.
-                    _resultBitmap.value = mat.enhanceDocument().toBitmap()
-                        .copy(Bitmap.Config.ARGB_8888, false)
+                    setState {
+                        copy(resultBitmap = mat.enhanceDocument().toBitmap()
+                            .copy(Bitmap.Config.ARGB_8888, false))
+                    }
                 }
 
                 matForDetection.release()
                 mat.release()
                 sourceBitmap.recycle()
 
-                // Notify UI that scan is complete — navigation is handled by callback
                 onScanComplete()
 
             } catch (e: Exception) {
                 Log.e("CameraViewModel", "Error processing picked document", e)
             } finally {
-                _isProcessing.value = false
+                setState { copy(isProcessing = false) }
             }
         }
     }
 
-    /**
-     * Reprocess the last picked document with current pipeline parameters.
-     * Called from FileScanResultScreen when parameters change.
-     */
-    var processImageJob: Job? = null
-    fun reprocessPickedDocument(context: Context) {
+    private fun reprocessDocument() {
         val uri = lastPickedUri ?: return
+        val context = lastContext ?: return
         processImageJob?.cancel()
         processImageJob = viewModelScope.launch {
             delay(500.milliseconds)
-            processPickedDocument(context, uri) {}
+            processDocument(context, uri) {}
         }
-    }
-
-    /**
-     * Enable auto Canny detection. The actual reprocessing is handled by
-     * the caller (e.g., FileScanResultScreen's reprocessKey mechanism) to
-     * avoid double-processing when combined with param-change triggers.
-     * Thresholds are computed inside [DocumentDetector.preprocess] from the
-     * pre-Canny blurred enhanced image — no separate calculation needed here.
-     */
-    fun enableCannyAuto() {
-        updateParams(_pipelineParams.value.copy(isCannyAuto = true))
-    }
-
-    /**
-     * Disable auto Canny detection — set the flag to false so camera pipeline
-     * uses the manual thresholds instead. The actual reprocessing is handled
-     * by the caller to avoid double-processing.
-     */
-    fun disableCannyAuto() {
-        updateParams(_pipelineParams.value.copy(isCannyAuto = false))
     }
 
     override fun onCleared() {
@@ -445,18 +350,13 @@ class CameraViewModel(
     }
 
     private fun clearBitmaps() {
-        // Don't recycle bitmaps here — let GC handle it to avoid a race condition
-        // with Compose composition. If we recycle while Compose is still reading
-        // the old refs during composition, we get "Canvas: trying to use a recycled
-        // bitmap" crashes.
-        _blurBitmap.value = null
-        _claheBitmap.value = null
-        _morphBitmap.value = null
-        _filteredBitmap.value = null
-        _cornersBitmap.value = null
-        _originalBitmap.value = null
-        _resultBitmap.value = null
+        setState {
+            copy(
+                intermediateBitmaps = IntermediateBitmaps(),
+                originalBitmap = null,
+                resultBitmap = null
+            )
+        }
         lastWarpedBitmap = null
     }
-
 }

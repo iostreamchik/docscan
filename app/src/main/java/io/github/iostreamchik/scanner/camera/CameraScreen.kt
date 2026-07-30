@@ -30,12 +30,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FlashlightOff
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -64,6 +66,7 @@ import io.github.iostreamchik.scanner.ContourCanvas
 import io.github.iostreamchik.scanner.detector.MockDocumentDetector
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.rememberDeviceCornerRadiusDp
+import androidx.core.net.toUri
 
 @Composable
 fun CameraScreen(
@@ -78,19 +81,12 @@ fun CameraScreen(
     val contourState =
         remember { mutableStateOf<ContourData?>(null) }
 
-    val exposure by viewModel.exposureStateFlow.collectAsStateWithLifecycle()
+    val uiState by viewModel.state.collectAsStateWithLifecycle()
     val detectionParams by viewModel.detectionParams.collectAsStateWithLifecycle()
-    val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
-    val onnxMaskBitmap by viewModel.onnxMaskBitmap.collectAsStateWithLifecycle()
-    val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
-    val errorState by viewModel.errorState.collectAsStateWithLifecycle()
-    val torchOn by viewModel.torchOn.collectAsStateWithLifecycle()
     val cornerRadius = rememberDeviceCornerRadiusDp()
 
-    // Store the bound Camera reference for torch state observation
     val boundCamera = remember { mutableStateOf<androidx.camera.core.Camera?>(null) }
 
-    // Camera permission handling — per Android docs: request in-context using RequestPermission contract
     val (permissionGranted, setPermissionGranted) = remember { mutableStateOf(false) }
     val (showRationale, setShowRationale) = remember { mutableStateOf(false) }
 
@@ -126,7 +122,6 @@ fun CameraScreen(
         }
     }
 
-    // Throttle for contourState updates (matches ViewModel's UI_UPDATE_THROTTLE_MS)
     val lastContourUpdateTime = remember { mutableLongStateOf(0L) }
     val CONTOUR_UPDATE_THROTTLE_MS = 30L
 
@@ -134,7 +129,6 @@ fun CameraScreen(
 
         Column {
 
-            // Camera preview container - 70% height with rounded bottom corners
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -142,7 +136,6 @@ fun CameraScreen(
                     .clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
             ) {
                 if (!permissionGranted && !LocalInspectionMode.current) {
-                    // Permission denied overlay
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -173,7 +166,7 @@ fun CameraScreen(
                                         cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                                     } else {
                                         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                            setData(android.net.Uri.parse("package:${context.packageName}"))
+                                            setData("package:${context.packageName}".toUri())
                                         }
                                         settingsLauncher.launch(intent)
                                     }
@@ -257,7 +250,7 @@ fun CameraScreen(
                             } catch (e: Exception) {
                                 Log.e("CameraX", "Use case binding failed", e)
                                 contourState.value?.release()
-                                viewModel.setError("Camera initialization failed")
+                                viewModel.process(CameraIntent.SetError("Camera initialization failed"))
                             }
                         }
                     } else {
@@ -268,7 +261,7 @@ fun CameraScreen(
                         )
                     }
 
-                    errorState?.let { state ->
+                    uiState.error?.let { state ->
                     Surface(
                         color = Color.Red.copy(alpha = 0.8f),
                         modifier = Modifier
@@ -288,7 +281,6 @@ fun CameraScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Torch toggle button - top right corner
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -297,17 +289,17 @@ fun CameraScreen(
                 ) {
                     IconButton(
                         modifier = Modifier.align(Alignment.CenterEnd),
-                        onClick = { viewModel.toggleTorch() }
+                        onClick = { viewModel.process(CameraIntent.ToggleTorch) },
+                        colors = IconButtonDefaults.iconButtonColors()
                     ) {
                         Icon(
-                            imageVector = Icons.Default.FlashlightOn,
+                            imageVector = if (uiState.torchOn) Icons.Default.FlashlightOff else Icons.Default.FlashlightOn,
                             contentDescription = "Toggle torch",
-                            tint = if (torchOn) Color.Black else Color.Black.copy(alpha = 0.5f)
+                            tint = Color.Black
                         )
                     }
                 }
 
-                // Detection params info box - bottom of preview
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -327,7 +319,6 @@ fun CameraScreen(
                 }
             }
 
-            // Bottom section - preview bitmaps
             Row(
                 modifier = Modifier
                     .fillMaxHeight()
@@ -357,7 +348,7 @@ fun CameraScreen(
                         )
                     } else {
                         BitmapCard(
-                            bitmap = onnxMaskBitmap ?: filteredBitmap,
+                            bitmap = uiState.intermediateBitmaps.mask ?: uiState.intermediateBitmaps.edges,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -383,7 +374,7 @@ fun CameraScreen(
                         )
                     } else {
                         BitmapCard(
-                            bitmap = resultBitmap,
+                            bitmap = uiState.resultBitmap,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -412,24 +403,21 @@ fun CameraScreen(
             }
                 }
 
-        // Release contour data when the composable is disposed to prevent memory leaks
         DisposableEffect(Unit) {
             onDispose {
                 contourState.value?.release()
             }
         }
 
-        // Observe torch state from CameraX and sync to ViewModel
         LaunchedEffect(boundCamera.value) {
             boundCamera.value?.cameraInfo?.torchState?.observe(lifecycleOwner) { torchState ->
-                viewModel.setTorchOpposite(torchState == androidx.camera.core.TorchState.ON)
+                viewModel.process(CameraIntent.SetTorch(torchState == androidx.camera.core.TorchState.ON))
             }
         }
 
-        // Apply torch state changes from ViewModel to CameraX
-        LaunchedEffect(torchOn, boundCamera.value) {
+        LaunchedEffect(uiState.torchOn, boundCamera.value) {
             boundCamera.value?.cameraControl?.apply {
-                enableTorch(torchOn)
+                enableTorch(uiState.torchOn)
             }
         }
     }

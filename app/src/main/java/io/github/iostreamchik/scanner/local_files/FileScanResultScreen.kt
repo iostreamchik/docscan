@@ -49,14 +49,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.BitmapCard
+import io.github.iostreamchik.scanner.camera.CameraIntent
 import io.github.iostreamchik.scanner.camera.CameraViewModel
 import io.github.iostreamchik.scanner.detector.MockDocumentDetector
 import io.github.iostreamchik.scanner.opencv.MockMatBundle
 
-/**
- * Displays the original image with intermediate stage previews and warped result
- * after a file-based scan completes.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FileScanResultScreen(
@@ -65,15 +62,13 @@ fun FileScanResultScreen(
     viewModel: CameraViewModel,
 ) {
     val context = LocalContext.current
-
-    val error by viewModel.errorState.collectAsStateWithLifecycle()
-    val isProcessing by viewModel.isProcessing.collectAsStateWithLifecycle()
+    val uiState by viewModel.state.collectAsStateWithLifecycle()
 
     val pickMediaLauncher = rememberLauncherForActivityResult(
         contract = PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            viewModel.processPickedDocument(context, uri) {}
+            viewModel.process(CameraIntent.ProcessDocument(context, uri) {})
         }
     }
 
@@ -119,8 +114,7 @@ fun FileScanResultScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Error banner
-            error?.let { msg ->
+            uiState.error?.let { msg ->
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -136,14 +130,8 @@ fun FileScanResultScreen(
                 }
             }
 
-            val blurBitmap by viewModel.blurBitmap.collectAsStateWithLifecycle()
-            val claheBitmap by viewModel.claheBitmap.collectAsStateWithLifecycle()
-            val morphBitmap by viewModel.morphBitmap.collectAsStateWithLifecycle()
-            val filteredBitmap by viewModel.filteredBitmap.collectAsStateWithLifecycle()
-            val originalBitmap by viewModel.originalBitmap.collectAsStateWithLifecycle()
-            val resultBitmap by viewModel.resultBitmap.collectAsStateWithLifecycle()
-            val hasImage = originalBitmap != null
-            val imageAspectRatio = originalBitmap?.let { it.width.toFloat() / it.height.toFloat() }
+            val hasImage = uiState.originalBitmap != null
+            val imageAspectRatio = uiState.originalBitmap?.let { it.width.toFloat() / it.height.toFloat() }
             key(hasImage) {
                 if (!hasImage) {
                     Column(
@@ -161,7 +149,7 @@ fun FileScanResultScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = if (isProcessing) "Processing..." else "Select a file",
+                            text = if (uiState.isProcessing) "Processing..." else "Select a file",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Medium,
                             color = Color(0xFF757575)
@@ -187,7 +175,6 @@ fun FileScanResultScreen(
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Row 1: Blur | CLAHE
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -207,7 +194,7 @@ fun FileScanResultScreen(
                                         .fillMaxWidth()
                                         .aspectRatio(imageAspectRatio ?: 1f)
                                         .clip(RoundedCornerShape(8.dp)),
-                                    bitmap = blurBitmap,
+                                    bitmap = uiState.intermediateBitmaps.blur,
                                     animated = true
                                 )
                             }
@@ -226,13 +213,12 @@ fun FileScanResultScreen(
                                         .fillMaxWidth()
                                         .aspectRatio(imageAspectRatio ?: 1f)
                                         .clip(RoundedCornerShape(8.dp)),
-                                    bitmap = claheBitmap,
+                                    bitmap = uiState.intermediateBitmaps.clahe,
                                     animated = true
                                 )
                             }
                         }
 
-                        // Row 2: Morph | Filtered
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -252,7 +238,7 @@ fun FileScanResultScreen(
                                         .fillMaxWidth()
                                         .aspectRatio(imageAspectRatio ?: 1f)
                                         .clip(RoundedCornerShape(8.dp)),
-                                    bitmap = morphBitmap,
+                                    bitmap = uiState.intermediateBitmaps.morph,
                                     animated = true
                                 )
                             }
@@ -271,13 +257,12 @@ fun FileScanResultScreen(
                                         .fillMaxWidth()
                                         .aspectRatio(imageAspectRatio ?: 1f)
                                         .clip(RoundedCornerShape(8.dp)),
-                                    bitmap = filteredBitmap,
+                                    bitmap = uiState.intermediateBitmaps.edges,
                                     animated = true
                                 )
                             }
                         }
 
-                        // Row 3: Original | Detected
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -297,7 +282,7 @@ fun FileScanResultScreen(
                                         .fillMaxWidth()
                                         .aspectRatio(imageAspectRatio ?: 1f)
                                         .clip(RoundedCornerShape(8.dp)),
-                                    bitmap = originalBitmap,
+                                    bitmap = uiState.originalBitmap,
                                     animated = true
                                 )
                             }
@@ -316,12 +301,11 @@ fun FileScanResultScreen(
                                         .fillMaxWidth()
                                         .aspectRatio(imageAspectRatio ?: 1f)
                                         .clip(RoundedCornerShape(8.dp)),
-                                    bitmap = resultBitmap,
+                                    bitmap = uiState.resultBitmap,
                                     animated = true
                                 )
                             }
                         }
-                        // Detector info chip
                         AssistChip(
                             onClick = { },
                             label = { Text("Detector: ${viewModel.detector.detectorName}") },

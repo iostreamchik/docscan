@@ -1,7 +1,6 @@
 package io.github.iostreamchik.scanner.opencv
 
 data class PipelineParams(
-    val isCannyAuto: Boolean = false,
     // Blur
     val medianBlurKsize: Int = 5,
 
