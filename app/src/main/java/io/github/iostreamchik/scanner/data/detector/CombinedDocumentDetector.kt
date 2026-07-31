@@ -3,9 +3,10 @@ package io.github.iostreamchik.scanner.data.detector
 import android.content.Context
 import android.util.Log
 import io.github.iostreamchik.scanner.data.utils.computeAngle
+import io.github.iostreamchik.scanner.domain.model.IntermediateSnapshots
 import io.github.iostreamchik.scanner.entity.DetectionParameters
+import io.github.iostreamchik.scanner.entity.PipelineParams
 import io.github.iostreamchik.scanner.data.opencv.MatBundle
-import io.github.iostreamchik.scanner.data.opencv.PipelineParams
 import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async

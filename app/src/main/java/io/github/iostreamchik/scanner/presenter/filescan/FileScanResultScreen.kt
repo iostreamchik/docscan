@@ -53,6 +53,7 @@ import io.github.iostreamchik.scanner.presenter.camera.CameraIntent
 import io.github.iostreamchik.scanner.presenter.camera.CameraViewModel
 import io.github.iostreamchik.scanner.data.detector.MockDocumentDetector
 import io.github.iostreamchik.scanner.data.opencv.MockMatBundle
+import io.github.iostreamchik.scanner.data.repository.DocumentDetectorRepositoryImpl
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -308,7 +309,7 @@ fun FileScanResultScreen(
                         }
                         AssistChip(
                             onClick = { },
-                            label = { Text("Detector: ${viewModel.detector.detectorName}") },
+                            label = { Text("Detector: ${viewModel.repository.detectorName}") },
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.ImageSearch,
@@ -333,8 +334,7 @@ private fun FileScanResultPreview() {
         FileScanResultScreen(
             viewModel = viewModel {
                 CameraViewModel(
-                    matBundle = MockMatBundle(),
-                    detector = MockDocumentDetector()
+                    repository = DocumentDetectorRepositoryImpl(MockDocumentDetector())
                 )
             },
             onBack = {}

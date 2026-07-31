@@ -1,25 +1,12 @@
 package io.github.iostreamchik.scanner.data.detector
 
-import android.graphics.Bitmap
+import io.github.iostreamchik.scanner.domain.model.IntermediateSnapshots
 import io.github.iostreamchik.scanner.entity.DetectionParameters
+import io.github.iostreamchik.scanner.entity.PipelineParams
 import kotlinx.coroutines.flow.StateFlow
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.geometry.Geometry
-import io.github.iostreamchik.scanner.data.opencv.PipelineParams
-
-/**
- * Intermediate bitmap snapshots produced during preprocessing.
- * Each detector populates only the stages it actually produces.
- */
-data class IntermediateSnapshots(
-    val blur: Bitmap? = null,
-    val clahe: Bitmap? = null,
-    val morph: Bitmap? = null,
-    val edges: Bitmap? = null,
-    val mask: Bitmap? = null,
-    val corners: Bitmap? = null
-)
 
 /**
  * Document detection interface — abstracts the detection pipeline so

@@ -65,9 +65,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.presenter.composables.BitmapCard
 import io.github.iostreamchik.scanner.presenter.composables.ContourCanvas
+import io.github.iostreamchik.scanner.presenter.composables.rememberDeviceCornerRadiusDp
 import io.github.iostreamchik.scanner.data.detector.MockDocumentDetector
 import io.github.iostreamchik.scanner.data.opencv.MockMatBundle
-import io.github.iostreamchik.scanner.presenter.composables.rememberDeviceCornerRadiusDp
+import io.github.iostreamchik.scanner.data.repository.DocumentDetectorRepositoryImpl
 import androidx.core.net.toUri
 
 @Composable
@@ -434,8 +435,7 @@ private fun CameraScreenPreview() {
             modifier = Modifier.background(MaterialTheme.colorScheme.background),
             viewModel = viewModel {
                 CameraViewModel(
-                    matBundle = MockMatBundle(),
-                    detector = MockDocumentDetector()
+                    repository = DocumentDetectorRepositoryImpl(MockDocumentDetector())
                 )
             }
         )

@@ -1,10 +1,10 @@
 package io.github.iostreamchik.scanner.data.detector
 
 import io.github.iostreamchik.scanner.entity.DetectionParameters
+import io.github.iostreamchik.scanner.entity.PipelineParams
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
-import io.github.iostreamchik.scanner.data.opencv.PipelineParams
 
 /**
  * No-op detector for Compose preview. All methods return empty values and

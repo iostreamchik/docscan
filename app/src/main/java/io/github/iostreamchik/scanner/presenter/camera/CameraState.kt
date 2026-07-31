@@ -1,7 +1,7 @@
 package io.github.iostreamchik.scanner.presenter.camera
 
 import android.graphics.Bitmap
-import io.github.iostreamchik.scanner.data.opencv.PipelineParams
+import io.github.iostreamchik.scanner.entity.PipelineParams
 
 data class CameraState(
     val intermediateBitmaps: IntermediateBitmaps = IntermediateBitmaps(),

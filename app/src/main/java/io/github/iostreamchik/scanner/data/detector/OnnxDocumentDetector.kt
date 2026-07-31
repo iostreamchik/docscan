@@ -6,10 +6,13 @@ import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
+import io.github.iostreamchik.scanner.domain.model.IntermediateSnapshots
 import io.github.iostreamchik.scanner.entity.DetectionParameters
+import io.github.iostreamchik.scanner.entity.PipelineParams
+import io.github.iostreamchik.scanner.data.utils.computeAngle
 import io.github.iostreamchik.scanner.data.utils.fixRotation
+import io.github.iostreamchik.scanner.data.utils.isRectangle
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
-import io.github.iostreamchik.scanner.data.opencv.PipelineParams
 import io.github.iostreamchik.scanner.data.utils.scoreContourWithParams
 import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
 import io.github.iostreamchik.scanner.data.utils.toBitmap
@@ -27,7 +30,6 @@ import org.opencv.geometry.Geometry
 import org.opencv.imgproc.Imgproc
 import java.nio.FloatBuffer
 import kotlin.math.abs
-import kotlin.math.acos
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -512,30 +514,5 @@ class OnnxDocumentDetector(
         private val IMAGE_STD = floatArrayOf(0.2193f, 0.2150f, 0.2109f)
 
         private const val TAG = "OnnxDetector"
-
-        fun isRectangle(approx: MatOfPoint2f): Boolean {
-            val pts = approx.toArray()
-            var maxDeviation = 0.0
-            for (i in 0..3) {
-                val angle = computeAngle(
-                    pts[(i + 1) % 4],
-                    pts[(i + 3) % 4],
-                    pts[i]
-                )
-                maxDeviation = max(maxDeviation, abs(90.0 - angle))
-            }
-            return maxDeviation < 15
-        }
-
-        fun computeAngle(p1: Point, p2: Point, center: Point): Double {
-            val dx1 = p1.x - center.x
-            val dy1 = p1.y - center.y
-            val dx2 = p2.x - center.x
-            val dy2 = p2.y - center.y
-            val dot = dx1 * dx2 + dy1 * dy2
-            val norm1 = sqrt(dx1 * dx1 + dy1 * dy1)
-            val norm2 = sqrt(dx2 * dx2 + dy2 * dy2)
-            return acos(dot / (norm1 * norm2)) * 180.0 / Math.PI
-        }
     }
 }

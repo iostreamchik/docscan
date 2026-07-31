@@ -9,6 +9,8 @@ import io.github.iostreamchik.scanner.data.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.data.detector.OnnxDocumentDetector
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
 import io.github.iostreamchik.scanner.data.opencv.MatBundle
+import io.github.iostreamchik.scanner.data.repository.DocumentDetectorRepositoryImpl
+import io.github.iostreamchik.scanner.domain.repository.IDocumentDetectorRepository
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.startKoin
@@ -39,14 +41,18 @@ val appModule = module {
     single<IDocumentDetector>(named("directionalSuppression")) {
         DocumentDetectorDirectionalSuppression(get())
     }
+    single<IDocumentDetectorRepository> {
+        DocumentDetectorRepositoryImpl(get<IDocumentDetector>(named("combined")))
+    }
     viewModel<CameraViewModel>(named("camera")) {
         CameraViewModel(
-            matBundle = get(),
-            detector = get(named("combined"))
+            repository = get<IDocumentDetectorRepository>()
         )
     }
     viewModel<CameraViewModel>(named("fileScan")) {
-        CameraViewModel(matBundle = get(), detector = get(named("combined")))
+        CameraViewModel(
+            repository = get<IDocumentDetectorRepository>()
+        )
     }
 }
 

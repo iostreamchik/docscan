@@ -10,13 +10,8 @@ import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.github.iostreamchik.scanner.entity.DetectionParameters
-import io.github.iostreamchik.scanner.data.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.data.utils.enhanceDocument
 import io.github.iostreamchik.scanner.data.utils.fixRotation
-import io.github.iostreamchik.scanner.data.opencv.IMatBundle
-import io.github.iostreamchik.scanner.data.opencv.MatBundle
-import io.github.iostreamchik.scanner.data.opencv.PipelineParams
 import io.github.iostreamchik.scanner.data.utils.quadDistance
 import io.github.iostreamchik.scanner.data.utils.quadHash
 import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
@@ -24,9 +19,10 @@ import io.github.iostreamchik.scanner.data.utils.toBitmap
 import io.github.iostreamchik.scanner.data.utils.toMatRGBA
 import io.github.iostreamchik.scanner.data.utils.toSortedQuad
 import io.github.iostreamchik.scanner.data.utils.warpDocumentHighQuality
+import io.github.iostreamchik.scanner.domain.repository.IDocumentDetectorRepository
+import io.github.iostreamchik.scanner.entity.DetectionParameters
+import io.github.iostreamchik.scanner.entity.PipelineParams
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,19 +36,17 @@ import org.opencv.core.Size
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
-import kotlin.time.Duration.Companion.milliseconds
 
 const val PROCESS_WIDTH = 448.0
 
 class CameraViewModel(
-    val matBundle: IMatBundle = MatBundle(),
-    val detector: IDocumentDetector
+    val repository: IDocumentDetectorRepository
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(CameraState())
     val state: StateFlow<CameraState> = _state.asStateFlow()
 
-    val detectionParams: StateFlow<DetectionParameters> = detector.detectionParams ?: MutableStateFlow(DetectionParameters()).asStateFlow()
+    val detectionParams: StateFlow<DetectionParameters> = repository.detectionParams ?: MutableStateFlow(DetectionParameters()).asStateFlow()
 
     val cameraExecutor = Executors.newSingleThreadExecutor()
 
@@ -66,8 +60,6 @@ class CameraViewModel(
     private var lastWarpedBitmap: Bitmap? = null
 
     private var lastPickedUri: Uri? = null
-    private var lastContext: Context? = null
-    private var processImageJob: Job? = null
 
     private fun setState(transform: CameraState.() -> CameraState) {
         _state.value = _state.value.transform()
@@ -80,7 +72,6 @@ class CameraViewModel(
             is CameraIntent.SetError -> setState { copy(error = intent.message) }
             is CameraIntent.UpdateParams -> setState { copy(pipelineParams = intent.params) }
             is CameraIntent.ProcessDocument -> processDocument(intent.context, intent.uri, intent.onComplete)
-            is CameraIntent.ReprocessDocument -> reprocessDocument()
         }
     }
 
@@ -204,9 +195,9 @@ class CameraViewModel(
         setState { copy(originalBitmap = originalFrame) }
 
         try {
-            val morphResult = detector.preprocess(mat, scaledWidth, scaledHeight, params)
+            val morphResult = repository.preprocess(mat, scaledWidth, scaledHeight, params)
 
-            val snapshots = detector.captureIntermediateSnapshots(rotation)
+            val snapshots = repository.captureIntermediateSnapshots(rotation)
             setState {
                 copy(
                     intermediateBitmaps = intermediateBitmaps.copy(
@@ -221,7 +212,7 @@ class CameraViewModel(
             }
 
             Log.d("CameraViewModel", "  Calling detectQuad: morph=${morphResult.rows()}x${morphResult.cols()}, type=${morphResult.type()}, nonzero=${Core.countNonZero(morphResult)}")
-            val bestQuad = detector.detectQuad(
+            val bestQuad = repository.detectQuad(
                 morphImage = morphResult,
                 scaledWidth = scaledWidth,
                 scaledHeight = scaledHeight,
@@ -231,7 +222,7 @@ class CameraViewModel(
                 params = params
             )
 
-            val postSnapshots = detector.capturePostDetectionSnapshots(rotation)
+            val postSnapshots = repository.capturePostDetectionSnapshots(rotation)
             if (postSnapshots.mask != null) {
                 setState {
                     copy(intermediateBitmaps = intermediateBitmaps.copy(mask = postSnapshots.mask))
@@ -244,7 +235,7 @@ class CameraViewModel(
             }
             Log.d("CameraViewModel", "  runDetection: bestQuad found with ${bestQuad.total()} points")
 
-            if (!detector.validateQuadSize(bestQuad, originalWidth, originalHeight)) {
+            if (!repository.validateQuadSize(bestQuad, originalWidth, originalHeight)) {
                 bestQuad.release()
                 return emptyList()
             }
@@ -254,13 +245,10 @@ class CameraViewModel(
         } catch (e: Exception) {
             e.printStackTrace()
             return emptyList()
-        } finally {
-            matBundle.releaseAll()
         }
     }
 
     private fun processDocument(context: Context, uri: Uri, onScanComplete: () -> Unit) {
-        lastContext = context.applicationContext
         setState { copy(isProcessing = true) }
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -333,18 +321,7 @@ class CameraViewModel(
         }
     }
 
-    private fun reprocessDocument() {
-        val uri = lastPickedUri ?: return
-        val context = lastContext ?: return
-        processImageJob?.cancel()
-        processImageJob = viewModelScope.launch {
-            delay(500.milliseconds)
-            processDocument(context, uri) {}
-        }
-    }
-
     override fun onCleared() {
-        super.onCleared()
         cameraExecutor.shutdown()
         cameraExecutor.awaitTermination(5, TimeUnit.SECONDS)
         clearBitmaps()

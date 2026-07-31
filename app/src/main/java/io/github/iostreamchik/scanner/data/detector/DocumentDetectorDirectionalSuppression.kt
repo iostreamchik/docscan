@@ -1,11 +1,12 @@
 package io.github.iostreamchik.scanner.data.detector
 
 import android.graphics.Bitmap
+import io.github.iostreamchik.scanner.domain.model.IntermediateSnapshots
 import io.github.iostreamchik.scanner.entity.DetectionParameters
+import io.github.iostreamchik.scanner.entity.PipelineParams
 import io.github.iostreamchik.scanner.data.utils.fixRotation
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
 import io.github.iostreamchik.scanner.data.opencv.OpenCVAdapter
-import io.github.iostreamchik.scanner.data.opencv.PipelineParams
 import io.github.iostreamchik.scanner.data.utils.toBitmap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow

@@ -1,4 +1,4 @@
-package io.github.iostreamchik.scanner.ui.theme
+package io.github.iostreamchik.scanner.presenter.theme
 
 import androidx.compose.ui.graphics.Color
 

@@ -264,60 +264,6 @@ fun Mat.sharpen(): Mat {
 }
 
 /**
- * Draws a green quad outline on the Mat and returns a Bitmap.
- * @param quadPoints List of 4 points (corners) in image coordinates
- * @param color Scalar for the quad outline (default: green)
- * @param thickness Line thickness in pixels
- */
-fun Mat.drawQuadOverlay(
-    quadPoints: List<Point>,
-    color: Scalar = Scalar(0.0, 255.0, 0.0, 255.0),
-    thickness: Int = 3
-): Bitmap {
-    // Convert to RGBA for drawing
-    val rgba = if (this.channels() == 1) {
-        val rgb = Mat()
-        Imgproc.cvtColor(this, rgb, Imgproc.COLOR_GRAY2RGBA)
-        rgb
-    } else if (this.channels() == 3) {
-        val rgbaMat = Mat()
-        Imgproc.cvtColor(this, rgbaMat, Imgproc.COLOR_RGB2RGBA)
-        rgbaMat
-    } else {
-        this.clone()
-    }
-
-    // Draw quad outline
-    if (quadPoints.size == 4) {
-        for (i in 0..3) {
-            val p1 = quadPoints[i]
-            val p2 = quadPoints[(i + 1) % 4]
-            Imgproc.line(rgba, p1, p2, color, thickness)
-        }
-    }
-
-    // Convert to Bitmap
-    val source = when (rgba.channels()) {
-        1 -> {
-            val rgb = Mat()
-            Imgproc.cvtColor(rgba, rgb, Imgproc.COLOR_GRAY2RGB)
-            rgb
-        }
-        4 -> {
-            val rgb = Mat()
-            Imgproc.cvtColor(rgba, rgb, Imgproc.COLOR_RGBA2RGB)
-            rgb
-        }
-        else -> rgba
-    }
-    val bmp = createBitmap(source.cols(), source.rows())
-    Utils.matToBitmap(source, bmp)
-    if (source !== rgba) source.release()
-    if (rgba !== this) rgba.release()
-    return bmp
-}
-
-/**
  * Converts a [MatOfPoint] (4 points) into a sorted list of [Point]
  * in order: [top-left, top-right, bottom-right, bottom-left].
  *
@@ -333,50 +279,6 @@ fun MatOfPoint.toSortedQuad(): List<Point> {
         return emptyList()
     }
     return sortQuadPoints(points)
-}
-
-/**
- * Computes the Euclidean distance between two points.
- */
-fun Point.distanceTo(other: Point): Double {
-    val dx = this.x - other.x
-    val dy = this.y - other.y
-    return sqrt(dx * dx + dy * dy)
-}
-
-/**
- * Scales a list of 4 points from one coordinate space to another.
- *
- * @param fromW Original image width
- * @param fromH Original image height
- * @param toW Target image width
- * @param toH Target image height
- */
-fun List<Point>.scaleQuad(fromW: Double, fromH: Double, toW: Double, toH: Double): List<Point> {
-    val scaleX = toW / fromW
-    val scaleY = toH / fromH
-
-    return this.map {
-        Point(it.x * scaleX, it.y * scaleY)
-    }
-}
-
-/**
- * Maps a quad from scaled coordinates back to original image resolution.
- */
-fun MatOfPoint.scaleToResolution(
-    originalWidth: Int,
-    originalHeight: Int,
-    scaledWidth: Double,
-    scaledHeight: Double
-): MatOfPoint {
-    val scaleX = originalWidth / scaledWidth
-    val scaleY = originalHeight / scaledHeight
-
-    val originalPoints = this.toArray().map { point ->
-        Point(point.x * scaleX, point.y * scaleY)
-    }
-    return MatOfPoint(*originalPoints.toTypedArray())
 }
 
 /**

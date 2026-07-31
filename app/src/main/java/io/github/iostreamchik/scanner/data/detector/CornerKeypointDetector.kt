@@ -10,9 +10,10 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
 import io.github.iostreamchik.scanner.data.utils.computeAngle
+import io.github.iostreamchik.scanner.domain.model.IntermediateSnapshots
 import io.github.iostreamchik.scanner.entity.DetectionParameters
+import io.github.iostreamchik.scanner.entity.PipelineParams
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
-import io.github.iostreamchik.scanner.data.opencv.PipelineParams
 import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow

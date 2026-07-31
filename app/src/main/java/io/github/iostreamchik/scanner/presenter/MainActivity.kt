@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
 import io.github.iostreamchik.scanner.presenter.navigation.AppNavGraph
-import io.github.iostreamchik.scanner.ui.theme.DocumentScannerTheme
+import io.github.iostreamchik.scanner.presenter.theme.DocumentScannerTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

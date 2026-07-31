@@ -2,7 +2,7 @@ package io.github.iostreamchik.scanner.presenter.camera
 
 import android.content.Context
 import android.net.Uri
-import io.github.iostreamchik.scanner.data.opencv.PipelineParams
+import io.github.iostreamchik.scanner.entity.PipelineParams
 
 sealed class CameraIntent {
     object ToggleTorch : CameraIntent()
@@ -10,5 +10,4 @@ sealed class CameraIntent {
     data class SetError(val message: String?) : CameraIntent()
     data class UpdateParams(val params: PipelineParams) : CameraIntent()
     data class ProcessDocument(val context: Context, val uri: Uri, val onComplete: () -> Unit) : CameraIntent()
-    object ReprocessDocument : CameraIntent()
 }
