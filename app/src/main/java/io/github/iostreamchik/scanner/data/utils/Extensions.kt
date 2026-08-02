@@ -212,33 +212,33 @@ fun Mat.enhanceDocument(): Mat {
     val blurred = Mat()
 
     try {
-        // 1️⃣ RGBA → RGB (remove alpha)
+        // RGBA → RGB (remove alpha)
         Imgproc.cvtColor(this, rgb, Imgproc.COLOR_RGBA2RGB)
 
-        // 2️⃣ RGB → LAB
+        // RGB → LAB
         Imgproc.cvtColor(rgb, lab, Imgproc.COLOR_RGB2Lab)
 
-        // 3️⃣ Split channels
+        // Split channels
         Core.split(lab, channels)
 
         val l = channels[0]
 
-        // 4️⃣ Shadow removal (optional but powerful)
+        // Shadow removal (optional but powerful)
         Imgproc.GaussianBlur(l, illumination, Size(55.0, 55.0), 0.0)
         Core.divide(l, illumination, l, 255.0)
 
-        // 5️⃣ CLAHE (contrast)
+        // CLAHE (contrast)
         val clahe = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
         clahe.apply(l, l)
 
-        // 6️⃣ Merge back
+        // Merge back
         channels[0] = l
         Core.merge(channels, lab)
 
-        // 7️⃣ LAB → RGB
+        // LAB → RGB
         Imgproc.cvtColor(lab, result, Imgproc.COLOR_Lab2RGB)
 
-        // 8️⃣ Optional sharpening
+        // Optional sharpening
         Imgproc.GaussianBlur(result, blurred, Size(0.0, 0.0), 2.0)
         Core.addWeighted(result, 1.3, blurred, -0.3, 0.0, result)
     } finally {

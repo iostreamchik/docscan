@@ -16,14 +16,14 @@ import io.github.iostreamchik.scanner.presenter.filescan.FileScanResultScreen
 
 
 object NavigationDestination {
-    const val Camera = "camera"
-    const val FileScanResult = "file_scan_result"
+    const val camera = "camera"
+    const val fileScanResult = "file_scan_result"
 }
 
 @Composable
 fun AppNavGraph(
     modifier: Modifier = Modifier,
-    startDestination: String = NavigationDestination.Camera,
+    startDestination: String = NavigationDestination.camera,
 ) {
     val navController = rememberNavController()
 
@@ -32,7 +32,7 @@ fun AppNavGraph(
         startDestination = startDestination,
         modifier = modifier.fillMaxSize()
     ) {
-        composable(NavigationDestination.Camera) {
+        composable(NavigationDestination.camera) {
             val viewModel = koinViewModel<CameraViewModel>(named("camera"))
             CameraScreen(
                 modifier = Modifier
@@ -41,11 +41,11 @@ fun AppNavGraph(
                 viewModel = viewModel,
 
                 toScanFromFile = {
-                    navController.navigate(NavigationDestination.FileScanResult)
+                    navController.navigate(NavigationDestination.fileScanResult)
                 }
             )
         }
-        composable(NavigationDestination.FileScanResult) {
+        composable(NavigationDestination.fileScanResult) {
             val viewModel = koinViewModel<CameraViewModel>(named("fileScan"))
             FileScanResultScreen(
                 modifier = Modifier.fillMaxSize(),

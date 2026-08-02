@@ -28,16 +28,16 @@ fun sortQuadPoints(points: List<Point>): List<Point> {
         return emptyList()
     }
 
-    // 1️⃣ Compute centroid
+    // Compute centroid
     val centerX = points.sumOf { it.x } / 4.0
     val centerY = points.sumOf { it.y } / 4.0
 
-    // 2️⃣ Sort by angle around centroid — gives a consistent circular order
+    // Sort by angle around centroid — gives a consistent circular order
     val sortedByAngle = points.sortedBy {
         atan2(it.y - centerY, it.x - centerX)
     }
 
-    // 3️⃣ Rotate list so top-left (smallest x+y) is first
+    // Rotate list so top-left (smallest x+y) is first
     val topLeftIndex = sortedByAngle
         .mapIndexed { index, p -> index to (p.x + p.y) }
         .minBy { it.second }
@@ -47,7 +47,7 @@ fun sortQuadPoints(points: List<Point>): List<Point> {
         sortedByAngle[(topLeftIndex + i) % 4]
     }
 
-    // 4️⃣ Ensure clockwise winding in image coordinates (positive signed area).
+    // Ensure clockwise winding in image coordinates (positive signed area).
     // In image coords (y-down), positive signed area = clockwise winding.
     // If negative, the order is counter-clockwise → reverse the last 3 points.
     val signedArea = rotated[0].x * rotated[1].y - rotated[1].x * rotated[0].y +

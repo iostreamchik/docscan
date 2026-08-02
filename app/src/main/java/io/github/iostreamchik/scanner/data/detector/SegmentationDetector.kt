@@ -22,7 +22,6 @@ import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
-import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.core.Size
@@ -34,7 +33,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
 
-class OnnxDocumentDetector(
+class SegmentationDetector(
     private val context: Context,
     private val matBundle: IMatBundle,
     private val modelPath: String = "onnx/deeplabv3_mbv3_docseg.onnx",
@@ -299,7 +298,7 @@ class OnnxDocumentDetector(
         cachedMask = morph.clone()
 
         _detectionParams.value = _detectionParams.value.copy(
-            brightness = "ONNX",
+            brightness = "N/A",
             cannyHigh = "N/A",
             cannyLow = "N/A"
         )

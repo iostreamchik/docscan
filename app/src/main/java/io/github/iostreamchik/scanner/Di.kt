@@ -6,7 +6,7 @@ import io.github.iostreamchik.scanner.data.detector.CornerKeypointDetector
 import io.github.iostreamchik.scanner.data.detector.DocumentDetectorDirectionalSuppression
 import io.github.iostreamchik.scanner.data.detector.DocumentDetectorMinimal
 import io.github.iostreamchik.scanner.data.detector.IDocumentDetector
-import io.github.iostreamchik.scanner.data.detector.OnnxDocumentDetector
+import io.github.iostreamchik.scanner.data.detector.SegmentationDetector
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
 import io.github.iostreamchik.scanner.data.opencv.MatBundle
 import io.github.iostreamchik.scanner.data.repository.DocumentDetectorRepositoryImpl
@@ -22,7 +22,7 @@ import org.koin.dsl.module
 val appModule = module {
     factory<IMatBundle> { MatBundle() }
     single<IDocumentDetector>(named("onnx")) {
-        OnnxDocumentDetector(
+        SegmentationDetector(
             get(),
             get(),
             "onnx/deeplabv3_mbv3_docseg.onnx",

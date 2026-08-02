@@ -38,7 +38,7 @@ class CombinedDocumentDetector(
     private val minimalDetector = DocumentDetectorMinimal(MatBundle())
     private val opencv5Detector = DocumentDetectorDirectionalSuppression(MatBundle())
     private val cornerKeypointDetector = CornerKeypointDetector(context, MatBundle())
-    private val onnxDetector = OnnxDocumentDetector(context, MatBundle())
+    private val onnxDetector = SegmentationDetector(context, MatBundle())
 
     private val cachedMorphImages = mutableMapOf<AsyncDetectorSource, Mat?>()
     private var cachedRawMat: Mat? = null
@@ -53,9 +53,9 @@ class CombinedDocumentDetector(
     override val detectorName: String
         get() = when (lastUsedDetector) {
             AsyncDetectorSource.MINIMAL -> "Minimal"
-            AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> "DirectionalSuppression"
-            AsyncDetectorSource.CORNER_KEYPOINT -> "CornerKeypoint"
-            AsyncDetectorSource.ONNX -> "ONNX"
+            AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> "Directional Suppression"
+            AsyncDetectorSource.CORNER_KEYPOINT -> "Corner Keypoint"
+            AsyncDetectorSource.ONNX -> "Segmentation"
             else -> "Combined"
         }
 
@@ -164,8 +164,8 @@ class CombinedDocumentDetector(
                 if (primaryValid) {
                     lastUsedDetector = primaryBest.key
                     when (primaryBest.key) {
-                        AsyncDetectorSource.MINIMAL -> minimalDetector.detectionParams?.value?.let { _detectionParams.value = it }
-                        AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> _detectionParams.value = opencv5Detector.detectionParams.value
+                        AsyncDetectorSource.MINIMAL -> minimalDetector.detectionParams?.value?.let { _detectionParams.value = it.copy(detectorName = "Minimal") }
+                        AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> _detectionParams.value = opencv5Detector.detectionParams.value.copy(detectorName = "DirectionalSuppression")
                         else -> {}
                     }
                     Log.d(TAG, "  RESULT: $primaryBest.key won with deviation ${"%.2f".format(primaryBest.value.deviation)}°")
@@ -188,7 +188,7 @@ class CombinedDocumentDetector(
 
                 if (cornerQuad != null && cornerKeypointDetector.validateQuadSize(cornerQuad, originalWidth, originalHeight)) {
                     lastUsedDetector = AsyncDetectorSource.CORNER_KEYPOINT
-                    _detectionParams.value = cornerKeypointDetector.detectionParams.value
+                    _detectionParams.value = cornerKeypointDetector.detectionParams.value.copy(detectorName = "CornerKeypoint")
                     Log.d(TAG, "  RESULT: CORNER_KEYPOINT fallback detected")
                     return@coroutineScope cornerQuad
                 }
@@ -209,7 +209,7 @@ class CombinedDocumentDetector(
 
                 if (onnxQuad != null && onnxDetector.validateQuadSize(onnxQuad, originalWidth, originalHeight)) {
                     lastUsedDetector = AsyncDetectorSource.ONNX
-                    _detectionParams.value = onnxDetector.detectionParams.value
+                    _detectionParams.value = onnxDetector.detectionParams.value.copy(detectorName = "Segmentation")
                     Log.d(TAG, "  RESULT: ONNX fallback detected")
                     return@coroutineScope onnxQuad
                 }

@@ -18,18 +18,23 @@ import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FlashlightOff
@@ -56,6 +61,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.text.ParagraphStyle
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -99,7 +111,10 @@ fun CameraScreen(
             setPermissionGranted(granted)
             if (!granted) {
                 val activity = context as? ComponentActivity
-                setShowRationale(activity?.shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) ?: false)
+                setShowRationale(
+                    activity?.shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)
+                        ?: false
+                )
             }
         }
     )
@@ -107,17 +122,25 @@ fun CameraScreen(
         contract = ActivityResultContracts.StartActivityForResult(),
         onResult = {
             setPermissionGranted(
-                ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.CAMERA
+                ) == PackageManager.PERMISSION_GRANTED
             )
         }
     )
 
     LaunchedEffect(Unit) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+        if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
             setPermissionGranted(true)
         } else {
             val activity = context as? ComponentActivity
-            val shouldShow = activity?.shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) ?: false
+            val shouldShow =
+                activity?.shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) ?: false
             setShowRationale(shouldShow)
             if (!shouldShow) {
                 cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
@@ -168,9 +191,10 @@ fun CameraScreen(
                                     if (showRationale) {
                                         cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                                     } else {
-                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                            setData("package:${context.packageName}".toUri())
-                                        }
+                                        val intent =
+                                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                setData("package:${context.packageName}".toUri())
+                                            }
                                         settingsLauncher.launch(intent)
                                     }
                                 }
@@ -265,60 +289,92 @@ fun CameraScreen(
                     }
 
                     uiState.error?.let { state ->
-                    Surface(
-                        color = Color.Red.copy(alpha = 0.8f),
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(16.dp)
-                    ) {
-                        Text(
-                            text = state,
-                            color = Color.White,
-                            modifier = Modifier.padding(8.dp)
-                        )
+                        Surface(
+                            color = Color.Red.copy(alpha = 0.8f),
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = state,
+                                color = Color.White,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
                     }
-                }
 
-                ContourCanvas(
-                    contourState = contourState,
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 16.dp)
-                ) {
-                    IconButton(
-                        modifier = Modifier.align(Alignment.CenterEnd),
-                        onClick = { viewModel.process(CameraIntent.ToggleTorch) },
-                        colors = IconButtonDefaults.iconButtonColors()
-                    ) {
-                        Icon(
-                            imageVector = if (uiState.torchOn) Icons.Default.FlashlightOff else Icons.Default.FlashlightOn,
-                            contentDescription = "Toggle torch",
-                            tint = Color.Black
-                        )
-                    }
-                }
-
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 8.dp, bottom = 8.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color.Black.copy(alpha = 0.5f)
-                ) {
-                    Text(
-                        modifier = Modifier.padding(8.dp),
-                        text = "CLAHE: ${detectionParams.claheClipLimit}" +
-                                "\nCanny: ${detectionParams.cannyLow}/${detectionParams.cannyHigh}" +
-                                "\nBright: ${detectionParams.brightness}",
-                        color = Color.White.copy(alpha = 0.8f),
-                        fontSize = 10.sp,
+                    ContourCanvas(
+                        contourState = contourState,
+                        modifier = Modifier.fillMaxSize()
                     )
-                }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        IconButton(
+                            modifier = Modifier.align(Alignment.CenterEnd),
+                            onClick = { viewModel.process(CameraIntent.ToggleTorch) },
+                            colors = IconButtonDefaults.iconButtonColors()
+                        ) {
+                            Icon(
+                                imageVector = if (uiState.torchOn) Icons.Default.FlashlightOff else Icons.Default.FlashlightOn,
+                                contentDescription = "Toggle torch",
+                                tint = Color.Black
+                            )
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .padding(8.dp)
+                            .align(Alignment.BottomStart)
+                            .animateContentSize()
+                            .widthIn(min = 170.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.Black.copy(alpha = 0.5f)),
+                    ) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            modifier = Modifier.padding(start = 8.dp),
+                            text = detectionParams.detectorName,
+                            style = TextStyle(
+                                platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 12.sp
+                            ),
+                        )
+                        Text(
+                            modifier = Modifier.padding(start = 8.dp),
+                            text = "CLAHE: ${detectionParams.claheClipLimit}",
+                            style = TextStyle(
+                                platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 12.sp
+                            ),
+                        )
+                        Text(
+                            modifier = Modifier.padding(start = 8.dp),
+                            text = "Canny: ${detectionParams.cannyLow}/${detectionParams.cannyHigh}",
+                            style = TextStyle(
+                                platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 12.sp
+                            ),
+                        )
+                        Text(
+                            modifier = Modifier.padding(start = 8.dp),
+                            text = "Bright: ${detectionParams.brightness}",
+                            style = TextStyle(
+                                platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 12.sp
+                            ),
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                 }
             }
 
@@ -351,7 +407,8 @@ fun CameraScreen(
                         )
                     } else {
                         BitmapCard(
-                            bitmap = uiState.intermediateBitmaps.mask ?: uiState.intermediateBitmaps.edges,
+                            bitmap = uiState.intermediateBitmaps.mask
+                                ?: uiState.intermediateBitmaps.edges,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -393,9 +450,11 @@ fun CameraScreen(
             FloatingActionButton(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                    .offset(y = 8.dp)
+                    .clip(RoundedCornerShape(24.dp))
                     .background(MaterialTheme.colorScheme.background)
-                    .padding(top = 8.dp, start = 8.dp, end = 8.dp),
+                    .padding(8.dp)
+                ,
                 onClick = toScanFromFile,
                 elevation = FloatingActionButtonDefaults.elevation(0.dp)
             ) {
@@ -404,7 +463,7 @@ fun CameraScreen(
                     contentDescription = "Scan from file"
                 )
             }
-                }
+        }
 
         DisposableEffect(Unit) {
             onDispose {

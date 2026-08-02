@@ -30,7 +30,6 @@ fun scoreContourWithParams(
 
     val frameArea = width * height.toDouble()
     val areaRatio = area / frameArea
-    // Smooth interpolation: 1.0 at areaRatio <= 0.02, linearly down to 0.2 at areaRatio >= 0.5
     val areaRatioScore = when {
         areaRatio <= 0.02 -> 1.0
         areaRatio >= 0.5 -> 0.2
