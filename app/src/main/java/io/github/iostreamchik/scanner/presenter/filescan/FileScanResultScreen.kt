@@ -64,6 +64,7 @@ fun FileScanResultScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.state.collectAsStateWithLifecycle()
+    val detectionParams by viewModel.detectionParams.collectAsStateWithLifecycle()
 
     val pickMediaLauncher = rememberLauncherForActivityResult(
         contract = PickVisualMedia()
@@ -309,7 +310,7 @@ fun FileScanResultScreen(
                         }
                         AssistChip(
                             onClick = { },
-                            label = { Text("Detector: ${viewModel.repository.detectorName}") },
+                            label = { Text("Detector: ${detectionParams.detectorName}") },
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.ImageSearch,

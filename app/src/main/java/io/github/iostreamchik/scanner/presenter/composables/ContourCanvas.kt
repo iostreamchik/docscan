@@ -3,7 +3,6 @@ package io.github.iostreamchik.scanner.presenter.composables
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -17,8 +16,7 @@ fun ContourCanvas(
     contourState: State<ContourData?>,
     modifier: Modifier = Modifier
 ) {
-    val rotatedContours = remember(contourState.value) {
-        val data = contourState.value ?: return@remember null
+    val rotatedContours = contourState.value?.let { data ->
         val originalW = data.frameWidth.toFloat()
         val originalH = data.frameHeight.toFloat()
 

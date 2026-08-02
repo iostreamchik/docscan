@@ -55,7 +55,7 @@ fun BitmapCard(
         } else {
             Image(
                 modifier = Modifier.fillMaxSize(),
-                bitmap = bitmap?.asImageBitmap() ?: createBitmap(1, 1).asImageBitmap(),
+                bitmap = bitmap?.asImageBitmap() ?: remember { createBitmap(1, 1).asImageBitmap() },
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
             )

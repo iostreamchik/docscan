@@ -51,6 +51,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -78,6 +79,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.iostreamchik.scanner.presenter.composables.BitmapCard
 import io.github.iostreamchik.scanner.presenter.composables.ContourCanvas
 import io.github.iostreamchik.scanner.presenter.composables.rememberDeviceCornerRadiusDp
+import io.github.iostreamchik.scanner.data.detector.AsyncDetectorSource
 import io.github.iostreamchik.scanner.data.detector.MockDocumentDetector
 import io.github.iostreamchik.scanner.data.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.data.repository.DocumentDetectorRepositoryImpl
@@ -327,6 +329,15 @@ fun CameraScreen(
                         }
                     }
 
+                    val useClassicalParams by remember {
+                        derivedStateOf {
+                            detectionParams.detectorName !in setOf(
+                                AsyncDetectorSource.CORNER_KEYPOINT.detectionParamsName,
+                                AsyncDetectorSource.ONNX.detectionParamsName
+                            )
+                        }
+                    }
+
                     Column(
                         modifier = Modifier
                             .padding(8.dp)
@@ -348,7 +359,7 @@ fun CameraScreen(
                         )
                         Text(
                             modifier = Modifier.padding(start = 8.dp),
-                            text = "CLAHE: ${detectionParams.claheClipLimit}",
+                            text = "CLAHE: ${if (useClassicalParams) detectionParams.claheClipLimit else "N/A"}",
                             style = TextStyle(
                                 platformStyle = PlatformTextStyle(includeFontPadding = false),
                                 color = Color.White.copy(alpha = 0.8f),
@@ -357,7 +368,7 @@ fun CameraScreen(
                         )
                         Text(
                             modifier = Modifier.padding(start = 8.dp),
-                            text = "Canny: ${detectionParams.cannyLow}/${detectionParams.cannyHigh}",
+                            text = "Canny: ${if (useClassicalParams) "${detectionParams.cannyLow}/${detectionParams.cannyHigh}" else "N/A"}",
                             style = TextStyle(
                                 platformStyle = PlatformTextStyle(includeFontPadding = false),
                                 color = Color.White.copy(alpha = 0.8f),
@@ -366,7 +377,7 @@ fun CameraScreen(
                         )
                         Text(
                             modifier = Modifier.padding(start = 8.dp),
-                            text = "Bright: ${detectionParams.brightness}",
+                            text = "Bright: ${if (useClassicalParams) detectionParams.brightness else "N/A"}",
                             style = TextStyle(
                                 platformStyle = PlatformTextStyle(includeFontPadding = false),
                                 color = Color.White.copy(alpha = 0.8f),

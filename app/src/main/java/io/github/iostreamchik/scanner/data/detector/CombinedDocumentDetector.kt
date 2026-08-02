@@ -19,12 +19,12 @@ import org.opencv.core.MatOfPoint
 import kotlin.math.abs
 import kotlin.math.max
 
-enum class AsyncDetectorSource {
-    NONE,
-    MINIMAL,
-    DIRECTIONAL_SUPPRESSION,
-    CORNER_KEYPOINT,
-    ONNX
+enum class AsyncDetectorSource(val detectionParamsName: String) {
+    NONE(""),
+    MINIMAL("Minimal"),
+    DIRECTIONAL_SUPPRESSION("Directional Suppression"),
+    CORNER_KEYPOINT("CornerKeypoint"),
+    ONNX("Segmentation")
 }
 
 class CombinedDocumentDetector(
@@ -51,13 +51,7 @@ class CombinedDocumentDetector(
     override val detectionParams = _detectionParams.asStateFlow()
 
     override val detectorName: String
-        get() = when (lastUsedDetector) {
-            AsyncDetectorSource.MINIMAL -> "Minimal"
-            AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> "Directional Suppression"
-            AsyncDetectorSource.CORNER_KEYPOINT -> "Corner Keypoint"
-            AsyncDetectorSource.ONNX -> "Segmentation"
-            else -> "Combined"
-        }
+        get() = lastUsedDetector.detectionParamsName.ifBlank { "Combined" }
 
     override fun preprocess(
         rawMat: Mat,
@@ -188,7 +182,7 @@ class CombinedDocumentDetector(
 
                 if (cornerQuad != null && cornerKeypointDetector.validateQuadSize(cornerQuad, originalWidth, originalHeight)) {
                     lastUsedDetector = AsyncDetectorSource.CORNER_KEYPOINT
-                    _detectionParams.value = cornerKeypointDetector.detectionParams.value.copy(detectorName = "CornerKeypoint")
+                    _detectionParams.value = cornerKeypointDetector.detectionParams.value.copy(detectorName = AsyncDetectorSource.CORNER_KEYPOINT.detectionParamsName)
                     Log.d(TAG, "  RESULT: CORNER_KEYPOINT fallback detected")
                     return@coroutineScope cornerQuad
                 }
@@ -209,7 +203,7 @@ class CombinedDocumentDetector(
 
                 if (onnxQuad != null && onnxDetector.validateQuadSize(onnxQuad, originalWidth, originalHeight)) {
                     lastUsedDetector = AsyncDetectorSource.ONNX
-                    _detectionParams.value = onnxDetector.detectionParams.value.copy(detectorName = "Segmentation")
+                    _detectionParams.value = onnxDetector.detectionParams.value.copy(detectorName = AsyncDetectorSource.ONNX.detectionParamsName)
                     Log.d(TAG, "  RESULT: ONNX fallback detected")
                     return@coroutineScope onnxQuad
                 }

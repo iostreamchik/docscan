@@ -297,9 +297,6 @@ class CameraViewModel(
                             .copy(Bitmap.Config.ARGB_8888, false))
                     }
 
-                    val originalMat = Mat()
-                    Utils.bitmapToMat(_state.value.originalBitmap ?: sourceBitmap, originalMat)
-                    originalMat.release()
                 } else {
                     setState {
                         copy(resultBitmap = mat.enhanceDocument().toBitmap()
