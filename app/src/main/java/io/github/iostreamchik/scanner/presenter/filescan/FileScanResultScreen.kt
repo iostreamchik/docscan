@@ -4,6 +4,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+import android.graphics.Bitmap
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -177,47 +185,58 @@ fun FileScanResultScreen(
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                        val intermediates = buildList {
+                            uiState.intermediateBitmaps.blur?.let { add("blur" to it) }
+                            uiState.intermediateBitmaps.clahe?.let { add("clahe" to it) }
+                            uiState.intermediateBitmaps.morph?.let { add("morph" to it) }
+                            uiState.intermediateBitmaps.edges?.let { add("edges" to it) }
+                            uiState.intermediateBitmaps.mask?.let { add("mask" to it) }
+                            uiState.intermediateBitmaps.corners?.let { add("corners" to it) }
+                        }
+
+                        val cardAspectRatio = imageAspectRatio ?: 1f
+                        intermediates.chunked(2).forEach { row ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text(
-                                    text = "Blur",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                                BitmapCard(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(imageAspectRatio ?: 1f)
-                                        .clip(RoundedCornerShape(8.dp)),
-                                    bitmap = uiState.intermediateBitmaps.blur,
-                                    animated = true
-                                )
-                            }
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "CLAHE",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                                BitmapCard(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(imageAspectRatio ?: 1f)
-                                        .clip(RoundedCornerShape(8.dp)),
-                                    bitmap = uiState.intermediateBitmaps.clahe,
-                                    animated = true
-                                )
+                                repeat(2) { index ->
+                                    val item = row.getOrNull(index)
+                                    key(item?.first ?: "empty-$index") {
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                text = item?.first?.replaceFirstChar { it.uppercase() } ?: "",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Medium,
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .aspectRatio(cardAspectRatio)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                            ) {
+                                                AnimatedContent(
+                                                    targetState = item?.second,
+                                                    transitionSpec = {
+                                                        (fadeIn() + expandVertically()) togetherWith (fadeOut() + shrinkVertically())
+                                                    }
+                                                ) { bmp: Bitmap? ->
+                                                    if (bmp != null) {
+                                                        BitmapCard(
+                                                            modifier = Modifier.fillMaxSize(),
+                                                            bitmap = bmp,
+                                                            animated = false
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
 
@@ -225,87 +244,73 @@ fun FileScanResultScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "Morph",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                                BitmapCard(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(imageAspectRatio ?: 1f)
-                                        .clip(RoundedCornerShape(8.dp)),
-                                    bitmap = uiState.intermediateBitmaps.morph,
-                                    animated = true
-                                )
+                            key("original") {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "Original",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(cardAspectRatio)
+                                            .clip(RoundedCornerShape(8.dp))
+                                    ) {
+                                        AnimatedContent(
+                                            targetState = uiState.originalBitmap,
+                                            transitionSpec = {
+                                                (fadeIn() + expandVertically()) togetherWith (fadeOut() + shrinkVertically())
+                                            }
+                                        ) { bmp: Bitmap? ->
+                                            if (bmp != null) {
+                                                BitmapCard(
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    bitmap = bmp,
+                                                    animated = false
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "Filtered",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                                BitmapCard(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(imageAspectRatio ?: 1f)
-                                        .clip(RoundedCornerShape(8.dp)),
-                                    bitmap = uiState.intermediateBitmaps.edges,
-                                    animated = true
-                                )
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "Original",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                                BitmapCard(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(imageAspectRatio ?: 1f)
-                                        .clip(RoundedCornerShape(8.dp)),
-                                    bitmap = uiState.originalBitmap,
-                                    animated = true
-                                )
-                            }
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = "Detected",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                                BitmapCard(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(imageAspectRatio ?: 1f)
-                                        .clip(RoundedCornerShape(8.dp)),
-                                    bitmap = uiState.resultBitmap,
-                                    animated = true
-                                )
+                            key("result") {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "Detected",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(cardAspectRatio)
+                                            .clip(RoundedCornerShape(8.dp))
+                                    ) {
+                                        AnimatedContent(
+                                            targetState = uiState.resultBitmap,
+                                            transitionSpec = {
+                                                (fadeIn() + expandVertically()) togetherWith (fadeOut() + shrinkVertically())
+                                            }
+                                        ) { bmp: Bitmap? ->
+                                            if (bmp != null) {
+                                                BitmapCard(
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    bitmap = bmp,
+                                                    animated = false
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         AssistChip(

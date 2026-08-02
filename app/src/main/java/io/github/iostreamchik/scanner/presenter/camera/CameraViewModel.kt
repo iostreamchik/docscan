@@ -197,20 +197,6 @@ class CameraViewModel(
         try {
             val morphResult = repository.preprocess(mat, scaledWidth, scaledHeight, params)
 
-            val snapshots = repository.captureIntermediateSnapshots(rotation)
-            setState {
-                copy(
-                    intermediateBitmaps = intermediateBitmaps.copy(
-                        blur = snapshots.blur,
-                        clahe = snapshots.clahe,
-                        morph = snapshots.morph,
-                        edges = snapshots.edges ?: originalFrame,
-                        mask = snapshots.mask,
-                        corners = snapshots.corners
-                    )
-                )
-            }
-
             Log.d("CameraViewModel", "  Calling detectQuad: morph=${morphResult.rows()}x${morphResult.cols()}, type=${morphResult.type()}, nonzero=${Core.countNonZero(morphResult)}")
             val bestQuad = repository.detectQuad(
                 morphImage = morphResult,
@@ -222,11 +208,19 @@ class CameraViewModel(
                 params = params
             )
 
+            val snapshots = repository.captureIntermediateSnapshots(rotation)
             val postSnapshots = repository.capturePostDetectionSnapshots(rotation)
-            if (postSnapshots.mask != null) {
-                setState {
-                    copy(intermediateBitmaps = intermediateBitmaps.copy(mask = postSnapshots.mask))
-                }
+            setState {
+                copy(
+                    intermediateBitmaps = intermediateBitmaps.copy(
+                        blur = snapshots.blur,
+                        clahe = snapshots.clahe,
+                        morph = snapshots.morph,
+                        edges = snapshots.edges ?: originalFrame,
+                        mask = postSnapshots.mask ?: snapshots.mask,
+                        corners = snapshots.corners
+                    )
+                )
             }
 
             if (bestQuad == null) {

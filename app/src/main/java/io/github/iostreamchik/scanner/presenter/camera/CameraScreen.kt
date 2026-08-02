@@ -62,13 +62,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
-import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -81,7 +76,6 @@ import io.github.iostreamchik.scanner.presenter.composables.ContourCanvas
 import io.github.iostreamchik.scanner.presenter.composables.rememberDeviceCornerRadiusDp
 import io.github.iostreamchik.scanner.data.detector.AsyncDetectorSource
 import io.github.iostreamchik.scanner.data.detector.MockDocumentDetector
-import io.github.iostreamchik.scanner.data.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.data.repository.DocumentDetectorRepositoryImpl
 import androidx.core.net.toUri
 
@@ -333,7 +327,7 @@ fun CameraScreen(
                         derivedStateOf {
                             detectionParams.detectorName !in setOf(
                                 AsyncDetectorSource.CORNER_KEYPOINT.detectionParamsName,
-                                AsyncDetectorSource.ONNX.detectionParamsName
+                                AsyncDetectorSource.SEGMENTATION.detectionParamsName
                             )
                         }
                     }

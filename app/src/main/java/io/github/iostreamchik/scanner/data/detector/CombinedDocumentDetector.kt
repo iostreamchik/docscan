@@ -23,8 +23,8 @@ enum class AsyncDetectorSource(val detectionParamsName: String) {
     NONE(""),
     MINIMAL("Minimal"),
     DIRECTIONAL_SUPPRESSION("Directional Suppression"),
-    CORNER_KEYPOINT("CornerKeypoint"),
-    ONNX("Segmentation")
+    CORNER_KEYPOINT("Corner Keypoint"),
+    SEGMENTATION("Segmentation")
 }
 
 class CombinedDocumentDetector(
@@ -202,8 +202,8 @@ class CombinedDocumentDetector(
                 )
 
                 if (onnxQuad != null && onnxDetector.validateQuadSize(onnxQuad, originalWidth, originalHeight)) {
-                    lastUsedDetector = AsyncDetectorSource.ONNX
-                    _detectionParams.value = onnxDetector.detectionParams.value.copy(detectorName = AsyncDetectorSource.ONNX.detectionParamsName)
+                    lastUsedDetector = AsyncDetectorSource.SEGMENTATION
+                    _detectionParams.value = onnxDetector.detectionParams.value.copy(detectorName = AsyncDetectorSource.SEGMENTATION.detectionParamsName)
                     Log.d(TAG, "  RESULT: ONNX fallback detected")
                     return@coroutineScope onnxQuad
                 }
@@ -221,7 +221,7 @@ class CombinedDocumentDetector(
         rotation: Int
     ): IntermediateSnapshots {
         return when (lastUsedDetector) {
-            AsyncDetectorSource.ONNX -> onnxDetector.captureIntermediateSnapshots(rotation)
+            AsyncDetectorSource.SEGMENTATION -> onnxDetector.captureIntermediateSnapshots(rotation)
             AsyncDetectorSource.CORNER_KEYPOINT -> cornerKeypointDetector.captureIntermediateSnapshots(rotation)
             AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector.captureIntermediateSnapshots(rotation)
             else -> minimalDetector.captureIntermediateSnapshots(rotation)
@@ -231,7 +231,7 @@ class CombinedDocumentDetector(
     override fun capturePostDetectionSnapshots(
         rotation: Int
     ): IntermediateSnapshots {
-        return if (lastUsedDetector == AsyncDetectorSource.ONNX) {
+        return if (lastUsedDetector == AsyncDetectorSource.SEGMENTATION) {
             onnxDetector.capturePostDetectionSnapshots(rotation)
         } else {
             IntermediateSnapshots()

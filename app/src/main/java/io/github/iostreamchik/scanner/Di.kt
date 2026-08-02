@@ -32,17 +32,20 @@ val appModule = module {
     single<IDocumentDetector>(named("minimal")) {
         DocumentDetectorMinimal(get())
     }
+    single<IDocumentDetector>(named("directionalSuppression")) {
+        DocumentDetectorDirectionalSuppression(get())
+    }
+    single<IDocumentDetector>(named("segmentation")) {
+        SegmentationDetector(get(), get())
+    }
     single<IDocumentDetector>(named("cornerKeypoint")) {
         CornerKeypointDetector(get(), get())
     }
     single<IDocumentDetector>(named("combined")) {
         CombinedDocumentDetector(get())
     }
-    single<IDocumentDetector>(named("directionalSuppression")) {
-        DocumentDetectorDirectionalSuppression(get())
-    }
     single<IDocumentDetectorRepository> {
-        DocumentDetectorRepositoryImpl(get<IDocumentDetector>(named("combined")))
+        DocumentDetectorRepositoryImpl(get<IDocumentDetector>(named("segmentation")))
     }
     viewModel<CameraViewModel>(named("camera")) {
         CameraViewModel(
