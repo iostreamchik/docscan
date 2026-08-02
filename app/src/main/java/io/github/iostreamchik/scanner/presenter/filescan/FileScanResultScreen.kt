@@ -185,11 +185,15 @@ fun FileScanResultScreen(
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        val hasOverlay = uiState.intermediateBitmaps.corners != null ||
+                            uiState.intermediateBitmaps.mask != null
                         val intermediates = buildList {
                             uiState.intermediateBitmaps.blur?.let { add("blur" to it) }
                             uiState.intermediateBitmaps.clahe?.let { add("clahe" to it) }
                             uiState.intermediateBitmaps.morph?.let { add("morph" to it) }
-                            uiState.intermediateBitmaps.edges?.let { add("edges" to it) }
+                            if (!hasOverlay) {
+                                uiState.intermediateBitmaps.edges?.let { add("edges" to it) }
+                            }
                             uiState.intermediateBitmaps.mask?.let { add("mask" to it) }
                             uiState.intermediateBitmaps.corners?.let { add("corners" to it) }
                         }

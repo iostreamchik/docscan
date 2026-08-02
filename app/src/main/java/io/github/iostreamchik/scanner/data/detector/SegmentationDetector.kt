@@ -5,6 +5,9 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.util.Log
 import io.github.iostreamchik.scanner.domain.model.IntermediateSnapshots
 import io.github.iostreamchik.scanner.entity.DetectionParameters
@@ -59,6 +62,7 @@ class SegmentationDetector(
     private var isInit = false
 
     internal var cachedMask: Mat? = null
+    private var cachedRawBitmap: Bitmap? = null
 
     private fun initModel() {
         try {
@@ -92,6 +96,9 @@ class SegmentationDetector(
 
         cachedMask?.release()
         cachedMask = null
+        cachedRawBitmap?.recycle()
+        cachedRawBitmap = rawMat.toBitmap()
+            .copy(Bitmap.Config.ARGB_8888, false)
 
         val sess = session ?: return matBundle.getMorph()
 
@@ -469,10 +476,9 @@ class SegmentationDetector(
         rotation: Int
     ): IntermediateSnapshots {
         val maskMat = cachedMask
-        return if (maskMat != null && !maskMat.empty()) {
+        return if (maskMat != null && !maskMat.empty() && cachedRawBitmap != null) {
             IntermediateSnapshots(
-                mask = maskMat.fixRotation(rotation).toBitmap()
-                    .copy(Bitmap.Config.ARGB_8888, false)
+                mask = buildMaskOverlay(cachedRawBitmap!!, maskMat, rotation)
             )
         } else {
             IntermediateSnapshots()
@@ -483,14 +489,54 @@ class SegmentationDetector(
         rotation: Int
     ): IntermediateSnapshots {
         val maskMat = cachedMask
-        return if (maskMat != null && !maskMat.empty()) {
+        return if (maskMat != null && !maskMat.empty() && cachedRawBitmap != null) {
             IntermediateSnapshots(
-                mask = maskMat.fixRotation(rotation).toBitmap()
-                    .copy(Bitmap.Config.ARGB_8888, false)
+                mask = buildMaskOverlay(cachedRawBitmap!!, maskMat, rotation)
             )
         } else {
             IntermediateSnapshots()
         }
+    }
+
+    private fun buildMaskOverlay(
+        rawBitmap: Bitmap,
+        maskMat: Mat,
+        rotation: Int
+    ): Bitmap {
+        val width = rawBitmap.width
+        val height = rawBitmap.height
+
+        val rotatedMask = maskMat.fixRotation(rotation)
+        val resizedMask = Mat()
+        Imgproc.resize(
+            rotatedMask, resizedMask,
+            Size(width.toDouble(), height.toDouble()),
+            0.0, 0.0, Imgproc.INTER_NEAREST
+        )
+
+        val overlay = rawBitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val pixels = IntArray(width * height)
+        overlay.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        val maskData = ByteArray(width * height)
+        resizedMask.get(0, 0, maskData)
+
+        for (i in pixels.indices) {
+            val maskAlpha = maskData[i].toInt() and 0xFF
+            if (maskAlpha < 128) {
+                val r = Color.red(pixels[i])
+                val g = Color.green(pixels[i])
+                val b = Color.blue(pixels[i])
+                pixels[i] = Color.argb(255, (r * 0.3f).toInt(), (g * 0.3f).toInt(), (b * 0.3f).toInt())
+            }
+        }
+
+        overlay.setPixels(pixels, 0, width, 0, 0, width, height)
+
+        resizedMask.release()
+        rotatedMask.release()
+
+        return overlay
     }
 
     override fun release() {
@@ -498,6 +544,8 @@ class SegmentationDetector(
         session = null
         cachedMask?.release()
         cachedMask = null
+        cachedRawBitmap?.recycle()
+        cachedRawBitmap = null
         matBundle.releaseAll()
         try {
             env.close()

@@ -10,6 +10,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
 import io.github.iostreamchik.scanner.data.utils.computeAngle
+import io.github.iostreamchik.scanner.data.utils.toBitmap
 import io.github.iostreamchik.scanner.domain.model.IntermediateSnapshots
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.PipelineParams
@@ -30,6 +31,7 @@ import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
+import androidx.core.graphics.createBitmap
 
 class CornerKeypointDetector(
     private val context: Context,
@@ -431,9 +433,19 @@ class CornerKeypointDetector(
         height: Int,
         coords: FloatArray
     ): Bitmap {
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val baseBitmap = cachedRawMat?.toBitmap(width, height)
+            ?: createBitmap(width, height)
+
+        val bitmap = if (baseBitmap.config == Bitmap.Config.ARGB_8888) {
+            baseBitmap
+        } else {
+            val converted = createBitmap(width, height)
+            Canvas(converted).drawBitmap(baseBitmap, 0f, 0f, null)
+            if (baseBitmap != converted) baseBitmap.recycle()
+            converted
+        }
+
         val canvas = Canvas(bitmap)
-        canvas.drawColor(Color.BLACK)
 
         val scaleX = width.toDouble() / cachedInputSize
         val scaleY = height.toDouble() / cachedInputSize
@@ -451,7 +463,7 @@ class CornerKeypointDetector(
         }
         val linePaint = Paint().apply {
             style = Paint.Style.STROKE
-            strokeWidth = 2f
+            strokeWidth = 3f
             color = Color.WHITE
         }
 

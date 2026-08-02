@@ -189,6 +189,17 @@ fun Mat.toBitmap(): Bitmap {
     return bmp
 }
 
+fun Mat.toBitmap(width: Int, height: Int): Bitmap {
+    if (empty()) {
+        return createBitmap(width, height)
+    }
+    val resized = Mat()
+    Imgproc.resize(this, resized, Size(width.toDouble(), height.toDouble()))
+    val result = resized.toBitmap()
+    resized.release()
+    return result
+}
+
 fun Mat.rotate90Clockwise(): Mat {
     val dst = Mat()
     Core.transpose(this, dst)  // transpose flips rows & cols
