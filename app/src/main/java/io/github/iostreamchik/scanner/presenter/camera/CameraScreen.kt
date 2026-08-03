@@ -18,6 +18,7 @@ import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Image
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -59,6 +60,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
@@ -68,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.createBitmap
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -438,9 +442,13 @@ fun CameraScreen(
                                 .background(Color.Gray)
                         )
                     } else {
-                        BitmapCard(
-                            bitmap = uiState.resultBitmap,
-                            modifier = Modifier.fillMaxSize()
+                        val bmp = uiState.resultBitmap
+                        Image(
+                            modifier = Modifier.fillMaxSize(),
+                            bitmap = bmp?.asImageBitmap() ?: remember { createBitmap(1, 1).asImageBitmap() },
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            alignment = Alignment.Center
                         )
                     }
                 }
