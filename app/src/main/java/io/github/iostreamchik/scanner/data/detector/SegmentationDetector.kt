@@ -21,6 +21,7 @@ import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
 import io.github.iostreamchik.scanner.data.utils.toBitmap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.opencv.android.Utils
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
@@ -503,8 +504,14 @@ class SegmentationDetector(
         maskMat: Mat,
         rotation: Int
     ): Bitmap {
-        val width = rawBitmap.width
-        val height = rawBitmap.height
+        val rawMat = Mat()
+        Utils.bitmapToMat(rawBitmap, rawMat)
+        val rotatedRawMat = rawMat.fixRotation(rotation)
+        rawMat.release()
+        val rotatedRaw = rotatedRawMat.toBitmap()
+        rotatedRawMat.release()
+        val width = rotatedRaw.width
+        val height = rotatedRaw.height
 
         val rotatedMask = maskMat.fixRotation(rotation)
         val resizedMask = Mat()
@@ -514,7 +521,7 @@ class SegmentationDetector(
             0.0, 0.0, Imgproc.INTER_NEAREST
         )
 
-        val overlay = rawBitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val overlay = rotatedRaw.copy(Bitmap.Config.ARGB_8888, true)
         val pixels = IntArray(width * height)
         overlay.getPixels(pixels, 0, width, 0, 0, width, height)
 

@@ -166,8 +166,29 @@ class CombinedDocumentDetector(
                     return@coroutineScope primaryBest.value.quad
                 }
 
-                Log.d(TAG, "  Primary detectors failed, running CORNER_KEYPOINT fallback...")
-                val cornerMorph = cornerKeypointDetector.preprocess(cachedRawMat ?: Mat(), cachedScaledWidth, cachedScaledHeight, params)
+                val rawMat = cachedRawMat
+                if (rawMat == null) {
+                    Log.w(TAG, "  ONNX fallback: cachedRawMat is null, skipping")
+                    return@coroutineScope null
+                }
+
+                Log.d(TAG, "  Primary detectors failed, running SEGMENTATION fallback...")
+                val onnxMorph = onnxDetector.preprocess(rawMat, cachedScaledWidth, cachedScaledHeight, params)
+                val onnxQuad = onnxDetector.detectQuad(
+                    onnxMorph, scaledWidth, scaledHeight,
+                    originalWidth, originalHeight, rotation, params
+                )
+
+                if (onnxQuad != null && onnxDetector.validateQuadSize(onnxQuad, originalWidth, originalHeight)) {
+                    lastUsedDetector = AsyncDetectorSource.SEGMENTATION
+                    _detectionParams.value = onnxDetector.detectionParams.value.copy(detectorName = AsyncDetectorSource.SEGMENTATION.detectionParamsName)
+                    Log.d(TAG, "  RESULT: SEGMENTATION fallback detected")
+                    return@coroutineScope onnxQuad
+                }
+                onnxQuad?.release()
+
+                Log.d(TAG, "  SEGMENTATION failed, running CORNER_KEYPOINT fallback...")
+                val cornerMorph = cornerKeypointDetector.preprocess(rawMat, cachedScaledWidth, cachedScaledHeight, params)
                 val cornerQuad = cornerKeypointDetector.detectQuad(
                     cornerMorph, scaledWidth, scaledHeight,
                     originalWidth, originalHeight, rotation, params
@@ -187,28 +208,6 @@ class CombinedDocumentDetector(
                     return@coroutineScope cornerQuad
                 }
                 cornerQuad?.release()
-
-                val rawMat = cachedRawMat
-                if (rawMat == null) {
-                    Log.w(TAG, "  ONNX fallback: cachedRawMat is null, skipping")
-                    return@coroutineScope null
-                }
-
-                Log.d(TAG, "  CORNER_KEYPOINT failed, running ONNX fallback...")
-                val onnxMorph = onnxDetector.preprocess(rawMat, cachedScaledWidth, cachedScaledHeight, params)
-                val onnxQuad = onnxDetector.detectQuad(
-                    onnxMorph, scaledWidth, scaledHeight,
-                    originalWidth, originalHeight, rotation, params
-                )
-
-                if (onnxQuad != null && onnxDetector.validateQuadSize(onnxQuad, originalWidth, originalHeight)) {
-                    lastUsedDetector = AsyncDetectorSource.SEGMENTATION
-                    _detectionParams.value = onnxDetector.detectionParams.value.copy(detectorName = AsyncDetectorSource.SEGMENTATION.detectionParamsName)
-                    Log.d(TAG, "  RESULT: ONNX fallback detected")
-                    return@coroutineScope onnxQuad
-                }
-
-                onnxQuad?.release()
                 Log.w(TAG, "  RESULT: NO DETECTION (all detectors returned null)")
                 null
             }
