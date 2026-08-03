@@ -111,10 +111,11 @@ fun FileScanResultScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .aspectRatio(bmp.width.toFloat() / bmp.height.toFloat())
                         .padding(horizontal = 16.dp)
                 ) {
                     BitmapCard(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
                         bitmap = bmp,
                         animated = false
                     )
@@ -350,10 +351,11 @@ fun FileScanResultScreen(
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
                                     )
+                                    val resultAspectRatio = uiState.resultBitmap?.let { it.width.toFloat() / it.height.toFloat() }
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .aspectRatio(cardAspectRatio)
+                                            .aspectRatio(resultAspectRatio ?: cardAspectRatio)
                                             .clip(RoundedCornerShape(8.dp))
                                             .clickable(
                                                 interactionSource = remember { MutableInteractionSource() },
