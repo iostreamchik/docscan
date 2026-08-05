@@ -3,6 +3,7 @@ package io.github.iostreamchik.scanner.presenter.composables
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -16,26 +17,28 @@ fun ContourCanvas(
     contourState: State<ContourData?>,
     modifier: Modifier = Modifier
 ) {
-    val rotatedContours = contourState.value?.let { data ->
-        val originalW = data.frameWidth.toFloat()
-        val originalH = data.frameHeight.toFloat()
+    val rotatedContours = remember(contourState.value) {
+        contourState.value?.let { data ->
+            val originalW = data.frameWidth.toFloat()
+            val originalH = data.frameHeight.toFloat()
 
-        val rotatedW = if (data.rotation == 90 || data.rotation == 270) originalH else originalW
-        val rotatedH = if (data.rotation == 90 || data.rotation == 270) originalW else originalH
+            val rotatedW = if (data.rotation == 90 || data.rotation == 270) originalH else originalW
+            val rotatedH = if (data.rotation == 90 || data.rotation == 270) originalW else originalH
 
-        val contours = data.contours.map { contour ->
-            val points = contour.toArray()
-            points.map { pt ->
-                when (data.rotation) {
-                    90 -> Offset(originalH - pt.y.toFloat(), pt.x.toFloat())
-                    180 -> Offset(originalW - pt.x.toFloat(), originalH - pt.y.toFloat())
-                    270 -> Offset(pt.y.toFloat(), originalW - pt.x.toFloat())
-                    else -> Offset(pt.x.toFloat(), pt.y.toFloat())
+            val contours = data.contours.map { contour ->
+                val points = contour.toArray()
+                points.map { pt ->
+                    when (data.rotation) {
+                        90 -> Offset(originalH - pt.y.toFloat(), pt.x.toFloat())
+                        180 -> Offset(originalW - pt.x.toFloat(), originalH - pt.y.toFloat())
+                        270 -> Offset(pt.y.toFloat(), originalW - pt.x.toFloat())
+                        else -> Offset(pt.x.toFloat(), pt.y.toFloat())
+                    }
                 }
             }
-        }
 
-        Triple(contours, rotatedW, rotatedH)
+            Triple(contours, rotatedW, rotatedH)
+        }
     }
 
     Canvas(modifier = modifier) {

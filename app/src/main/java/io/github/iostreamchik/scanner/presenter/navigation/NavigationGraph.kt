@@ -1,8 +1,6 @@
 package io.github.iostreamchik.scanner.presenter.navigation
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import org.koin.androidx.compose.koinViewModel
@@ -35,9 +33,7 @@ fun AppNavGraph(
         composable(NavigationDestination.camera) {
             val viewModel = koinViewModel<CameraViewModel>(named("camera"))
             CameraScreen(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background),
+                modifier = Modifier.fillMaxSize(),
                 viewModel = viewModel,
 
                 toScanFromFile = {

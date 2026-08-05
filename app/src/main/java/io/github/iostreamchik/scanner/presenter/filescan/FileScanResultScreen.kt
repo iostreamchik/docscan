@@ -31,7 +31,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -39,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -46,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,6 +69,7 @@ import io.github.iostreamchik.scanner.presenter.camera.CameraViewModel
 import io.github.iostreamchik.scanner.data.detector.MockDocumentDetector
 import io.github.iostreamchik.scanner.data.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.data.repository.DocumentDetectorRepositoryImpl
+import io.github.iostreamchik.scanner.presenter.theme.DocumentScannerTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,7 +80,7 @@ fun FileScanResultScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.state.collectAsStateWithLifecycle()
-    val detectionParams by viewModel.detectionParams.collectAsStateWithLifecycle()
+    val detectionParamsState = viewModel.detectionParams.collectAsStateWithLifecycle()
 
     var selectedItem by remember { mutableStateOf<Pair<String, Bitmap>?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -86,9 +88,7 @@ fun FileScanResultScreen(
     val pickMediaLauncher = rememberLauncherForActivityResult(
         contract = PickVisualMedia()
     ) { uri ->
-        if (uri != null) {
-            viewModel.process(CameraIntent.ProcessDocument(context, uri) {})
-        }
+        uri?.let { viewModel.process(CameraIntent.ProcessDocument(context, it) {}) }
     }
 
     selectedItem?.let { (name, bmp) ->
@@ -115,7 +115,9 @@ fun FileScanResultScreen(
                         .padding(horizontal = 16.dp)
                 ) {
                     BitmapCard(
-                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(8.dp)),
                         bitmap = bmp,
                         animated = false
                     )
@@ -182,8 +184,12 @@ fun FileScanResultScreen(
                 }
             }
 
-            val hasImage = uiState.originalBitmap != null
-            val imageAspectRatio = uiState.originalBitmap?.let { it.width.toFloat() / it.height.toFloat() }
+            val hasImage by remember { derivedStateOf { uiState.originalBitmap != null } }
+            val imageAspectRatio by remember {
+                derivedStateOf {
+                    uiState.originalBitmap?.let { it.width.toFloat() / it.height.toFloat() }
+                }
+            }
             key(hasImage) {
                 if (!hasImage) {
                     Column(
@@ -227,17 +233,19 @@ fun FileScanResultScreen(
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        val hasOverlay = uiState.intermediateBitmaps.corners != null ||
-                            uiState.intermediateBitmaps.mask != null
-                        val intermediates = buildList {
-                            uiState.intermediateBitmaps.blur?.let { add("blur" to it) }
-                            uiState.intermediateBitmaps.clahe?.let { add("clahe" to it) }
-                            uiState.intermediateBitmaps.morph?.let { add("morph" to it) }
-                            if (!hasOverlay) {
-                                uiState.intermediateBitmaps.edges?.let { add("edges" to it) }
+                        val intermediates = remember(uiState.intermediateBitmaps) {
+                            val hasOverlay = uiState.intermediateBitmaps.corners != null ||
+                                    uiState.intermediateBitmaps.mask != null
+                            buildList {
+                                uiState.intermediateBitmaps.blur?.let { add("blur" to it) }
+                                uiState.intermediateBitmaps.clahe?.let { add("clahe" to it) }
+                                uiState.intermediateBitmaps.morph?.let { add("morph" to it) }
+                                if (!hasOverlay) {
+                                    uiState.intermediateBitmaps.edges?.let { add("edges" to it) }
+                                }
+                                uiState.intermediateBitmaps.mask?.let { add("mask" to it) }
+                                uiState.intermediateBitmaps.corners?.let { add("corners" to it) }
                             }
-                            uiState.intermediateBitmaps.mask?.let { add("mask" to it) }
-                            uiState.intermediateBitmaps.corners?.let { add("corners" to it) }
                         }
 
                         val cardAspectRatio = imageAspectRatio ?: 1f
@@ -255,7 +263,8 @@ fun FileScanResultScreen(
                                             verticalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
                                             Text(
-                                                text = item?.first?.replaceFirstChar { it.uppercase() } ?: "",
+                                                text = item?.first?.replaceFirstChar { it.uppercase() }
+                                                    ?: "",
                                                 fontSize = 14.sp,
                                                 fontWeight = FontWeight.Medium,
                                             )
@@ -266,11 +275,9 @@ fun FileScanResultScreen(
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .then(
                                                         if (item != null) {
-                                                            Modifier.clickable(
-                                                                interactionSource = remember { MutableInteractionSource() },
-                                                                indication = null,
-                                                                onClick = { selectedItem = item }
-                                                            )
+                                                            Modifier.clickable(onClick = {
+                                                                selectedItem = item
+                                                            })
                                                         } else {
                                                             Modifier
                                                         }
@@ -317,11 +324,11 @@ fun FileScanResultScreen(
                                             .fillMaxWidth()
                                             .aspectRatio(cardAspectRatio)
                                             .clip(RoundedCornerShape(8.dp))
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null,
-                                                onClick = { uiState.originalBitmap?.let { selectedItem = "original" to it } }
-                                            )
+                                            .clickable {
+                                                uiState.originalBitmap?.let {
+                                                    selectedItem = "original" to it
+                                                }
+                                            }
                                     ) {
                                         AnimatedContent(
                                             targetState = uiState.originalBitmap,
@@ -351,17 +358,18 @@ fun FileScanResultScreen(
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
                                     )
-                                    val resultAspectRatio = uiState.resultBitmap?.let { it.width.toFloat() / it.height.toFloat() }
+                                    val resultAspectRatio =
+                                        uiState.resultBitmap?.let { it.width.toFloat() / it.height.toFloat() }
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .aspectRatio(resultAspectRatio ?: cardAspectRatio)
                                             .clip(RoundedCornerShape(8.dp))
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null,
-                                                onClick = { uiState.resultBitmap?.let { selectedItem = "detected" to it } }
-                                            )
+                                            .clickable {
+                                                uiState.resultBitmap?.let {
+                                                    selectedItem = "detected" to it
+                                                }
+                                            }
                                     ) {
                                         AnimatedContent(
                                             targetState = uiState.resultBitmap,
@@ -383,7 +391,7 @@ fun FileScanResultScreen(
                         }
                         AssistChip(
                             onClick = { },
-                            label = { Text("Detector: ${detectionParams.detectorName}") },
+                            label = { Text("Detector: ${detectionParamsState.value.detectorName}") },
                             leadingIcon = {
                                 Icon(
                                     imageVector = Icons.Default.ImageSearch,
@@ -404,14 +412,16 @@ fun FileScanResultScreen(
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 private fun FileScanResultPreview() {
-    Surface {
-        FileScanResultScreen(
-            viewModel = viewModel {
-                CameraViewModel(
-                    repository = DocumentDetectorRepositoryImpl(MockDocumentDetector())
-                )
-            },
-            onBack = {}
-        )
+    DocumentScannerTheme() {
+        Surface {
+            FileScanResultScreen(
+                viewModel = viewModel {
+                    CameraViewModel(
+                        repository = DocumentDetectorRepositoryImpl(MockDocumentDetector())
+                    )
+                },
+                onBack = {}
+            )
+        }
     }
 }

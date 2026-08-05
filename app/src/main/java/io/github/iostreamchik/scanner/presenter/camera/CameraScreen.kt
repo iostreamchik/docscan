@@ -81,6 +81,7 @@ import io.github.iostreamchik.scanner.presenter.composables.rememberDeviceCorner
 import io.github.iostreamchik.scanner.data.detector.AsyncDetectorSource
 import io.github.iostreamchik.scanner.data.detector.MockDocumentDetector
 import io.github.iostreamchik.scanner.data.repository.DocumentDetectorRepositoryImpl
+import io.github.iostreamchik.scanner.presenter.theme.CameraBackground
 import androidx.core.net.toUri
 
 @Composable
@@ -97,7 +98,7 @@ fun CameraScreen(
         remember { mutableStateOf<ContourData?>(null) }
 
     val uiState by viewModel.state.collectAsStateWithLifecycle()
-    val detectionParams by viewModel.detectionParams.collectAsStateWithLifecycle()
+    val detectionParamsState = viewModel.detectionParams.collectAsStateWithLifecycle()
     val cornerRadius = rememberDeviceCornerRadiusDp()
 
     val boundCamera = remember { mutableStateOf<Camera?>(null) }
@@ -151,7 +152,7 @@ fun CameraScreen(
     val lastContourUpdateTime = remember { mutableLongStateOf(0L) }
     val CONTOUR_UPDATE_THROTTLE_MS = 30L
 
-    Box(modifier = modifier) {
+    Box(modifier = modifier.background(CameraBackground)) {
 
         Column {
 
@@ -315,18 +316,23 @@ fun CameraScreen(
                             .padding(horizontal = 16.dp)
                     ) {
                         IconButton(
-                            modifier = Modifier.align(Alignment.CenterEnd),
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp)),
                             onClick = { viewModel.process(CameraIntent.ToggleTorch) },
-                            colors = IconButtonDefaults.iconButtonColors()
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = Color.Transparent,
+                                contentColor = Color.White,
+                            ),
                         ) {
                             Icon(
                                 imageVector = if (uiState.torchOn) Icons.Default.FlashlightOff else Icons.Default.FlashlightOn,
                                 contentDescription = "Toggle torch",
-                                tint = Color.Black
                             )
                         }
                     }
 
+                    val detectionParams = detectionParamsState.value
                     val useClassicalParams by remember {
                         derivedStateOf {
                             detectionParams.detectorName !in setOf(
@@ -395,6 +401,7 @@ fun CameraScreen(
                     .navigationBarsPadding(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                val isPreview = LocalInspectionMode.current
                 Surface(
                     modifier = Modifier
                         .weight(1f)
@@ -407,7 +414,6 @@ fun CameraScreen(
                     ),
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
-                    val isPreview = LocalInspectionMode.current
                     if (isPreview) {
                         Box(
                             modifier = Modifier
@@ -434,7 +440,6 @@ fun CameraScreen(
                     ),
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
-                    val isPreview = LocalInspectionMode.current
                     if (isPreview) {
                         Box(
                             modifier = Modifier
@@ -442,10 +447,12 @@ fun CameraScreen(
                                 .background(Color.Gray)
                         )
                     } else {
-                        val bmp = uiState.resultBitmap
+                        val resultImageBitmap = remember(uiState.resultBitmap) {
+                            uiState.resultBitmap?.asImageBitmap() ?: createBitmap(1, 1).asImageBitmap()
+                        }
                         Image(
                             modifier = Modifier.fillMaxSize(),
-                            bitmap = bmp?.asImageBitmap() ?: remember { createBitmap(1, 1).asImageBitmap() },
+                            bitmap = resultImageBitmap,
                             contentDescription = null,
                             contentScale = ContentScale.Fit,
                             alignment = Alignment.Center
@@ -469,7 +476,7 @@ fun CameraScreen(
                     .padding(8.dp)
                 ,
                 onClick = toScanFromFile,
-                elevation = FloatingActionButtonDefaults.elevation(0.dp)
+                elevation = FloatingActionButtonDefaults.elevation(0.dp),
             ) {
                 Icon(
                     imageVector = Icons.Default.Image,
@@ -502,9 +509,9 @@ fun CameraScreen(
 @androidx.compose.ui.tooling.preview.Preview
 @Composable
 private fun CameraScreenPreview() {
-    Surface() {
+    Surface(color = CameraBackground) {
         CameraScreen(
-            modifier = Modifier.background(MaterialTheme.colorScheme.background),
+            modifier = Modifier.fillMaxSize(),
             viewModel = viewModel {
                 CameraViewModel(
                     repository = DocumentDetectorRepositoryImpl(MockDocumentDetector())

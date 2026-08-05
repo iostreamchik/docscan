@@ -1,5 +1,8 @@
 package io.github.iostreamchik.scanner.entity
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class PipelineParams(
     val medianBlurKsize: Int = 5,
     val claheClipLimit: Float = 1.5f,

@@ -26,6 +26,10 @@ fun BitmapCard(
     bitmap: Bitmap?,
     animated: Boolean = false
 ) {
+    val imageBitmap = remember(bitmap) {
+        bitmap?.asImageBitmap() ?: createBitmap(1, 1).asImageBitmap()
+    }
+
     Box(modifier = modifier) {
         if (animated) {
             val width = remember { mutableStateOf(0.dp) }
@@ -55,7 +59,7 @@ fun BitmapCard(
         } else {
             Image(
                 modifier = Modifier.fillMaxSize(),
-                bitmap = bitmap?.asImageBitmap() ?: remember { createBitmap(1, 1).asImageBitmap() },
+                bitmap = imageBitmap,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
             )
