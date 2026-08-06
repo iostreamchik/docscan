@@ -1,5 +1,6 @@
 package io.github.iostreamchik.scanner.presenter.camera
 
+import androidx.annotation.StringRes
 import android.graphics.Bitmap
 import androidx.compose.runtime.Stable
 import io.github.iostreamchik.scanner.entity.PipelineParams
@@ -11,7 +12,7 @@ data class CameraState(
     val resultBitmap: Bitmap? = null,
     val torchOn: Boolean = false,
     val exposure: String = "",
-    val error: String? = null,
+    @StringRes val errorId: Int? = null,
     val isProcessing: Boolean = false,
     val pipelineParams: PipelineParams = PipelineParams(),
 )

@@ -69,7 +69,7 @@ class CameraViewModel(
         when (intent) {
             is CameraIntent.ToggleTorch -> setState { copy(torchOn = !torchOn) }
             is CameraIntent.SetTorch -> setState { copy(torchOn = intent.on) }
-            is CameraIntent.SetError -> setState { copy(error = intent.message) }
+            is CameraIntent.SetError -> setState { copy(errorId = intent.messageId) }
             is CameraIntent.UpdateParams -> setState { copy(pipelineParams = intent.params) }
             is CameraIntent.ProcessDocument -> processDocument(intent.context, intent.uri, intent.onComplete)
         }

@@ -1,3 +1,41 @@
 <resources>
     <string name="app_name">DocumentScanner</string>
+
+    <!-- Permission dialog -->
+    <string name="camera_permission_title">Camera Access Required</string>
+    <string name="camera_permission_rationale">This app needs camera access to detect and scan documents in real time.</string>
+    <string name="camera_permission_denied">Camera access was denied. Please enable it in your app settings to use the scanner.</string>
+    <string name="camera_permission_grant">Grant Camera Access</string>
+    <string name="camera_permission_open_settings">Open Settings</string>
+
+    <!-- Errors -->
+    <string name="error_camera_init_failed">Camera initialization failed</string>
+
+    <!-- Accessibility labels -->
+    <string name="content_description_toggle_torch">Toggle torch</string>
+    <string name="content_description_scan_from_file">Scan from file</string>
+    <string name="content_description_back">Back</string>
+
+    <!-- Camera screen param labels -->
+    <string name="param_na">N/A</string>
+    <string name="param_clahe">CLAHE: %s</string>
+    <string name="param_canny">Canny: %s/%s</string>
+    <string name="param_brightness">Bright: %s</string>
+
+    <!-- File scan screen -->
+    <string name="file_scan_title">Scan Result</string>
+    <string name="file_scan_detector">Detector: %s</string>
+    <string name="file_scan_processing">Processing…</string>
+    <string name="file_scan_select_file">Select a file</string>
+    <string name="file_scan_choose_file">Choose File</string>
+    <string name="file_scan_original">Original</string>
+    <string name="file_scan_detected">Detected</string>
+
+    <!-- Intermediate step labels -->
+    <string name="step_blur">Blur</string>
+    <string name="step_clahe">CLAHE</string>
+    <string name="step_morph">Morph</string>
+    <string name="step_edges">Edges</string>
+    <string name="step_mask">Mask</string>
+    <string name="step_corners">Corners</string>
 </resources>

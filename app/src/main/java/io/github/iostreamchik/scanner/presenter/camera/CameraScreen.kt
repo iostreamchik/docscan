@@ -68,6 +68,7 @@ import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -172,15 +173,15 @@ fun CameraScreen(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = "Camera Access Required",
+                            text = stringResource(io.github.iostreamchik.scanner.R.string.camera_permission_title),
                             style = MaterialTheme.typography.headlineSmall,
                             color = Color.White
                         )
                         Text(
                             text = if (showRationale) {
-                                "This app needs camera access to detect and scan documents in real time."
+                                stringResource(io.github.iostreamchik.scanner.R.string.camera_permission_rationale)
                             } else {
-                                "Camera access was denied. Please enable it in your app settings to use the scanner."
+                                stringResource(io.github.iostreamchik.scanner.R.string.camera_permission_denied)
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.White.copy(alpha = 0.7f),
@@ -205,7 +206,10 @@ fun CameraScreen(
                                 )
                         ) {
                             Text(
-                                text = if (showRationale) "Grant Camera Access" else "Open Settings",
+                                text = if (showRationale)
+                                    stringResource(io.github.iostreamchik.scanner.R.string.camera_permission_grant)
+                                else
+                                    stringResource(io.github.iostreamchik.scanner.R.string.camera_permission_open_settings),
                                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onPrimary
@@ -278,7 +282,9 @@ fun CameraScreen(
                             } catch (e: Exception) {
                                 Log.e("CameraX", "Use case binding failed", e)
                                 contourState.value?.release()
-                                viewModel.process(CameraIntent.SetError("Camera initialization failed"))
+                                viewModel.process(CameraIntent.SetError(
+                                    io.github.iostreamchik.scanner.R.string.error_camera_init_failed
+                                ))
                             }
                         }
                     } else {
@@ -289,7 +295,7 @@ fun CameraScreen(
                         )
                     }
 
-                    uiState.error?.let { state ->
+                    uiState.errorId?.let { id ->
                         Surface(
                             color = Color.Red.copy(alpha = 0.8f),
                             modifier = Modifier
@@ -297,7 +303,7 @@ fun CameraScreen(
                                 .padding(16.dp)
                         ) {
                             Text(
-                                text = state,
+                                text = stringResource(id),
                                 color = Color.White,
                                 modifier = Modifier.padding(8.dp)
                             )
@@ -327,7 +333,7 @@ fun CameraScreen(
                         ) {
                             Icon(
                                 imageVector = if (uiState.torchOn) Icons.Default.FlashlightOff else Icons.Default.FlashlightOn,
-                                contentDescription = "Toggle torch",
+                                contentDescription = stringResource(io.github.iostreamchik.scanner.R.string.content_description_toggle_torch),
                             )
                         }
                     }
@@ -363,7 +369,15 @@ fun CameraScreen(
                         )
                         Text(
                             modifier = Modifier.padding(start = 8.dp),
-                            text = "CLAHE: ${if (useClassicalParams) detectionParams.claheClipLimit else "N/A"}",
+                            text = if (useClassicalParams)
+                                stringResource(
+                                    io.github.iostreamchik.scanner.R.string.param_clahe,
+                                    detectionParams.claheClipLimit
+                                )
+                            else
+                                stringResource(io.github.iostreamchik.scanner.R.string.param_clahe,
+                                    stringResource(io.github.iostreamchik.scanner.R.string.param_na)
+                                ),
                             style = TextStyle(
                                 platformStyle = PlatformTextStyle(includeFontPadding = false),
                                 color = Color.White.copy(alpha = 0.8f),
@@ -372,7 +386,17 @@ fun CameraScreen(
                         )
                         Text(
                             modifier = Modifier.padding(start = 8.dp),
-                            text = "Canny: ${if (useClassicalParams) "${detectionParams.cannyLow}/${detectionParams.cannyHigh}" else "N/A"}",
+                            text = if (useClassicalParams)
+                                stringResource(
+                                    io.github.iostreamchik.scanner.R.string.param_canny,
+                                    detectionParams.cannyLow,
+                                    detectionParams.cannyHigh
+                                )
+                            else
+                                stringResource(io.github.iostreamchik.scanner.R.string.param_canny,
+                                    stringResource(io.github.iostreamchik.scanner.R.string.param_na),
+                                    stringResource(io.github.iostreamchik.scanner.R.string.param_na)
+                                ),
                             style = TextStyle(
                                 platformStyle = PlatformTextStyle(includeFontPadding = false),
                                 color = Color.White.copy(alpha = 0.8f),
@@ -381,7 +405,15 @@ fun CameraScreen(
                         )
                         Text(
                             modifier = Modifier.padding(start = 8.dp),
-                            text = "Bright: ${if (useClassicalParams) detectionParams.brightness else "N/A"}",
+                            text = if (useClassicalParams)
+                                stringResource(
+                                    io.github.iostreamchik.scanner.R.string.param_brightness,
+                                    detectionParams.brightness
+                                )
+                            else
+                                stringResource(io.github.iostreamchik.scanner.R.string.param_brightness,
+                                    stringResource(io.github.iostreamchik.scanner.R.string.param_na)
+                                ),
                             style = TextStyle(
                                 platformStyle = PlatformTextStyle(includeFontPadding = false),
                                 color = Color.White.copy(alpha = 0.8f),
@@ -480,7 +512,7 @@ fun CameraScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.Image,
-                    contentDescription = "Scan from file"
+                    contentDescription = stringResource(io.github.iostreamchik.scanner.R.string.content_description_scan_from_file)
                 )
             }
         }

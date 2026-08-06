@@ -36,8 +36,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -54,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -104,7 +103,17 @@ fun FileScanResultScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = name.replaceFirstChar { it.uppercase() },
+                    text = when (name) {
+                        "blur" -> stringResource(io.github.iostreamchik.scanner.R.string.step_blur)
+                        "clahe" -> stringResource(io.github.iostreamchik.scanner.R.string.step_clahe)
+                        "morph" -> stringResource(io.github.iostreamchik.scanner.R.string.step_morph)
+                        "edges" -> stringResource(io.github.iostreamchik.scanner.R.string.step_edges)
+                        "mask" -> stringResource(io.github.iostreamchik.scanner.R.string.step_mask)
+                        "corners" -> stringResource(io.github.iostreamchik.scanner.R.string.step_corners)
+                        "original" -> stringResource(io.github.iostreamchik.scanner.R.string.file_scan_original)
+                        "detected" -> stringResource(io.github.iostreamchik.scanner.R.string.file_scan_detected)
+                        else -> name.replaceFirstChar { it.uppercase() }
+                    },
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -131,17 +140,28 @@ fun FileScanResultScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "Scan Result",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp
-                    )
+                    Column {
+                        Text(
+                            text = stringResource(io.github.iostreamchik.scanner.R.string.file_scan_title),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        )
+                        Text(
+                            text = stringResource(
+                                io.github.iostreamchik.scanner.R.string.file_scan_detector,
+                                detectionParamsState.value.detectorName
+                            ),
+                            fontSize = 12.sp,
+                            lineHeight = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Default.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(io.github.iostreamchik.scanner.R.string.content_description_back)
                         )
                     }
                 }
@@ -156,7 +176,7 @@ fun FileScanResultScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.ImageSearch,
-                    contentDescription = "Scan from file"
+                    contentDescription = stringResource(io.github.iostreamchik.scanner.R.string.content_description_scan_from_file)
                 )
             }
         }
@@ -168,14 +188,14 @@ fun FileScanResultScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            uiState.error?.let { msg ->
+            uiState.errorId?.let { id ->
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 16.dp)
                 ) {
                     Text(
-                        text = msg,
+                        text = stringResource(id),
                         color = Color.Red,
                         modifier = Modifier
                             .background(Color.Red.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
@@ -207,7 +227,10 @@ fun FileScanResultScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = if (uiState.isProcessing) "Processing..." else "Select a file",
+                            text = if (uiState.isProcessing)
+                                stringResource(io.github.iostreamchik.scanner.R.string.file_scan_processing)
+                            else
+                                stringResource(io.github.iostreamchik.scanner.R.string.file_scan_select_file),
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Medium,
                             color = Color(0xFF757575)
@@ -223,7 +246,7 @@ fun FileScanResultScreen(
                                 contentDescription = null,
                                 modifier = Modifier.padding(end = 8.dp)
                             )
-                            Text("Choose File")
+                            Text(stringResource(io.github.iostreamchik.scanner.R.string.file_scan_choose_file))
                         }
                     }
                 } else {
@@ -263,8 +286,15 @@ fun FileScanResultScreen(
                                             verticalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
                                             Text(
-                                                text = item?.first?.replaceFirstChar { it.uppercase() }
-                                                    ?: "",
+                                                text = when (item?.first) {
+                                                    "blur" -> stringResource(io.github.iostreamchik.scanner.R.string.step_blur)
+                                                    "clahe" -> stringResource(io.github.iostreamchik.scanner.R.string.step_clahe)
+                                                    "morph" -> stringResource(io.github.iostreamchik.scanner.R.string.step_morph)
+                                                    "edges" -> stringResource(io.github.iostreamchik.scanner.R.string.step_edges)
+                                                    "mask" -> stringResource(io.github.iostreamchik.scanner.R.string.step_mask)
+                                                    "corners" -> stringResource(io.github.iostreamchik.scanner.R.string.step_corners)
+                                                    else -> ""
+                                                },
                                                 fontSize = 14.sp,
                                                 fontWeight = FontWeight.Medium,
                                             )
@@ -315,7 +345,7 @@ fun FileScanResultScreen(
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(
-                                        text = "Original",
+                                        text = stringResource(io.github.iostreamchik.scanner.R.string.file_scan_original),
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
                                     )
@@ -354,7 +384,7 @@ fun FileScanResultScreen(
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(
-                                        text = "Detected",
+                                        text = stringResource(io.github.iostreamchik.scanner.R.string.file_scan_detected),
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
                                     )
@@ -389,17 +419,7 @@ fun FileScanResultScreen(
                                 }
                             }
                         }
-                        AssistChip(
-                            onClick = { },
-                            label = { Text("Detector: ${detectionParamsState.value.detectorName}") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.ImageSearch,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(AssistChipDefaults.IconSize)
-                                )
-                            }
-                        )
+
                         Spacer(modifier = Modifier.height(84.dp))
                     }
                 }
