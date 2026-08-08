@@ -504,7 +504,7 @@ fun CameraScreen(
                     .align(Alignment.BottomCenter)
                     .offset(y = 8.dp)
                     .clip(RoundedCornerShape(24.dp))
-                    .background(MaterialTheme.colorScheme.background)
+                    .background(CameraBackground)
                     .padding(8.dp)
                 ,
                 onClick = toScanFromFile,

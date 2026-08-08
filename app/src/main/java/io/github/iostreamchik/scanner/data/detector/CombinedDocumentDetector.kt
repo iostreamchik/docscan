@@ -159,7 +159,7 @@ class CombinedDocumentDetector(
                     lastUsedDetector = primaryBest.key
                     when (primaryBest.key) {
                         AsyncDetectorSource.MINIMAL -> minimalDetector.detectionParams?.value?.let { _detectionParams.value = it.copy(detectorName = "Minimal") }
-                        AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> _detectionParams.value = opencv5Detector.detectionParams.value.copy(detectorName = "DirectionalSuppression")
+                        AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> _detectionParams.value = opencv5Detector.detectionParams.value.copy(detectorName = "Directional Suppression")
                         else -> {}
                     }
                     Log.d(TAG, "  RESULT: $primaryBest.key won with deviation ${"%.2f".format(primaryBest.value.deviation)}°")

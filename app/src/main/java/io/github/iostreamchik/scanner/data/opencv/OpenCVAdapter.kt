@@ -35,6 +35,7 @@ object OpenCVAdapter {
         Imgproc.getStructuringElement(Imgproc.MORPH_RECT, size).also { created ->
             kernel.release()
             created.copyTo(kernel)
+            created.release()
         }
     }
 
