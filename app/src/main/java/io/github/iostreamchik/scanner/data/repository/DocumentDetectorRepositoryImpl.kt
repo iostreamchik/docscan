@@ -2,7 +2,7 @@ package io.github.iostreamchik.scanner.data.repository
 
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.PipelineParams
-import io.github.iostreamchik.scanner.domain.model.IntermediateSnapshots
+import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.domain.repository.IDocumentDetectorRepository
 import io.github.iostreamchik.scanner.data.detector.IDocumentDetector
 import kotlinx.coroutines.flow.StateFlow
@@ -45,9 +45,9 @@ class DocumentDetectorRepositoryImpl(
     override val detectorName: String
         get() = detector.detectorName
 
-    override fun captureIntermediateSnapshots(rotation: Int): IntermediateSnapshots {
+    override fun captureIntermediateSnapshots(rotation: Int): IntermediateBitmaps {
         val snapshots = detector.captureIntermediateSnapshots(rotation)
-        return IntermediateSnapshots(
+        return IntermediateBitmaps(
             blur = snapshots.blur,
             clahe = snapshots.clahe,
             morph = snapshots.morph,
@@ -57,9 +57,9 @@ class DocumentDetectorRepositoryImpl(
         )
     }
 
-    override fun capturePostDetectionSnapshots(rotation: Int): IntermediateSnapshots {
+    override fun capturePostDetectionSnapshots(rotation: Int): IntermediateBitmaps {
         val snapshots = detector.capturePostDetectionSnapshots(rotation)
-        return IntermediateSnapshots(
+        return IntermediateBitmaps(
             blur = snapshots.blur,
             clahe = snapshots.clahe,
             morph = snapshots.morph,

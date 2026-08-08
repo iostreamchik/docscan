@@ -11,7 +11,7 @@ import android.graphics.Paint
 import android.util.Log
 import io.github.iostreamchik.scanner.data.utils.computeAngle
 import io.github.iostreamchik.scanner.data.utils.toBitmap
-import io.github.iostreamchik.scanner.domain.model.IntermediateSnapshots
+import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.PipelineParams
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
@@ -229,14 +229,14 @@ class CornerKeypointDetector(
 
     override fun captureIntermediateSnapshots(
         rotation: Int
-    ): IntermediateSnapshots {
+    ): IntermediateBitmaps {
         val cornerBitmap = cachedCornerBitmap
         return if (cornerBitmap != null) {
-            IntermediateSnapshots(
+            IntermediateBitmaps(
                 corners = cornerBitmap.copy(Bitmap.Config.ARGB_8888, false)
             )
         } else {
-            IntermediateSnapshots()
+            IntermediateBitmaps()
         }
     }
 

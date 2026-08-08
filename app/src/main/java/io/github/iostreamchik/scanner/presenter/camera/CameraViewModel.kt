@@ -21,6 +21,7 @@ import io.github.iostreamchik.scanner.data.utils.toSortedQuad
 import io.github.iostreamchik.scanner.data.utils.warpDocumentHighQuality
 import io.github.iostreamchik.scanner.domain.repository.IDocumentDetectorRepository
 import io.github.iostreamchik.scanner.entity.DetectionParameters
+import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.PipelineParams
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -212,13 +213,9 @@ class CameraViewModel(
             val postSnapshots = repository.capturePostDetectionSnapshots(rotation)
             setState {
                 copy(
-                    intermediateBitmaps = intermediateBitmaps.copy(
-                        blur = snapshots.blur,
-                        clahe = snapshots.clahe,
-                        morph = snapshots.morph,
+                    intermediateBitmaps = snapshots.copy(
                         edges = snapshots.edges ?: originalFrame,
-                        mask = postSnapshots.mask ?: snapshots.mask,
-                        corners = snapshots.corners
+                        mask = postSnapshots.mask ?: snapshots.mask
                     )
                 )
             }

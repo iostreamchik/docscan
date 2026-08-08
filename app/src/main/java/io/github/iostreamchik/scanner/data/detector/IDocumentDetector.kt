@@ -1,6 +1,6 @@
 package io.github.iostreamchik.scanner.data.detector
 
-import io.github.iostreamchik.scanner.domain.model.IntermediateSnapshots
+import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.PipelineParams
 import kotlinx.coroutines.flow.StateFlow
@@ -77,7 +77,7 @@ interface IDocumentDetector {
      */
     fun captureIntermediateSnapshots(
         rotation: Int
-    ): IntermediateSnapshots = IntermediateSnapshots()
+    ): IntermediateBitmaps = IntermediateBitmaps()
 
     /**
      * Captures snapshots that are only available after [detectQuad] has run.
@@ -89,7 +89,7 @@ interface IDocumentDetector {
      */
     fun capturePostDetectionSnapshots(
         rotation: Int
-    ): IntermediateSnapshots = IntermediateSnapshots()
+    ): IntermediateBitmaps = IntermediateBitmaps()
 
     /**
      * Releases all native resources held by this detector (pooled Mats, ONNX sessions, etc.).

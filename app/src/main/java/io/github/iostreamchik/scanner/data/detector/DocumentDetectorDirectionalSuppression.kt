@@ -1,7 +1,7 @@
 package io.github.iostreamchik.scanner.data.detector
 
 import android.graphics.Bitmap
-import io.github.iostreamchik.scanner.domain.model.IntermediateSnapshots
+import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.PipelineParams
 import io.github.iostreamchik.scanner.data.utils.fixRotation
@@ -189,12 +189,12 @@ class DocumentDetectorDirectionalSuppression(
 
     override fun captureIntermediateSnapshots(
         rotation: Int
-    ): IntermediateSnapshots {
+    ): IntermediateBitmaps {
         val toBitmap = { mat: Mat ->
             mat.fixRotation(rotation).toBitmap()
                 .copy(Bitmap.Config.ARGB_8888, false)
         }
-        return IntermediateSnapshots(
+        return IntermediateBitmaps(
             blur = toBitmap(matBundle.getBlurred()),
             clahe = toBitmap(matBundle.getEnhanced()),
             morph = toBitmap(matBundle.getMorph()),

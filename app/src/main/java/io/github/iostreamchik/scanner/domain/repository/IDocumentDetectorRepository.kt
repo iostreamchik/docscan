@@ -2,7 +2,7 @@ package io.github.iostreamchik.scanner.domain.repository
 
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.PipelineParams
-import io.github.iostreamchik.scanner.domain.model.IntermediateSnapshots
+import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import kotlinx.coroutines.flow.StateFlow
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
@@ -36,9 +36,9 @@ interface IDocumentDetectorRepository {
 
     val detectorName: String
 
-    fun captureIntermediateSnapshots(rotation: Int): IntermediateSnapshots
+    fun captureIntermediateSnapshots(rotation: Int): IntermediateBitmaps
 
-    fun capturePostDetectionSnapshots(rotation: Int): IntermediateSnapshots
+    fun capturePostDetectionSnapshots(rotation: Int): IntermediateBitmaps
 
     fun release()
 }

@@ -5,11 +5,9 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Paint
 import android.util.Log
-import io.github.iostreamchik.scanner.domain.model.IntermediateSnapshots
+import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.PipelineParams
 import io.github.iostreamchik.scanner.data.utils.computeAngle
@@ -475,27 +473,27 @@ class SegmentationDetector(
 
     override fun captureIntermediateSnapshots(
         rotation: Int
-    ): IntermediateSnapshots {
+    ): IntermediateBitmaps {
         val maskMat = cachedMask
         return if (maskMat != null && !maskMat.empty() && cachedRawBitmap != null) {
-            IntermediateSnapshots(
+            IntermediateBitmaps(
                 mask = buildMaskOverlay(cachedRawBitmap!!, maskMat, rotation)
             )
         } else {
-            IntermediateSnapshots()
+            IntermediateBitmaps()
         }
     }
 
     override fun capturePostDetectionSnapshots(
         rotation: Int
-    ): IntermediateSnapshots {
+    ): IntermediateBitmaps {
         val maskMat = cachedMask
         return if (maskMat != null && !maskMat.empty() && cachedRawBitmap != null) {
-            IntermediateSnapshots(
+            IntermediateBitmaps(
                 mask = buildMaskOverlay(cachedRawBitmap!!, maskMat, rotation)
             )
         } else {
-            IntermediateSnapshots()
+            IntermediateBitmaps()
         }
     }
 

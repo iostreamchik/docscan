@@ -3,6 +3,7 @@ package io.github.iostreamchik.scanner.presenter.camera
 import androidx.annotation.StringRes
 import android.graphics.Bitmap
 import androidx.compose.runtime.Stable
+import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.PipelineParams
 
 @Stable
@@ -17,12 +18,3 @@ data class CameraState(
     val pipelineParams: PipelineParams = PipelineParams(),
 )
 
-@Stable
-data class IntermediateBitmaps(
-    val blur: Bitmap? = null,
-    val clahe: Bitmap? = null,
-    val morph: Bitmap? = null,
-    val edges: Bitmap? = null,
-    val mask: Bitmap? = null,
-    val corners: Bitmap? = null,
-)

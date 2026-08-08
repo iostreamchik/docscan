@@ -3,7 +3,7 @@ package io.github.iostreamchik.scanner.data.detector
 import android.content.Context
 import android.util.Log
 import io.github.iostreamchik.scanner.data.utils.computeAngle
-import io.github.iostreamchik.scanner.domain.model.IntermediateSnapshots
+import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.PipelineParams
 import io.github.iostreamchik.scanner.data.opencv.MatBundle
@@ -218,7 +218,7 @@ class CombinedDocumentDetector(
 
     override fun captureIntermediateSnapshots(
         rotation: Int
-    ): IntermediateSnapshots {
+    ): IntermediateBitmaps {
         return when (lastUsedDetector) {
             AsyncDetectorSource.SEGMENTATION -> onnxDetector.captureIntermediateSnapshots(rotation)
             AsyncDetectorSource.CORNER_KEYPOINT -> cornerKeypointDetector.captureIntermediateSnapshots(rotation)
@@ -229,11 +229,11 @@ class CombinedDocumentDetector(
 
     override fun capturePostDetectionSnapshots(
         rotation: Int
-    ): IntermediateSnapshots {
+    ): IntermediateBitmaps {
         return if (lastUsedDetector == AsyncDetectorSource.SEGMENTATION) {
             onnxDetector.capturePostDetectionSnapshots(rotation)
         } else {
-            IntermediateSnapshots()
+            IntermediateBitmaps()
         }
     }
 
