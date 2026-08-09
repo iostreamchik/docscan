@@ -1,8 +1,6 @@
 package io.github.iostreamchik.scanner.data.detector
 
 import ai.onnxruntime.OnnxTensor
-import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -29,7 +27,6 @@ import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.geometry.Geometry
 import org.opencv.imgproc.Imgproc
-import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -42,8 +39,7 @@ class SegmentationDetector(
     private val useCustomNormalization: Boolean = true
 ) : IDocumentDetector {
 
-    private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
-    private val sessionOptions: OrtSession.SessionOptions = OrtSession.SessionOptions()
+    private val sessionManager = OnnxSessionManager(context, modelPath)
 
     var maskThreshold: Float = 0.5f
         set(value) {
@@ -56,31 +52,8 @@ class SegmentationDetector(
     private val _detectionParams = MutableStateFlow(DetectionParameters())
     override val detectionParams = _detectionParams.asStateFlow()
 
-    private var session: OrtSession? = null
-    private var inputName: String? = null
-    private var isInit = false
-
     internal var cachedMask: Mat? = null
     private var cachedRawBitmap: Bitmap? = null
-
-    private fun initModel() {
-        try {
-            sessionOptions.addXnnpack(emptyMap())
-            sessionOptions.setIntraOpNumThreads(1)
-            sessionOptions.setMemoryPatternOptimization(true)
-            sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            sessionOptions.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
-
-            val modelBytes = context.assets.open(modelPath).use { it.readBytes() }
-
-            session = env.createSession(modelBytes, sessionOptions)
-            inputName = session!!.inputNames.iterator().next()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to load ONNX model", e)
-        } finally {
-            sessionOptions.close()
-        }
-    }
 
     override fun preprocess(
         rawMat: Mat,
@@ -88,10 +61,7 @@ class SegmentationDetector(
         scaledHeight: Int,
         params: PipelineParams
     ): Mat {
-        if (!isInit) {
-            initModel()
-            isInit = true
-        }
+        sessionManager.init(TAG)
 
         cachedMask?.release()
         cachedMask = null
@@ -99,7 +69,7 @@ class SegmentationDetector(
         cachedRawBitmap = rawMat.toBitmap()
             .copy(Bitmap.Config.ARGB_8888, false)
 
-        val sess = session ?: return matBundle.getMorph()
+        val sess = sessionManager.getSession() ?: return matBundle.getMorph()
 
         val scale = INPUT_SIZE.toDouble() / max(rawMat.cols(), rawMat.rows())
         val resizedW = (rawMat.cols() * scale).toInt()
@@ -133,25 +103,10 @@ class SegmentationDetector(
         Core.subtract(rgbPadded, mean, rgbPadded)
         Core.multiply(rgbPadded, std, rgbPadded)
 
-        val channels = mutableListOf<Mat>()
-        Core.split(rgbPadded, channels)
+        val inputTensor = sessionManager.prepareInputTensor(rgbPadded, INPUT_SIZE, INPUT_CHANNELS)
 
-        val nchwData = FloatArray(INPUT_SIZE * INPUT_SIZE * INPUT_CHANNELS)
-        val channelSize = INPUT_SIZE * INPUT_SIZE
-        for (c in 0 until INPUT_CHANNELS) {
-            val channelData = FloatArray(channelSize)
-            channels[c].get(0, 0, channelData)
-            System.arraycopy(channelData, 0, nchwData, c * channelSize, channelSize)
-        }
-        channels.forEach { it.release() }
-
-        val inputShape =
-            longArrayOf(1, INPUT_CHANNELS.toLong(), INPUT_SIZE.toLong(), INPUT_SIZE.toLong())
-        val inputTensor =
-            OnnxTensor.createTensor(env, FloatBuffer.wrap(nchwData), inputShape)
-
-        val output: OrtSession.Result = try {
-            sess.run(mapOf(inputName!! to inputTensor))
+        val output = try {
+            sess.run(mapOf(sessionManager.inputName!! to inputTensor))
         } catch (e: Exception) {
             Log.e(TAG, "Inference failed", e)
             inputTensor.close()
@@ -535,17 +490,12 @@ class SegmentationDetector(
     }
 
     override fun release() {
-        session?.close()
-        session = null
+        sessionManager.close()
         cachedMask?.release()
         cachedMask = null
         cachedRawBitmap?.recycle()
         cachedRawBitmap = null
         matBundle.releaseAll()
-        try {
-            env.close()
-        } catch (_: Exception) {
-        }
     }
 
     companion object {

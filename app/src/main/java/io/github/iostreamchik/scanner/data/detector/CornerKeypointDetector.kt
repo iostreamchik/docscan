@@ -1,8 +1,6 @@
 package io.github.iostreamchik.scanner.data.detector
 
 import ai.onnxruntime.OnnxTensor
-import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -25,7 +23,6 @@ import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
-import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.max
@@ -39,8 +36,7 @@ class CornerKeypointDetector(
     private val modelPath: String = "onnx/lcnet050_p_multi_decoder_l3_d64_256_fp32.onnx",
 ) : IDocumentDetector {
 
-    private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
-    private val sessionOptions: OrtSession.SessionOptions = OrtSession.SessionOptions()
+    private val sessionManager = OnnxSessionManager(context, modelPath)
 
     var minScore: Float = 0.3f
         set(value) {
@@ -67,33 +63,11 @@ class CornerKeypointDetector(
     private val _detectionParams = MutableStateFlow(DetectionParameters())
     override val detectionParams = _detectionParams.asStateFlow()
 
-    private var session: OrtSession? = null
-    private var inputName: String? = null
-    private var isInit = false
-
     private var cachedCoords: FloatArray? = null
     private var cachedScore: Float = 0f
     private var cachedInputSize = INPUT_SIZE
     private var cachedCornerBitmap: Bitmap? = null
     private var cachedRawMat: Mat? = null
-
-    private fun initModel() {
-        try {
-            sessionOptions.addXnnpack(emptyMap())
-            sessionOptions.setIntraOpNumThreads(1)
-            sessionOptions.setMemoryPatternOptimization(true)
-            sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            sessionOptions.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
-
-            val modelBytes = context.assets.open(modelPath).use { it.readBytes() }
-            session = env.createSession(modelBytes, sessionOptions)
-            inputName = session!!.inputNames.iterator().next()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to load ONNX model", e)
-        } finally {
-            sessionOptions.close()
-        }
-    }
 
     override fun preprocess(
         rawMat: Mat,
@@ -101,10 +75,7 @@ class CornerKeypointDetector(
         scaledHeight: Int,
         params: PipelineParams
     ): Mat {
-        if (!isInit) {
-            initModel()
-            isInit = true
-        }
+        sessionManager.init(TAG)
 
         cachedCoords = null
         cachedScore = 0f
@@ -114,7 +85,7 @@ class CornerKeypointDetector(
         cachedRawMat = null
         cachedRawMat = rawMat.clone()
 
-        val sess = session ?: return matBundle.getMorph()
+        val sess = sessionManager.getSession() ?: return matBundle.getMorph()
 
         val resized = Mat()
         Imgproc.resize(rawMat, resized, Size(INPUT_SIZE.toDouble(), INPUT_SIZE.toDouble()))
@@ -125,24 +96,11 @@ class CornerKeypointDetector(
 
         rgb.convertTo(rgb, CvType.CV_32FC3, 1.0 / 255.0)
 
-        val channels = mutableListOf<Mat>()
-        Core.split(rgb, channels)
-
-        val nchwData = FloatArray(INPUT_SIZE * INPUT_SIZE * INPUT_CHANNELS)
-        val channelSize = INPUT_SIZE * INPUT_SIZE
-        for (c in 0 until INPUT_CHANNELS) {
-            val channelData = FloatArray(channelSize)
-            channels[c].get(0, 0, channelData)
-            System.arraycopy(channelData, 0, nchwData, c * channelSize, channelSize)
-        }
-        channels.forEach { it.release() }
+        val inputTensor = sessionManager.prepareInputTensor(rgb, INPUT_SIZE, INPUT_CHANNELS)
         rgb.release()
 
-        val inputShape = longArrayOf(1, INPUT_CHANNELS.toLong(), INPUT_SIZE.toLong(), INPUT_SIZE.toLong())
-        val inputTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(nchwData), inputShape)
-
-        val output: OrtSession.Result = try {
-            sess.run(mapOf(inputName!! to inputTensor))
+        val output = try {
+            sess.run(mapOf(sessionManager.inputName!! to inputTensor))
         } catch (e: Exception) {
             Log.e(TAG, "Inference failed", e)
             inputTensor.close()
@@ -482,8 +440,7 @@ class CornerKeypointDetector(
     }
 
     override fun release() {
-        session?.close()
-        session = null
+        sessionManager.close()
         cachedCoords = null
         cachedScore = 0f
         cachedCornerBitmap?.recycle()
@@ -491,10 +448,6 @@ class CornerKeypointDetector(
         cachedRawMat?.release()
         cachedRawMat = null
         matBundle.releaseAll()
-        try {
-            env.close()
-        } catch (_: Exception) {
-        }
     }
 
     companion object {
