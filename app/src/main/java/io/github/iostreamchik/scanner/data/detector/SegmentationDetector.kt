@@ -10,10 +10,10 @@ import android.util.Log
 import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.PipelineParams
-import io.github.iostreamchik.scanner.data.utils.computeAngle
-import io.github.iostreamchik.scanner.data.utils.fixRotation
+import io.github.iostreamchik.scanner.data.utils.validateQuadRectangularity
 import io.github.iostreamchik.scanner.data.utils.isRectangle
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
+import io.github.iostreamchik.scanner.data.utils.fixRotation
 import io.github.iostreamchik.scanner.data.utils.scoreContourWithParams
 import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
 import io.github.iostreamchik.scanner.data.utils.toBitmap
@@ -318,18 +318,8 @@ class SegmentationDetector(
         return foregroundPixels.toFloat() / totalPixels
     }
 
-    private fun isQuadRectangular(pts: Array<Point>): Boolean {
-        var maxDeviation = 0.0
-        for (i in 0..3) {
-            val angle = computeAngle(
-                pts[(i + 1) % 4],
-                pts[(i + 3) % 4],
-                pts[i]
-            )
-            maxDeviation = max(maxDeviation, abs(90.0 - angle))
-        }
-        return maxDeviation < 15
-    }
+    private fun isQuadRectangular(pts: Array<Point>): Boolean =
+        validateQuadRectangularity(pts.toList(), 15.0)
 
     private fun getAspectRatio(pts: Array<Point>): Double {
         val xs = pts.map { it.x }

@@ -1,14 +1,11 @@
 package io.github.iostreamchik.scanner.data.detector
 
-import android.graphics.Bitmap
-import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
+import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.PipelineParams
-import io.github.iostreamchik.scanner.data.utils.fixRotation
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
 import io.github.iostreamchik.scanner.data.opencv.OpenCVAdapter
 import io.github.iostreamchik.scanner.data.utils.scoreContourWithParams
-import io.github.iostreamchik.scanner.data.utils.toBitmap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -158,20 +155,8 @@ class DocumentDetectorMinimal(
         return result
     }
 
-    override fun captureIntermediateSnapshots(
-        rotation: Int
-    ): IntermediateBitmaps {
-        val toBitmap = { mat: Mat ->
-            mat.fixRotation(rotation).toBitmap()
-                .copy(Bitmap.Config.ARGB_8888, false)
-        }
-        return IntermediateBitmaps(
-            blur = toBitmap(matBundle.getBlurred()),
-            clahe = toBitmap(matBundle.getEnhanced()),
-            morph = toBitmap(matBundle.getMorph()),
-            edges = toBitmap(matBundle.getEdges())
-        )
-    }
+    override fun captureIntermediateSnapshots(rotation: Int): IntermediateBitmaps =
+        matBundle.captureClassicalSnapshots(rotation)
 
     override fun release() {
         matBundle.releaseAll()

@@ -9,7 +9,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
-import io.github.iostreamchik.scanner.data.utils.computeAngle
+import io.github.iostreamchik.scanner.data.utils.computeMaxAngleDeviation
 import io.github.iostreamchik.scanner.data.utils.toBitmap
 import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
@@ -407,16 +407,7 @@ class CornerKeypointDetector(
     private fun validateCornerGeometry(corners: List<Point>): Boolean {
         if (corners.size != 4) return false
 
-        var maxDeviation = 0.0
-        for (i in 0..3) {
-            val angle = computeAngle(
-                corners[(i + 1) % 4],
-                corners[(i + 3) % 4],
-                corners[i]
-            )
-            maxDeviation = max(maxDeviation, abs(90.0 - angle))
-        }
-        if (maxDeviation > maxAngleDeviation) return false
+        if (computeMaxAngleDeviation(corners) > maxAngleDeviation) return false
 
         val xs = corners.map { it.x }
         val ys = corners.map { it.y }

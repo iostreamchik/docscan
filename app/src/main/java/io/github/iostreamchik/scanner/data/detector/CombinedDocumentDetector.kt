@@ -2,7 +2,7 @@ package io.github.iostreamchik.scanner.data.detector
 
 import android.content.Context
 import android.util.Log
-import io.github.iostreamchik.scanner.data.utils.computeAngle
+import io.github.iostreamchik.scanner.data.utils.computeMaxAngleDeviation
 import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.PipelineParams
@@ -16,8 +16,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.runBlocking
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
-import kotlin.math.abs
-import kotlin.math.max
 
 enum class AsyncDetectorSource(val detectionParamsName: String) {
     NONE(""),
@@ -158,7 +156,7 @@ class CombinedDocumentDetector(
                 if (primaryValid) {
                     lastUsedDetector = primaryBest.key
                     when (primaryBest.key) {
-                        AsyncDetectorSource.MINIMAL -> minimalDetector.detectionParams?.value?.let { _detectionParams.value = it.copy(detectorName = "Minimal") }
+                        AsyncDetectorSource.MINIMAL -> _detectionParams.value = minimalDetector.detectionParams.value.copy(detectorName = "Minimal")
                         AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> _detectionParams.value = opencv5Detector.detectionParams.value.copy(detectorName = "Directional Suppression")
                         else -> {}
                     }
@@ -239,14 +237,7 @@ class CombinedDocumentDetector(
 
     private fun computeMaxAngleDeviation(quad: MatOfPoint): Double {
         val pts = sortQuadPoints(quad.toArray().toList())
-        if (pts.size != 4) return Double.MAX_VALUE
-
-        var maxDeviation = 0.0
-        for (i in 0..3) {
-            val angle = computeAngle(pts[(i + 1) % 4], pts[(i + 3) % 4], pts[i])
-            maxDeviation = max(maxDeviation, abs(90.0 - angle))
-        }
-        return maxDeviation
+        return computeMaxAngleDeviation(pts)
     }
 
     override fun release() {

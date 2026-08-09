@@ -122,6 +122,32 @@ fun computeAngle(p1: Point, p2: Point, center: Point): Double {
 }
 
 /**
+ * Computes the maximum deviation from 90° across all four interior angles of a quad.
+ */
+fun computeMaxAngleDeviation(corners: List<Point>): Double {
+    if (corners.size != 4) return Double.MAX_VALUE
+
+    var maxDeviation = 0.0
+    for (i in 0..3) {
+        val angle = computeAngle(
+            corners[(i + 1) % 4],
+            corners[(i + 3) % 4],
+            corners[i]
+        )
+        maxDeviation = max(maxDeviation, abs(90.0 - angle))
+    }
+    return maxDeviation
+}
+
+/**
+ * Validates that all four interior angles of a quad are within [maxDeviationDegrees] of 90°.
+ */
+fun validateQuadRectangularity(
+    corners: List<Point>,
+    maxDeviationDegrees: Double = 15.0
+): Boolean = computeMaxAngleDeviation(corners) < maxDeviationDegrees
+
+/**
  * Computes a simple hash for a quad's point coordinates.
  * Used to detect when the same quad is detected repeatedly.
  */

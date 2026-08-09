@@ -103,6 +103,7 @@ fun CameraScreen(
     val cornerRadius = rememberDeviceCornerRadiusDp()
 
     val boundCamera = remember { mutableStateOf<Camera?>(null) }
+    val cameraProviderRef = remember { mutableStateOf<ProcessCameraProvider?>(null) }
 
     val (permissionGranted, setPermissionGranted) = remember { mutableStateOf(false) }
     val (showRationale, setShowRationale) = remember { mutableStateOf(false) }
@@ -272,6 +273,7 @@ fun CameraScreen(
                             }
 
                             try {
+                                cameraProviderRef.value = cameraProvider
                                 cameraProvider.unbindAll()
                                 boundCamera.value = cameraProvider.bindToLifecycle(
                                     lifecycleOwner,
@@ -520,6 +522,7 @@ fun CameraScreen(
         DisposableEffect(Unit) {
             onDispose {
                 contourState.value?.release()
+                cameraProviderRef.value?.unbindAll()
             }
         }
 

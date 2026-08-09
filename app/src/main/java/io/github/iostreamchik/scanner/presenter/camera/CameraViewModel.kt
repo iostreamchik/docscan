@@ -313,6 +313,7 @@ class CameraViewModel(
         cameraExecutor.shutdown()
         cameraExecutor.awaitTermination(5, TimeUnit.SECONDS)
         clearBitmaps()
+        clearQuadHistory()
         lastWarpedQuadHash = 0
     }
 
@@ -324,6 +325,12 @@ class CameraViewModel(
                 resultBitmap = null
             )
         }
+        lastWarpedBitmap?.recycle()
         lastWarpedBitmap = null
+    }
+
+    private fun clearQuadHistory() {
+        quadHistory.forEach { it.release() }
+        quadHistory.clear()
     }
 }

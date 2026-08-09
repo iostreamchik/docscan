@@ -250,8 +250,9 @@ fun Mat.enhanceDocument(): Mat {
         Imgproc.cvtColor(lab, result, Imgproc.COLOR_Lab2RGB)
 
         // Optional sharpening
-        Imgproc.GaussianBlur(result, blurred, Size(0.0, 0.0), 2.0)
-        Core.addWeighted(result, 1.3, blurred, -0.3, 0.0, result)
+        val sharpened = result.sharpen()
+        sharpened.copyTo(result)
+        sharpened.release()
     } finally {
         channels.forEach { it.release() }
         rgb.release()
