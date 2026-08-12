@@ -123,7 +123,7 @@ object OpenCVAdapter {
         }
 
         val morphSource = if (skipMorphClose) bundle.getEnhanced() else bundle.getMorph()
-        Imgproc.GaussianBlur(morphSource, bundle.getTemp(), Size(5.0, 5.0), 2.0)
+        Imgproc.GaussianBlur(morphSource, bundle.getTemp(), Size(3.0, 3.0), 2.0)
 
         val otsu = Imgproc.threshold(
             bundle.getTemp(),

@@ -1,6 +1,7 @@
 package io.github.iostreamchik.scanner.data.detector
 
 import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -33,13 +34,14 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 class SegmentationDetector(
-    private val context: Context,
+    context: Context,
+    env: OrtEnvironment,
     private val matBundle: IMatBundle,
-    private val modelPath: String = "onnx/deeplabv3_mbv3_docseg.onnx",
+    modelPath: String = "onnx/deeplabv3_mbv3_docseg.onnx",
     private val useCustomNormalization: Boolean = true
 ) : IDocumentDetector {
 
-    private val sessionManager = OnnxSessionManager(context, modelPath)
+    private val sessionManager = OnnxSessionManager(context, env, modelPath)
 
     var maskThreshold: Float = 0.5f
         set(value) {

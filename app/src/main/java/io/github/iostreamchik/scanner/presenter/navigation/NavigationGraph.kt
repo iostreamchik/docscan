@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import org.koin.androidx.compose.koinViewModel
-import org.koin.core.qualifier.named
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -31,7 +30,7 @@ fun AppNavGraph(
         modifier = modifier.fillMaxSize()
     ) {
         composable(NavigationDestination.camera) {
-            val viewModel = koinViewModel<CameraViewModel>(named("camera"))
+            val viewModel = koinViewModel<CameraViewModel>()
             CameraScreen(
                 modifier = Modifier.fillMaxSize(),
                 viewModel = viewModel,
@@ -42,7 +41,7 @@ fun AppNavGraph(
             )
         }
         composable(NavigationDestination.fileScanResult) {
-            val viewModel = koinViewModel<CameraViewModel>(named("fileScan"))
+            val viewModel = koinViewModel<CameraViewModel>()
             FileScanResultScreen(
                 modifier = Modifier.fillMaxSize(),
                 viewModel = viewModel,

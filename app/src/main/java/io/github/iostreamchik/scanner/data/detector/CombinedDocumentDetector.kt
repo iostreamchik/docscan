@@ -1,12 +1,10 @@
 package io.github.iostreamchik.scanner.data.detector
 
-import android.content.Context
 import android.util.Log
 import io.github.iostreamchik.scanner.data.utils.computeMaxAngleDeviation
 import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.PipelineParams
-import io.github.iostreamchik.scanner.data.opencv.MatBundle
 import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -26,17 +24,15 @@ enum class AsyncDetectorSource(val detectionParamsName: String) {
 }
 
 class CombinedDocumentDetector(
-    context: Context,
+    private val minimalDetector: IDocumentDetector,
+    private val opencv5Detector: IDocumentDetector,
+    private val cornerKeypointDetector: IDocumentDetector,
+    private val onnxDetector: IDocumentDetector,
 ) : IDocumentDetector {
 
     private companion object {
         private const val TAG = "AsyncCombinedDetector"
     }
-
-    private val minimalDetector = DocumentDetectorMinimal(MatBundle())
-    private val opencv5Detector = DocumentDetectorDirectionalSuppression(MatBundle())
-    private val cornerKeypointDetector = CornerKeypointDetector(context, MatBundle())
-    private val onnxDetector = SegmentationDetector(context, MatBundle())
 
     private val cachedMorphImages = mutableMapOf<AsyncDetectorSource, Mat?>()
     private var cachedRawMat: Mat? = null
@@ -156,8 +152,14 @@ class CombinedDocumentDetector(
                 if (primaryValid) {
                     lastUsedDetector = primaryBest.key
                     when (primaryBest.key) {
-                        AsyncDetectorSource.MINIMAL -> _detectionParams.value = minimalDetector.detectionParams.value.copy(detectorName = "Minimal")
-                        AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> _detectionParams.value = opencv5Detector.detectionParams.value.copy(detectorName = "Directional Suppression")
+                        AsyncDetectorSource.MINIMAL ->
+                            minimalDetector.detectionParams?.value?.let {
+                                _detectionParams.value = it.copy(detectorName = "Minimal")
+                            }
+                        AsyncDetectorSource.DIRECTIONAL_SUPPRESSION ->
+                            opencv5Detector.detectionParams?.value?.let {
+                                _detectionParams.value = it.copy(detectorName = "Directional Suppression")
+                            }
                         else -> {}
                     }
                     Log.d(TAG, "  RESULT: $primaryBest.key won with deviation ${"%.2f".format(primaryBest.value.deviation)}°")
@@ -186,7 +188,9 @@ class CombinedDocumentDetector(
 
                 if (cornerQuad != null && cornerKeypointDetector.validateQuadSize(cornerQuad, originalWidth, originalHeight)) {
                     lastUsedDetector = AsyncDetectorSource.CORNER_KEYPOINT
-                    _detectionParams.value = cornerKeypointDetector.detectionParams.value.copy(detectorName = AsyncDetectorSource.CORNER_KEYPOINT.detectionParamsName)
+                    cornerKeypointDetector.detectionParams?.value?.let {
+                        _detectionParams.value = it.copy(detectorName = AsyncDetectorSource.CORNER_KEYPOINT.detectionParamsName)
+                    }
                     Log.d(TAG, "  RESULT: CORNER_KEYPOINT fallback detected")
                     return@coroutineScope cornerQuad
                 }
@@ -201,7 +205,9 @@ class CombinedDocumentDetector(
 
                 if (onnxQuad != null && onnxDetector.validateQuadSize(onnxQuad, originalWidth, originalHeight)) {
                     lastUsedDetector = AsyncDetectorSource.SEGMENTATION
-                    _detectionParams.value = onnxDetector.detectionParams.value.copy(detectorName = AsyncDetectorSource.SEGMENTATION.detectionParamsName)
+                    onnxDetector.detectionParams?.value?.let {
+                        _detectionParams.value = it.copy(detectorName = AsyncDetectorSource.SEGMENTATION.detectionParamsName)
+                    }
                     Log.d(TAG, "  RESULT: SEGMENTATION fallback detected")
                     return@coroutineScope onnxQuad
                 }

@@ -1,5 +1,6 @@
 package io.github.iostreamchik.scanner
 
+import ai.onnxruntime.OrtEnvironment
 import io.github.iostreamchik.scanner.presenter.camera.CameraViewModel
 import io.github.iostreamchik.scanner.data.detector.CombinedDocumentDetector
 import io.github.iostreamchik.scanner.data.detector.CornerKeypointDetector
@@ -20,42 +21,38 @@ import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 val appModule = module {
+    single { OrtEnvironment.getEnvironment() }
     factory<IMatBundle> { MatBundle() }
-    single<IDocumentDetector>(named("onnx")) {
-        SegmentationDetector(
-            get(),
-            get(),
-            "onnx/deeplabv3_mbv3_docseg.onnx",
-            useCustomNormalization = true
-        )
-    }
-    single<IDocumentDetector>(named("minimal")) {
+
+    factory<IDocumentDetector>(named("minimal")) {
         DocumentDetectorMinimal(get())
     }
-    single<IDocumentDetector>(named("directionalSuppression")) {
+    factory<IDocumentDetector>(named("directionalSuppression")) {
         DocumentDetectorDirectionalSuppression(get())
     }
-    single<IDocumentDetector>(named("segmentation")) {
-        SegmentationDetector(get(), get())
-    }
+
     single<IDocumentDetector>(named("cornerKeypoint")) {
-        CornerKeypointDetector(get(), get())
+        CornerKeypointDetector(get(), get(), get())
     }
+    single<IDocumentDetector>(named("segmentation")) {
+        SegmentationDetector(get(), get(), get())
+    }
+
     single<IDocumentDetector>(named("combined")) {
-        CombinedDocumentDetector(get())
+        CombinedDocumentDetector(
+            get<IDocumentDetector>(named("minimal")),
+            get<IDocumentDetector>(named("directionalSuppression")),
+            get<IDocumentDetector>(named("cornerKeypoint")),
+            get<IDocumentDetector>(named("segmentation")),
+        )
     }
+
     single<IDocumentDetectorRepository> {
         DocumentDetectorRepositoryImpl(get<IDocumentDetector>(named("combined")))
     }
-    viewModel<CameraViewModel>(named("camera")) {
-        CameraViewModel(
-            repository = get<IDocumentDetectorRepository>()
-        )
-    }
-    viewModel<CameraViewModel>(named("fileScan")) {
-        CameraViewModel(
-            repository = get<IDocumentDetectorRepository>()
-        )
+
+    viewModel {
+        CameraViewModel(repository = get<IDocumentDetectorRepository>())
     }
 }
 

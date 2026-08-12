@@ -11,10 +11,9 @@ import java.nio.FloatBuffer
 
 class OnnxSessionManager(
     private val context: Context,
+    private val env: OrtEnvironment,
     private val modelPath: String,
 ) {
-
-    private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
     private var session: OrtSession? = null
 
     val inputName: String?
@@ -41,7 +40,7 @@ class OnnxSessionManager(
         }
     }
 
-    fun getEnvironment(): OrtEnvironment = env
+
 
     fun getSession(): OrtSession? = session
 
@@ -70,9 +69,5 @@ class OnnxSessionManager(
     fun close() {
         session?.close()
         session = null
-        try {
-            env.close()
-        } catch (_: Exception) {
-        }
     }
 }

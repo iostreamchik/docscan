@@ -1,6 +1,7 @@
 package io.github.iostreamchik.scanner.data.detector
 
 import ai.onnxruntime.OnnxTensor
+import ai.onnxruntime.OrtEnvironment
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -32,11 +33,12 @@ import androidx.core.graphics.createBitmap
 
 class CornerKeypointDetector(
     private val context: Context,
+    private val env: OrtEnvironment,
     private val matBundle: IMatBundle,
     private val modelPath: String = "onnx/lcnet050_p_multi_decoder_l3_d64_256_fp32.onnx",
 ) : IDocumentDetector {
 
-    private val sessionManager = OnnxSessionManager(context, modelPath)
+    private val sessionManager = OnnxSessionManager(context, env, modelPath)
 
     var minScore: Float = 0.3f
         set(value) {
