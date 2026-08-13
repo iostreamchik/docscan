@@ -11,7 +11,7 @@ data class PipelineParams(
     val cannyLow: Float = 0f,
     val cannyHigh: Float = 0f,
     val strongCloseSize: Int = 5,
-    val directionalKernelSize: Int = 6,
+    val directionalKernelSize: Int = 5,
     val approxPolyDPTolerance: Float = 0.025f,
     val minAreaFraction: Float = 0.025f,
     val scoreAreaWeight: Float = 0.5f,

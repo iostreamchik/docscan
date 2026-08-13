@@ -85,13 +85,8 @@ fun quadDistance(
     return (totalDistance / 4.0) / diagonal
 }
 
-/**
- * Checks if a 4-point contour approximates a rectangle by verifying
- * that all interior angles are close to 90°.
- */
 fun isRectangle(approx: MatOfPoint2f, toleranceDegrees: Double = 15.0): Boolean {
     val pts = approx.toArray()
-    var maxDeviation = 0.0
 
     for (i in 0..3) {
         val angle = computeAngle(
@@ -99,15 +94,12 @@ fun isRectangle(approx: MatOfPoint2f, toleranceDegrees: Double = 15.0): Boolean 
             pts[(i + 3) % 4],
             pts[i]
         )
-        maxDeviation = max(maxDeviation, abs(90 - angle))
+        if (angle.isNaN() || abs(90 - angle) >= toleranceDegrees) return false
     }
 
-    return maxDeviation < toleranceDegrees
+    return true
 }
 
-/**
- * Computes the interior angle (in degrees) between three points at a vertex.
- */
 fun computeAngle(p1: Point, p2: Point, center: Point): Double {
     val dx1 = p1.x - center.x
     val dy1 = p1.y - center.y
@@ -115,10 +107,15 @@ fun computeAngle(p1: Point, p2: Point, center: Point): Double {
     val dy2 = p2.y - center.y
 
     val dot = dx1 * dx2 + dy1 * dy2
-    val norm1 = sqrt(dx1 * dx1 + dy1 * dy1)
-    val norm2 = sqrt(dx2 * dx2 + dy2 * dy2)
+    val normSq1 = dx1 * dx1 + dy1 * dy1
+    val normSq2 = dx2 * dx2 + dy2 * dy2
 
-    return acos(dot / (norm1 * norm2)) * 180.0 / PI
+    if (normSq1 < 1e-9 || normSq2 < 1e-9) return Double.NaN
+
+    val normProd = sqrt(normSq1 * normSq2)
+    val cosTheta = (dot / normProd).coerceIn(-1.0, 1.0)
+
+    return acos(cosTheta) * 180.0 / PI
 }
 
 /**
