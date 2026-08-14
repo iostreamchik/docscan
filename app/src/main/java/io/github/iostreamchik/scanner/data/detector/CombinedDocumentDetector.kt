@@ -19,6 +19,7 @@ enum class AsyncDetectorSource(val detectionParamsName: String) {
     NONE(""),
     MINIMAL("Minimal"),
     DIRECTIONAL_SUPPRESSION("Directional Suppression"),
+    HEATMAP_CORNER("Heatmap Corner"),
     CORNER_KEYPOINT("Corner Keypoint"),
     SEGMENTATION("Segmentation")
 }
@@ -26,6 +27,7 @@ enum class AsyncDetectorSource(val detectionParamsName: String) {
 class CombinedDocumentDetector(
     private val minimalDetector: IDocumentDetector,
     private val opencv5Detector: IDocumentDetector,
+    private val heatmapCornerDetector: IDocumentDetector,
     private val cornerKeypointDetector: IDocumentDetector,
     private val onnxDetector: IDocumentDetector,
 ) : IDocumentDetector {
@@ -172,7 +174,31 @@ class CombinedDocumentDetector(
                     return@coroutineScope null
                 }
 
-                Log.d(TAG, "  Primary detectors failed, running CORNER_KEYPOINT fallback...")
+                Log.d(TAG, "  Primary detectors failed, running HEATMAP_CORNER fallback...")
+                val heatmapMorph = heatmapCornerDetector.preprocess(rawMat, cachedScaledWidth, cachedScaledHeight, params)
+                val heatmapQuad = heatmapCornerDetector.detectQuad(
+                    heatmapMorph, scaledWidth, scaledHeight,
+                    originalWidth, originalHeight, rotation, params
+                )
+                if (heatmapQuad != null) {
+                    val deviation = computeMaxAngleDeviation(heatmapQuad)
+                    angleDeviations[AsyncDetectorSource.HEATMAP_CORNER] = deviation
+                    Log.d(TAG, "  HEATMAP_CORNER: quad=${heatmapQuad.total()} pts, deviation=${"%.2f".format(deviation)}°")
+                } else {
+                    angleDeviations[AsyncDetectorSource.HEATMAP_CORNER] = Double.MAX_VALUE
+                }
+
+                if (heatmapQuad != null && heatmapCornerDetector.validateQuadSize(heatmapQuad, originalWidth, originalHeight)) {
+                    lastUsedDetector = AsyncDetectorSource.HEATMAP_CORNER
+                    heatmapCornerDetector.detectionParams?.value?.let {
+                        _detectionParams.value = it.copy(detectorName = AsyncDetectorSource.HEATMAP_CORNER.detectionParamsName)
+                    }
+                    Log.d(TAG, "  RESULT: HEATMAP_CORNER fallback detected")
+                    return@coroutineScope heatmapQuad
+                }
+                heatmapQuad?.release()
+
+                Log.d(TAG, "  HEATMAP_CORNER failed, running CORNER_KEYPOINT fallback...")
                 val cornerMorph = cornerKeypointDetector.preprocess(rawMat, cachedScaledWidth, cachedScaledHeight, params)
                 val cornerQuad = cornerKeypointDetector.detectQuad(
                     cornerMorph, scaledWidth, scaledHeight,
@@ -225,6 +251,7 @@ class CombinedDocumentDetector(
     ): IntermediateBitmaps {
         return when (lastUsedDetector) {
             AsyncDetectorSource.SEGMENTATION -> onnxDetector.captureIntermediateSnapshots(rotation)
+            AsyncDetectorSource.HEATMAP_CORNER -> heatmapCornerDetector.captureIntermediateSnapshots(rotation)
             AsyncDetectorSource.CORNER_KEYPOINT -> cornerKeypointDetector.captureIntermediateSnapshots(rotation)
             AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector.captureIntermediateSnapshots(rotation)
             else -> minimalDetector.captureIntermediateSnapshots(rotation)
@@ -255,6 +282,7 @@ class CombinedDocumentDetector(
         cachedScaledHeight = 0
         minimalDetector.release()
         opencv5Detector.release()
+        heatmapCornerDetector.release()
         cornerKeypointDetector.release()
         onnxDetector.release()
     }

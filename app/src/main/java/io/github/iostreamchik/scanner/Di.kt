@@ -6,6 +6,7 @@ import io.github.iostreamchik.scanner.data.detector.CombinedDocumentDetector
 import io.github.iostreamchik.scanner.data.detector.CornerKeypointDetector
 import io.github.iostreamchik.scanner.data.detector.DocumentDetectorDirectionalSuppression
 import io.github.iostreamchik.scanner.data.detector.DocumentDetectorMinimal
+import io.github.iostreamchik.scanner.data.detector.HeatmapCornerDetector
 import io.github.iostreamchik.scanner.data.detector.IDocumentDetector
 import io.github.iostreamchik.scanner.data.detector.SegmentationDetector
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
@@ -31,6 +32,9 @@ val appModule = module {
         DocumentDetectorDirectionalSuppression(get())
     }
 
+    single<IDocumentDetector>(named("heatmapCorner")) {
+        HeatmapCornerDetector(get(), get(), get())
+    }
     single<IDocumentDetector>(named("cornerKeypoint")) {
         CornerKeypointDetector(get(), get(), get())
     }
@@ -42,6 +46,7 @@ val appModule = module {
         CombinedDocumentDetector(
             get<IDocumentDetector>(named("minimal")),
             get<IDocumentDetector>(named("directionalSuppression")),
+            get<IDocumentDetector>(named("heatmapCorner")),
             get<IDocumentDetector>(named("cornerKeypoint")),
             get<IDocumentDetector>(named("segmentation")),
         )

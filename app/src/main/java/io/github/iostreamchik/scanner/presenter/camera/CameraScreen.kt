@@ -344,6 +344,7 @@ fun CameraScreen(
                     val useClassicalParams by remember {
                         derivedStateOf {
                             detectionParams.detectorName !in setOf(
+                                AsyncDetectorSource.HEATMAP_CORNER.detectionParamsName,
                                 AsyncDetectorSource.CORNER_KEYPOINT.detectionParamsName,
                                 AsyncDetectorSource.SEGMENTATION.detectionParamsName
                             )

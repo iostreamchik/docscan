@@ -100,27 +100,6 @@ fun isRectangle(approx: MatOfPoint2f, toleranceDegrees: Double = 15.0): Boolean 
     return true
 }
 
-fun computeAngle(p1: Point, p2: Point, center: Point): Double {
-    val dx1 = p1.x - center.x
-    val dy1 = p1.y - center.y
-    val dx2 = p2.x - center.x
-    val dy2 = p2.y - center.y
-
-    val dot = dx1 * dx2 + dy1 * dy2
-    val normSq1 = dx1 * dx1 + dy1 * dy1
-    val normSq2 = dx2 * dx2 + dy2 * dy2
-
-    if (normSq1 < 1e-9 || normSq2 < 1e-9) return Double.NaN
-
-    val normProd = sqrt(normSq1 * normSq2)
-    val cosTheta = (dot / normProd).coerceIn(-1.0, 1.0)
-
-    return acos(cosTheta) * 180.0 / PI
-}
-
-/**
- * Computes the maximum deviation from 90° across all four interior angles of a quad.
- */
 fun computeMaxAngleDeviation(corners: List<Point>): Double {
     if (corners.size != 4) return Double.MAX_VALUE
 
@@ -131,6 +110,7 @@ fun computeMaxAngleDeviation(corners: List<Point>): Double {
             corners[(i + 3) % 4],
             corners[i]
         )
+        if (angle.isNaN()) return Double.MAX_VALUE
         maxDeviation = max(maxDeviation, abs(90.0 - angle))
     }
     return maxDeviation
@@ -157,3 +137,22 @@ fun quadHash(quad: MatOfPoint): Long {
     }
     return hash
 }
+
+private fun computeAngle(p1: Point, p2: Point, center: Point): Double {
+    val dx1 = p1.x - center.x
+    val dy1 = p1.y - center.y
+    val dx2 = p2.x - center.x
+    val dy2 = p2.y - center.y
+
+    val dot = dx1 * dx2 + dy1 * dy2
+    val normSq1 = dx1 * dx1 + dy1 * dy1
+    val normSq2 = dx2 * dx2 + dy2 * dy2
+
+    if (normSq1 < 1e-9 || normSq2 < 1e-9) return Double.NaN
+
+    val normProd = sqrt(normSq1 * normSq2)
+    val cosTheta = (dot / normProd).coerceIn(-1.0, 1.0)
+
+    return acos(cosTheta) * 180.0 / PI
+}
+

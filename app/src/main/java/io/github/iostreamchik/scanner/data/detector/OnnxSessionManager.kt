@@ -44,26 +44,39 @@ class OnnxSessionManager(
 
     fun getSession(): OrtSession? = session
 
+    private var nchwBuffer: FloatArray = FloatArray(256 * 256 * 3)
+    private var channelBuffer: FloatArray = FloatArray(256 * 256)
+
+    private fun ensureBuffers(inputSize: Int, channels: Int) {
+        val neededNchw = inputSize * inputSize * channels
+        val neededChan = inputSize * inputSize
+        if (nchwBuffer.size < neededNchw) nchwBuffer = FloatArray(neededNchw)
+        if (channelBuffer.size < neededChan) channelBuffer = FloatArray(neededChan)
+    }
+
     fun prepareInputTensor(
         rgbMat: Mat,
-        inputSize: Int,
+        inputSize: Int = 256,
         channels: Int = 3
     ): OnnxTensor {
-        val channelSize = inputSize * inputSize
-        val nchwData = FloatArray(inputSize * inputSize * channels)
+        ensureBuffers(inputSize, channels)
 
+        val channelSize = inputSize * inputSize
         val channelMats = mutableListOf<Mat>()
+
         Core.split(rgbMat, channelMats)
 
-        for (c in 0 until channels) {
-            val channelData = FloatArray(channelSize)
-            channelMats[c].get(0, 0, channelData)
-            System.arraycopy(channelData, 0, nchwData, c * channelSize, channelSize)
+        try {
+            for (c in 0 until channels) {
+                channelMats[c].get(0, 0, channelBuffer)
+                System.arraycopy(channelBuffer, 0, nchwBuffer, c * channelSize, channelSize)
+            }
+        } finally {
+            channelMats.forEach { it.release() }
         }
-        channelMats.forEach { it.release() }
 
-        val inputShape = longArrayOf(1, channels.toLong(), inputSize.toLong(), inputSize.toLong())
-        return OnnxTensor.createTensor(env, FloatBuffer.wrap(nchwData), inputShape)
+        val inputShape = longArrayOf(1L, channels.toLong(), inputSize.toLong(), inputSize.toLong())
+        return OnnxTensor.createTensor(env, FloatBuffer.wrap(nchwBuffer), inputShape)
     }
 
     fun close() {
