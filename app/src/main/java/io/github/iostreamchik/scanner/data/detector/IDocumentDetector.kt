@@ -18,7 +18,7 @@ interface IDocumentDetector {
      * Runs the full image preprocessing pipeline (resize, grayscale, blur,
      * edge detection, etc.) and stores intermediate results in the matBundle.
      */
-    fun preprocess(
+    suspend fun preprocess(
         rawMat: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
@@ -29,7 +29,7 @@ interface IDocumentDetector {
      * Extracts document candidates from a preprocessed edge/morph Mat.
      * Returns the best quad in original image coordinates, or null if none found.
      */
-    fun detectQuad(
+    suspend fun detectQuad(
         morphImage: Mat,
         scaledWidth: Int,
         scaledHeight: Int,

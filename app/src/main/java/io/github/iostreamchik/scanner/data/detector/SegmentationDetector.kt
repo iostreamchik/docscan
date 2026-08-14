@@ -57,7 +57,7 @@ class SegmentationDetector(
     internal var cachedMask: Mat? = null
     private var cachedRawBitmap: Bitmap? = null
 
-    override fun preprocess(
+    override suspend fun preprocess(
         rawMat: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
@@ -286,7 +286,7 @@ class SegmentationDetector(
         return min(width, height) / max(width, height)
     }
 
-    override fun detectQuad(
+    override suspend fun detectQuad(
         morphImage: Mat,
         scaledWidth: Int,
         scaledHeight: Int,

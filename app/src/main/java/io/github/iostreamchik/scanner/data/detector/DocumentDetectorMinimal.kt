@@ -22,7 +22,7 @@ class DocumentDetectorMinimal(
     private val _detectionParams = MutableStateFlow(DetectionParameters())
     override val detectionParams: StateFlow<DetectionParameters> = _detectionParams.asStateFlow()
 
-    override fun preprocess(
+    override suspend fun preprocess(
         rawMat: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
@@ -46,7 +46,7 @@ class DocumentDetectorMinimal(
         return matBundle.getMorph()
     }
 
-    override fun detectQuad(
+    override suspend fun detectQuad(
         morphImage: Mat,
         scaledWidth: Int,
         scaledHeight: Int,

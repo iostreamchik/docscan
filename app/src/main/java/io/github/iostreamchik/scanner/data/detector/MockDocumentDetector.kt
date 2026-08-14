@@ -15,14 +15,14 @@ class MockDocumentDetector : IDocumentDetector {
 
     override val detectionParams = MutableStateFlow(DetectionParameters())
 
-    override fun preprocess(
+    override suspend fun preprocess(
         rawMat: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
         params: PipelineParams
     ): Mat = Mat()
 
-    override fun detectQuad(
+    override suspend fun detectQuad(
         morphImage: Mat,
         scaledWidth: Int,
         scaledHeight: Int,

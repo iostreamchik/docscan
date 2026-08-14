@@ -62,7 +62,7 @@ class HeatmapCornerDetector(
     private val channelData = FloatArray(INPUT_SIZE * INPUT_SIZE)
     private val hierarchy = Mat()
 
-    override fun preprocess(
+    override suspend fun preprocess(
         rawMat: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
@@ -190,7 +190,7 @@ class HeatmapCornerDetector(
         return corner
     }
 
-    override fun detectQuad(
+    override suspend fun detectQuad(
         morphImage: Mat,
         scaledWidth: Int,
         scaledHeight: Int,

@@ -9,14 +9,14 @@ import org.opencv.core.MatOfPoint
 
 interface IDocumentDetectorRepository {
 
-    fun preprocess(
+    suspend fun preprocess(
         rawMat: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
         params: PipelineParams
     ): Mat
 
-    fun detectQuad(
+    suspend fun detectQuad(
         morphImage: Mat,
         scaledWidth: Int,
         scaledHeight: Int,

@@ -13,14 +13,14 @@ class DocumentDetectorRepositoryImpl(
     private val detector: IDocumentDetector
 ) : IDocumentDetectorRepository {
 
-    override fun preprocess(
+    override suspend fun preprocess(
         rawMat: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
         params: PipelineParams
     ): Mat = detector.preprocess(rawMat, scaledWidth, scaledHeight, params)
 
-    override fun detectQuad(
+    override suspend fun detectQuad(
         morphImage: Mat,
         scaledWidth: Int,
         scaledHeight: Int,

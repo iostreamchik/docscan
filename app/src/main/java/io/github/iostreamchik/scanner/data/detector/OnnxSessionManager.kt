@@ -24,10 +24,10 @@ class OnnxSessionManager(
 
         val sessionOptions = OrtSession.SessionOptions().apply {
             addXnnpack(emptyMap())
-            setIntraOpNumThreads(1)
+            setIntraOpNumThreads(2)
             setMemoryPatternOptimization(true)
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
+            setExecutionMode(OrtSession.SessionOptions.ExecutionMode.PARALLEL)
         }
 
         try {
@@ -44,26 +44,16 @@ class OnnxSessionManager(
 
     fun getSession(): OrtSession? = session
 
-    private var nchwBuffer: FloatArray = FloatArray(256 * 256 * 3)
-    private var channelBuffer: FloatArray = FloatArray(256 * 256)
-
-    private fun ensureBuffers(inputSize: Int, channels: Int) {
-        val neededNchw = inputSize * inputSize * channels
-        val neededChan = inputSize * inputSize
-        if (nchwBuffer.size < neededNchw) nchwBuffer = FloatArray(neededNchw)
-        if (channelBuffer.size < neededChan) channelBuffer = FloatArray(neededChan)
-    }
-
     fun prepareInputTensor(
         rgbMat: Mat,
         inputSize: Int = 256,
         channels: Int = 3
     ): OnnxTensor {
-        ensureBuffers(inputSize, channels)
-
         val channelSize = inputSize * inputSize
-        val channelMats = mutableListOf<Mat>()
+        val nchwBuffer = FloatArray(channelSize * channels)
+        val channelBuffer = FloatArray(channelSize)
 
+        val channelMats = mutableListOf<Mat>()
         Core.split(rgbMat, channelMats)
 
         try {

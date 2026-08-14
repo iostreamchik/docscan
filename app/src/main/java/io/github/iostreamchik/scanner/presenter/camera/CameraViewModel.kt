@@ -23,11 +23,17 @@ import io.github.iostreamchik.scanner.domain.repository.IDocumentDetectorReposit
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.PipelineParams
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.opencv.android.Utils
 import org.opencv.core.Core
 import org.opencv.core.Mat
@@ -47,7 +53,13 @@ class CameraViewModel(
     private val _state = MutableStateFlow(CameraState())
     val state: StateFlow<CameraState> = _state.asStateFlow()
 
+    private val _detectedQuads = MutableStateFlow<List<MatOfPoint>>(emptyList())
+    val detectedQuads: StateFlow<List<MatOfPoint>> = _detectedQuads.asStateFlow()
+
     val detectionParams: StateFlow<DetectionParameters> = repository.detectionParams ?: MutableStateFlow(DetectionParameters()).asStateFlow()
+
+    private val detectionScope = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineName("detection"))
+    private var currentDetectionJob: Job? = null
 
     val cameraExecutor = Executors.newSingleThreadExecutor()
 
@@ -76,46 +88,58 @@ class CameraViewModel(
         }
     }
 
-    fun processFrame(imageProxy: ImageProxy): List<MatOfPoint> {
+    fun processFrame(imageProxy: ImageProxy) {
         val width = imageProxy.width
         val height = imageProxy.height
         lastFrameSize = Size(width.toDouble(), height.toDouble())
 
         val mat = imageProxy.toMatRGBA()
         val rotation = imageProxy.imageInfo.rotationDegrees
+        imageProxy.close()
 
-        val result = runDetection(mat, rotation, _state.value.pipelineParams)
+        if (currentDetectionJob?.isActive == true) {
+            mat.release()
+            return
+        }
 
-        if (result.isNotEmpty()) {
-            if (isStable()) {
-                val fusedQuad = getFusedQuad()
-                if (fusedQuad != null) {
-                    result.forEach { updateHistory(it) }
-                    val quadHash = quadHash(fusedQuad)
+        currentDetectionJob = detectionScope.launch {
+            try {
+                val result = runDetection(mat, rotation, _state.value.pipelineParams)
 
-                    Log.d(
-                        "CameraViewModel",
-                        "\nFused Quad: ${fusedQuad.toArray().joinToString(", ")}"
-                    )
-                    val warped = if (quadHash != lastWarpedQuadHash) {
-                        warpDocumentHighQuality(mat, fusedQuad, rotation).also {
-                            lastWarpedBitmap?.recycle()
-                            lastWarpedBitmap = it
-                            lastWarpedQuadHash = quadHash
+                _detectedQuads.value = result
+
+                if (result.isNotEmpty()) {
+                    if (isStable()) {
+                        val fusedQuad = getFusedQuad()
+                        if (fusedQuad != null) {
+                            result.forEach { updateHistory(it) }
+                            val quadHash = quadHash(fusedQuad)
+
+                            Log.d(
+                                "CameraViewModel",
+                                "\nFused Quad: ${fusedQuad.toArray().joinToString(", ")}"
+                            )
+                            val warped = if (quadHash != lastWarpedQuadHash) {
+                                warpDocumentHighQuality(mat, fusedQuad, rotation).also {
+                                    lastWarpedBitmap?.recycle()
+                                    lastWarpedBitmap = it
+                                    lastWarpedQuadHash = quadHash
+                                }
+                            } else {
+                                lastWarpedBitmap
+                            }
+                            setState {
+                                copy(resultBitmap = warped?.copy(Bitmap.Config.ARGB_8888, false))
+                            }
                         }
                     } else {
-                        lastWarpedBitmap
+                        result.forEach { updateHistory(it) }
                     }
-                    setState {
-                        copy(resultBitmap = warped?.copy(Bitmap.Config.ARGB_8888, false))
-                    }
-                    return listOf(MatOfPoint(*fusedQuad.toArray()))
                 }
-            } else {
-                result.forEach { updateHistory(it) }
+            } finally {
+                mat.release()
             }
         }
-        return result.map { MatOfPoint(*it.toArray()) }
     }
 
     private fun updateHistory(quad: MatOfPoint) {
@@ -177,7 +201,7 @@ class CameraViewModel(
         return MatOfPoint(*averaged)
     }
 
-    private fun runDetection(
+    private suspend fun runDetection(
         mat: Mat,
         rotation: Int,
         params: PipelineParams
@@ -277,7 +301,9 @@ class CameraViewModel(
                 val rotation = 0
 
                 val matForDetection = mat.clone()
-                val result = runDetection(matForDetection, rotation, _state.value.pipelineParams)
+                val result = withContext(Dispatchers.Default) {
+                    runDetection(matForDetection, rotation, _state.value.pipelineParams)
+                }
 
                 if (result.isNotEmpty()) {
                     val bestQuad = result.first()
@@ -310,6 +336,7 @@ class CameraViewModel(
     }
 
     override fun onCleared() {
+        detectionScope.cancel()
         cameraExecutor.shutdown()
         cameraExecutor.awaitTermination(5, TimeUnit.SECONDS)
         clearBitmaps()

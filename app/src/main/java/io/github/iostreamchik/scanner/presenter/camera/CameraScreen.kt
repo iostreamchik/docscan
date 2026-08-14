@@ -54,6 +54,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,6 +98,8 @@ fun CameraScreen(
 
     val contourState =
         remember { mutableStateOf<ContourData?>(null) }
+
+    val detectedQuads by viewModel.detectedQuads.collectAsStateWithLifecycle()
 
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     val detectionParamsState = viewModel.detectionParams.collectAsStateWithLifecycle()
@@ -153,6 +156,23 @@ fun CameraScreen(
 
     val lastContourUpdateTime = remember { mutableLongStateOf(0L) }
     val CONTOUR_UPDATE_THROTTLE_MS = 30L
+    val lastFrameWidth = remember { mutableIntStateOf(0) }
+    val lastFrameHeight = remember { mutableIntStateOf(0) }
+    val lastRotation = remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(detectedQuads) {
+        val now = System.currentTimeMillis()
+        if (now - lastContourUpdateTime.longValue >= CONTOUR_UPDATE_THROTTLE_MS) {
+            contourState.value?.release()
+            contourState.value = ContourData(
+                contours = detectedQuads,
+                frameWidth = lastFrameWidth.value,
+                frameHeight = lastFrameHeight.value,
+                rotation = lastRotation.value
+            )
+            lastContourUpdateTime.longValue = now
+        }
+    }
 
     Box(modifier = modifier.background(CameraBackground)) {
 
@@ -253,23 +273,10 @@ fun CameraScreen(
                                 .build()
 
                             imageAnalyzer.setAnalyzer(viewModel.cameraExecutor) { imageProxy ->
-                                val contours = viewModel.processFrame(imageProxy)
-
-                                val now = System.currentTimeMillis()
-                                if (now - lastContourUpdateTime.longValue >= CONTOUR_UPDATE_THROTTLE_MS) {
-                                    contourState.value?.release()
-                                    contourState.value = ContourData(
-                                        contours = contours,
-                                        frameWidth = imageProxy.width,
-                                        frameHeight = imageProxy.height,
-                                        rotation = imageProxy.imageInfo.rotationDegrees
-                                    )
-                                    lastContourUpdateTime.longValue = now
-                                } else {
-                                    contours.forEach { it.release() }
-                                }
-
-                                imageProxy.close()
+                                lastFrameWidth.value = imageProxy.width
+                                lastFrameHeight.value = imageProxy.height
+                                lastRotation.value = imageProxy.imageInfo.rotationDegrees
+                                viewModel.processFrame(imageProxy)
                             }
 
                             try {

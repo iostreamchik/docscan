@@ -71,7 +71,7 @@ class CornerKeypointDetector(
     private var cachedCornerBitmap: Bitmap? = null
     private var cachedRawMat: Mat? = null
 
-    override fun preprocess(
+    override suspend fun preprocess(
         rawMat: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
@@ -143,7 +143,7 @@ class CornerKeypointDetector(
         return matBundle.getMorph()
     }
 
-    override fun detectQuad(
+    override suspend fun detectQuad(
         morphImage: Mat,
         scaledWidth: Int,
         scaledHeight: Int,
