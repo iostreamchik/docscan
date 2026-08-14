@@ -2,6 +2,7 @@ package io.github.iostreamchik.scanner.data.detector
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -101,26 +102,23 @@ class CornerKeypointDetector(
         val inputTensor = sessionManager.prepareInputTensor(rgb, INPUT_SIZE, INPUT_CHANNELS)
         rgb.release()
 
-        val output = try {
-            sess.run(mapOf(sessionManager.inputName!! to inputTensor))
+        val output: OrtSession.Result
+        try {
+            output = sess.run(mapOf(sessionManager.inputName!! to inputTensor))
         } catch (e: Exception) {
             Log.e(TAG, "Inference failed", e)
             inputTensor.close()
             return matBundle.getMorph()
-        } finally {
-            inputTensor.close()
         }
 
         val coordsOutput = output.get(0) as OnnxTensor
         val coordsData = FloatArray(8)
         coordsOutput.floatBuffer.get(coordsData)
-        coordsOutput.close()
 
         val scoreOutput = output.get(1) as OnnxTensor
         val scoreRaw = FloatArray(1)
         scoreOutput.floatBuffer.get(scoreRaw)
         val score = if (applySigmoid) sigmoid(scoreRaw[0]) else scoreRaw[0].coerceIn(0.0f, 1.0f)
-        scoreOutput.close()
 
         val coords = FloatArray(8)
         for (i in 0 until 8) {
@@ -128,6 +126,7 @@ class CornerKeypointDetector(
         }
 
         output.close()
+        inputTensor.close()
 
         cachedCoords = coords
         cachedScore = score
@@ -225,7 +224,7 @@ class CornerKeypointDetector(
 
             val radius = cornerRefinementRadius
             val threshold = cornerRefinementGradientThreshold
-            val gradBuf = DoubleArray(1)
+            val gradBuf = FloatArray(1)
             val workCorners = corners.toMutableList()
 
             for (iter in 0 until 2) {

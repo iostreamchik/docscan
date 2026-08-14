@@ -17,7 +17,6 @@ import io.github.iostreamchik.scanner.data.utils.quadHash
 import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
 import io.github.iostreamchik.scanner.data.utils.toBitmap
 import io.github.iostreamchik.scanner.data.utils.toMatRGBA
-import io.github.iostreamchik.scanner.data.utils.toSortedQuad
 import io.github.iostreamchik.scanner.data.utils.warpDocumentHighQuality
 import io.github.iostreamchik.scanner.domain.repository.IDocumentDetectorRepository
 import io.github.iostreamchik.scanner.entity.DetectionParameters
@@ -63,7 +62,7 @@ class CameraViewModel(
 
     val cameraExecutor = Executors.newSingleThreadExecutor()
 
-    private val quadHistory = ArrayDeque<MatOfPoint>()
+    private val quadHistory = ArrayDeque<List<Point>>()
     private var lastFrameSize: Size? = null
     private val MAX_HISTORY = 8
     private var frameCounter = 0
@@ -131,6 +130,7 @@ class CameraViewModel(
                             setState {
                                 copy(resultBitmap = warped?.copy(Bitmap.Config.ARGB_8888, false))
                             }
+                            fusedQuad.release()
                         }
                     } else {
                         result.forEach { updateHistory(it) }
@@ -143,10 +143,12 @@ class CameraViewModel(
     }
 
     private fun updateHistory(quad: MatOfPoint) {
+        val points = quad.toArray().toList()
+        if (points.size != 4) return
         if (quadHistory.size >= MAX_HISTORY) {
-            quadHistory.removeFirst().release()
+            quadHistory.removeFirst()
         }
-        quadHistory.addLast(quad)
+        quadHistory.addLast(sortQuadPoints(points))
     }
 
     private fun isStable(): Boolean {
@@ -160,14 +162,9 @@ class CameraViewModel(
         var validPairs = 0
 
         for (i in 1 until quads.size) {
-            val prevSorted = quads[i - 1].toSortedQuad()
-            val currSorted = quads[i].toSortedQuad()
-
-            if (prevSorted.isEmpty() || currSorted.isEmpty()) continue
-
             totalMovement += quadDistance(
-                prevSorted,
-                currSorted,
+                quads[i - 1],
+                quads[i],
                 frameSize.width,
                 frameSize.height
             )
@@ -180,22 +177,15 @@ class CameraViewModel(
     private fun getFusedQuad(): MatOfPoint? {
         if (quadHistory.isEmpty()) return null
 
-        val validSortedQuads = quadHistory.mapNotNull { matOfPoint ->
-            val points = matOfPoint.toArray().toList()
-            if (points.size == 4) sortQuadPoints(points) else null
-        }
-
-        if (validSortedQuads.isEmpty()) return null
-
         val averaged = arrayOf(Point(0.0, 0.0), Point(0.0, 0.0), Point(0.0, 0.0), Point(0.0, 0.0))
 
         for (i in 0..3) {
-            for (quad in validSortedQuads) {
+            for (quad in quadHistory) {
                 averaged[i].x += quad[i].x
                 averaged[i].y += quad[i].y
             }
-            averaged[i].x /= validSortedQuads.size
-            averaged[i].y /= validSortedQuads.size
+            averaged[i].x /= quadHistory.size
+            averaged[i].y /= quadHistory.size
         }
 
         return MatOfPoint(*averaged)
@@ -357,7 +347,6 @@ class CameraViewModel(
     }
 
     private fun clearQuadHistory() {
-        quadHistory.forEach { it.release() }
         quadHistory.clear()
     }
 }

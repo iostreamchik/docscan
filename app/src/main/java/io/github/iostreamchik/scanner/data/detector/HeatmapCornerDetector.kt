@@ -2,6 +2,7 @@ package io.github.iostreamchik.scanner.data.detector
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -92,14 +93,13 @@ class HeatmapCornerDetector(
 
         val inputTensor = sessionManager.prepareInputTensor(rgb, INPUT_SIZE, INPUT_CHANNELS)
 
-        val output = try {
-            sess.run(mapOf(sessionManager.inputName!! to inputTensor))
+        val output: OrtSession.Result
+        try {
+            output = sess.run(mapOf(sessionManager.inputName!! to inputTensor))
         } catch (e: Exception) {
             Log.e(TAG, "Inference failed", e)
             inputTensor.close()
             return matBundle.getMorph()
-        } finally {
-            inputTensor.close()
         }
 
         val outputTensor = output.get(0) as OnnxTensor
@@ -112,7 +112,10 @@ class HeatmapCornerDetector(
 
         val outputData = FloatArray(totalElements)
         outputTensor.floatBuffer.get(outputData)
+        outputTensor.close()
+
         output.close()
+        inputTensor.close()
 
         val corners = mutableListOf<Point?>()
         for (channel in 0 until HEATMAP_CHANNELS) {

@@ -136,7 +136,7 @@ class CombinedDocumentDetector(
                 angleDeviations[source] = deviation
                 scoredResults[source] = ScoredResult(quad, deviation)
 
-                Log.d(TAG, "  $source: quad=${if (quad != null) "${quad.total()} pts" else "null"}, deviation=${"%.2f".format(deviation)}°")
+                Log.d(TAG, "  $source: quad=${if (quad != null) "${quad.total()} pts" else "null"}, deviation=${formatDeviation(deviation)}")
             }
 
             val validResults = mutableListOf<Pair<AsyncDetectorSource, ScoredResult>>()
@@ -163,13 +163,13 @@ class CombinedDocumentDetector(
                 lastUsedDetector = winnerSource
                 when (winnerSource) {
                     AsyncDetectorSource.MINIMAL ->
-                        minimalDetector.detectionParams?.value?.let {
-                            _detectionParams.value = it.copy(detectorName = "Minimal")
-                        }
+                        _detectionParams.value = minimalDetector.detectionParams?.value
+                            ?.copy(detectorName = "Minimal")
+                            ?: _detectionParams.value.copy(detectorName = "Minimal")
                     AsyncDetectorSource.DIRECTIONAL_SUPPRESSION ->
-                        opencv5Detector.detectionParams?.value?.let {
-                            _detectionParams.value = it.copy(detectorName = "Directional Suppression")
-                        }
+                        _detectionParams.value = opencv5Detector.detectionParams?.value
+                            ?.copy(detectorName = "Directional Suppression")
+                            ?: _detectionParams.value.copy(detectorName = "Directional Suppression")
                     else -> {}
                 }
                 validResults.filter { it.first != winnerSource }
@@ -298,6 +298,9 @@ class CombinedDocumentDetector(
             morph.release()
         }
     }
+
+    private fun formatDeviation(deviation: Double): String =
+        if (deviation.isFinite()) "${"%.2f".format(deviation)}°" else "N/A"
 
     private fun computeMaxAngleDeviation(quad: MatOfPoint): Double {
         val pts = sortQuadPoints(quad.toArray().toList())

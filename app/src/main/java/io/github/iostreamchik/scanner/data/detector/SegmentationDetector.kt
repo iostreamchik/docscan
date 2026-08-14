@@ -2,6 +2,7 @@ package io.github.iostreamchik.scanner.data.detector
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -107,15 +108,14 @@ class SegmentationDetector(
 
         val inputTensor = sessionManager.prepareInputTensor(rgbPadded, INPUT_SIZE, INPUT_CHANNELS)
 
-        val output = try {
-            sess.run(mapOf(sessionManager.inputName!! to inputTensor))
+        val output: OrtSession.Result
+        try {
+            output = sess.run(mapOf(sessionManager.inputName!! to inputTensor))
         } catch (e: Exception) {
             Log.e(TAG, "Inference failed", e)
             inputTensor.close()
             rgbPadded.release()
             return matBundle.getMorph()
-        } finally {
-            inputTensor.close()
         }
 
         val outputTensor = output.get(0) as OnnxTensor
@@ -142,6 +142,8 @@ class SegmentationDetector(
             fgMat.put(0, 0, fgChan)
         }
         outputTensor.close()
+        output.close()
+        inputTensor.close()
 
         val logitDiff = Mat(INPUT_SIZE, INPUT_SIZE, CvType.CV_32FC1)
         Core.subtract(fgMat, bgMat, logitDiff)
