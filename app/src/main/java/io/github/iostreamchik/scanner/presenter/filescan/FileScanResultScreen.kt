@@ -66,7 +66,6 @@ import io.github.iostreamchik.scanner.presenter.composables.BitmapCard
 import io.github.iostreamchik.scanner.presenter.camera.CameraIntent
 import io.github.iostreamchik.scanner.presenter.camera.CameraViewModel
 import io.github.iostreamchik.scanner.data.detector.MockDocumentDetector
-import io.github.iostreamchik.scanner.data.opencv.MockMatBundle
 import io.github.iostreamchik.scanner.data.repository.DocumentDetectorRepositoryImpl
 import io.github.iostreamchik.scanner.presenter.theme.DocumentScannerTheme
 
@@ -120,8 +119,8 @@ fun FileScanResultScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(bmp.width.toFloat() / bmp.height.toFloat())
                         .padding(horizontal = 16.dp)
+                        .aspectRatio(bmp.width.toFloat() / bmp.height.toFloat())
                 ) {
                     BitmapCard(
                         modifier = Modifier
