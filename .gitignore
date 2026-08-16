@@ -14,4 +14,5 @@
 .cxx
 local.properties
 *.md
+!AGENTS.md
 !README.md
