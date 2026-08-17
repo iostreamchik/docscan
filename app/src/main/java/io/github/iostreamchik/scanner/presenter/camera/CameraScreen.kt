@@ -52,7 +52,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -102,7 +101,7 @@ fun CameraScreen(
     val detectedQuads by viewModel.detectedQuads.collectAsStateWithLifecycle()
 
     val uiState by viewModel.state.collectAsStateWithLifecycle()
-    val detectionParamsState = viewModel.detectionParams.collectAsStateWithLifecycle()
+    val detectionParams by viewModel.detectionParams.collectAsStateWithLifecycle()
     val cornerRadius = rememberDeviceCornerRadiusDp()
 
     val boundCamera = remember { mutableStateOf<Camera?>(null) }
@@ -347,16 +346,11 @@ fun CameraScreen(
                         }
                     }
 
-                    val detectionParams = detectionParamsState.value
-                    val useClassicalParams by remember {
-                        derivedStateOf {
-                            detectionParams.detectorName !in setOf(
-                                AsyncDetectorSource.HEATMAP_CORNER.detectionParamsName,
-                                AsyncDetectorSource.CORNER_KEYPOINT.detectionParamsName,
-                                AsyncDetectorSource.SEGMENTATION.detectionParamsName
-                            )
-                        }
-                    }
+                    val useClassicalParams = detectionParams.detectorName !in setOf(
+                        AsyncDetectorSource.HEATMAP_CORNER.detectionParamsName,
+                        AsyncDetectorSource.CORNER_KEYPOINT.detectionParamsName,
+                        AsyncDetectorSource.SEGMENTATION.detectionParamsName
+                    )
 
                     Column(
                         modifier = Modifier
@@ -489,12 +483,10 @@ fun CameraScreen(
                                 .background(Color.Gray)
                         )
                     } else {
-                        val resultImageBitmap = remember(uiState.resultBitmap) {
-                            uiState.resultBitmap?.asImageBitmap() ?: createBitmap(1, 1).asImageBitmap()
-                        }
+                        val placeholderImageBitmap = remember { createBitmap(1, 1).asImageBitmap() }
                         Image(
                             modifier = Modifier.fillMaxSize(),
-                            bitmap = resultImageBitmap,
+                            bitmap = uiState.resultBitmap?.asImageBitmap() ?: placeholderImageBitmap,
                             contentDescription = null,
                             contentScale = ContentScale.Fit,
                             alignment = Alignment.Center

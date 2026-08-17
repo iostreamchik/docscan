@@ -127,13 +127,13 @@ Caching:
 
 Shared infrastructure for ONNX-based detectors. Encapsulates:
 - Idempotent session initialization from asset model bytes (XNNPACK, 2 intra-op threads, memory pattern, ALL_OPT, PARALLEL execution mode)
-- NCHW tensor preparation from RGB Mat (split channels → FloatArray → FloatBuffer → OnnxTensor)
+- NCHW tensor preparation from RGB Mat (single interleaved `get` → cached reusable FloatArrays → deinterleave → OnnxTensor); zero per-call allocations, `require` on `inputSize` dimensions
 - Session cleanup (the shared `OrtEnvironment` is DI-owned, not owned by the manager)
 
 Public API:
 - `init(tag)` — lazy session init (idempotent)
 - `getSession()` — access `OrtSession`
-- `prepareInputTensor(rgbMat, inputSize, channels)` — NCHW tensor from RGB Mat
+- `prepareInputTensor(rgbMat, inputSize)` — NCHW tensor from RGB Mat (channel count derived from the Mat; input buffers cached per manager instance, safe because each detector owns its manager)
 - `inputName` — first input name from session
 - `close()` — release session
 

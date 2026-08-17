@@ -50,7 +50,9 @@ class HeatmapCornerDetector(
             field = value.coerceIn(5.0, 60.0)
         }
 
-    private val _detectionParams = MutableStateFlow(DetectionParameters())
+    private val _detectionParams = MutableStateFlow(
+        DetectionParameters(detectorName = AsyncDetectorSource.HEATMAP_CORNER.detectionParamsName)
+    )
     override val detectionParams = _detectionParams.asStateFlow()
 
     private var cachedCorners: List<Point>? = null
@@ -91,7 +93,7 @@ class HeatmapCornerDetector(
 
         rgb.convertTo(rgb, CvType.CV_32FC3, 1.0 / 255.0)
 
-        val inputTensor = sessionManager.prepareInputTensor(rgb, INPUT_SIZE, INPUT_CHANNELS)
+        val inputTensor = sessionManager.prepareInputTensor(rgb, INPUT_SIZE)
 
         val output: OrtSession.Result
         try {
@@ -311,7 +313,7 @@ class HeatmapCornerDetector(
     }
 
     override fun release() {
-        sessionManager.close()
+        sessionManager.close(TAG)
         hierarchy.release()
         cachedCorners = null
         cachedCornerBitmap?.recycle()
@@ -323,7 +325,6 @@ class HeatmapCornerDetector(
 
     companion object {
         const val INPUT_SIZE = 256
-        const val INPUT_CHANNELS = 3
         const val HEATMAP_CHANNELS = 4
 
         private const val TAG = "HeatmapCornerDetector"

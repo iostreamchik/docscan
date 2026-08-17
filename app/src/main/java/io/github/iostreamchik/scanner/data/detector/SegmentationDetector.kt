@@ -52,7 +52,9 @@ class SegmentationDetector(
             )
         }
 
-    private val _detectionParams = MutableStateFlow(DetectionParameters())
+    private val _detectionParams = MutableStateFlow(
+        DetectionParameters(detectorName = AsyncDetectorSource.SEGMENTATION.detectionParamsName)
+    )
     override val detectionParams = _detectionParams.asStateFlow()
 
     internal var cachedMask: Mat? = null
@@ -106,7 +108,7 @@ class SegmentationDetector(
         Core.subtract(rgbPadded, mean, rgbPadded)
         Core.multiply(rgbPadded, std, rgbPadded)
 
-        val inputTensor = sessionManager.prepareInputTensor(rgbPadded, INPUT_SIZE, INPUT_CHANNELS)
+        val inputTensor = sessionManager.prepareInputTensor(rgbPadded, INPUT_SIZE)
 
         val output: OrtSession.Result
         try {
@@ -494,7 +496,7 @@ class SegmentationDetector(
     }
 
     override fun release() {
-        sessionManager.close()
+        sessionManager.close(TAG)
         cachedMask?.release()
         cachedMask = null
         cachedRawBitmap?.recycle()
@@ -504,7 +506,6 @@ class SegmentationDetector(
 
     companion object {
         const val INPUT_SIZE = 384
-        const val INPUT_CHANNELS = 3
 
         private val IMAGE_MEAN = floatArrayOf(0.4611f, 0.4359f, 0.3905f)
         private val IMAGE_STD = floatArrayOf(0.2193f, 0.2150f, 0.2109f)

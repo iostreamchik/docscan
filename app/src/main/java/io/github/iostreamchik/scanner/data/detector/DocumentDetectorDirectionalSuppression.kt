@@ -19,7 +19,9 @@ class DocumentDetectorDirectionalSuppression(
     internal val matBundle: IMatBundle
 ) : IDocumentDetector {
 
-    private val _detectionParams = MutableStateFlow(DetectionParameters())
+    private val _detectionParams = MutableStateFlow(
+        DetectionParameters(detectorName = AsyncDetectorSource.DIRECTIONAL_SUPPRESSION.detectionParamsName)
+    )
     override val detectionParams = _detectionParams.asStateFlow()
 
     private val directionalConfig = PreprocessingConfig(

@@ -26,9 +26,8 @@ fun BitmapCard(
     bitmap: Bitmap?,
     animated: Boolean = false
 ) {
-    val imageBitmap = remember(bitmap) {
-        bitmap?.asImageBitmap() ?: createBitmap(1, 1).asImageBitmap()
-    }
+    val placeholder = remember { createBitmap(1, 1).asImageBitmap() }
+    val imageBitmap = bitmap?.asImageBitmap() ?: placeholder
 
     Box(modifier = modifier) {
         if (animated) {

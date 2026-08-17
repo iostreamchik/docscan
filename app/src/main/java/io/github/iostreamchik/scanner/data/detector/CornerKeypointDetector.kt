@@ -63,7 +63,9 @@ class CornerKeypointDetector(
             field = value.coerceIn(3f, 60f)
         }
 
-    private val _detectionParams = MutableStateFlow(DetectionParameters())
+    private val _detectionParams = MutableStateFlow(
+        DetectionParameters(detectorName = AsyncDetectorSource.CORNER_KEYPOINT.detectionParamsName)
+    )
     override val detectionParams = _detectionParams.asStateFlow()
 
     private var cachedCoords: FloatArray? = null
@@ -99,7 +101,7 @@ class CornerKeypointDetector(
 
         rgb.convertTo(rgb, CvType.CV_32FC3, 1.0 / 255.0)
 
-        val inputTensor = sessionManager.prepareInputTensor(rgb, INPUT_SIZE, INPUT_CHANNELS)
+        val inputTensor = sessionManager.prepareInputTensor(rgb, INPUT_SIZE)
         rgb.release()
 
         val output: OrtSession.Result
@@ -441,7 +443,7 @@ class CornerKeypointDetector(
     }
 
     override fun release() {
-        sessionManager.close()
+        sessionManager.close(TAG)
         cachedCoords = null
         cachedScore = 0f
         cachedCornerBitmap?.recycle()
@@ -453,7 +455,6 @@ class CornerKeypointDetector(
 
     companion object {
         const val INPUT_SIZE = 256
-        const val INPUT_CHANNELS = 3
 
         private const val TAG = "CornerKeypointDetector"
 

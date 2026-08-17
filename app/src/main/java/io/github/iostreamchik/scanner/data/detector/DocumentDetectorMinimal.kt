@@ -19,7 +19,9 @@ class DocumentDetectorMinimal(
     internal val matBundle: IMatBundle
 ) : IDocumentDetector {
 
-    private val _detectionParams = MutableStateFlow(DetectionParameters())
+    private val _detectionParams = MutableStateFlow(
+        DetectionParameters(detectorName = AsyncDetectorSource.MINIMAL.detectionParamsName)
+    )
     override val detectionParams: StateFlow<DetectionParameters> = _detectionParams.asStateFlow()
 
     override suspend fun preprocess(
