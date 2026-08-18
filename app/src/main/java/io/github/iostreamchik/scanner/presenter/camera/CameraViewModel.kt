@@ -22,15 +22,12 @@ import io.github.iostreamchik.scanner.domain.repository.IDocumentDetectorReposit
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.PipelineParams
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.opencv.android.Utils
@@ -42,6 +39,7 @@ import org.opencv.core.Size
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
+import kotlin.time.Duration.Companion.milliseconds
 
 const val PROCESS_WIDTH = 448.0
 
@@ -53,17 +51,22 @@ class CameraViewModel(
     val state: StateFlow<CameraState> = _state.asStateFlow()
 
     private val _detectedQuads = MutableStateFlow<List<MatOfPoint>>(emptyList())
-    val detectedQuads: StateFlow<List<MatOfPoint>> = _detectedQuads.asStateFlow()
+
+    private val _contourData = MutableStateFlow<ContourData?>(null)
+    val contourData: StateFlow<ContourData?> = _contourData.asStateFlow()
 
     val detectionParams: StateFlow<DetectionParameters> = repository.detectionParams ?: MutableStateFlow(DetectionParameters()).asStateFlow()
 
-    private val detectionScope = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineName("detection"))
     private var currentDetectionJob: Job? = null
 
     val cameraExecutor = Executors.newSingleThreadExecutor()
 
     private val quadHistory = ArrayDeque<List<Point>>()
     private var lastFrameSize: Size? = null
+    private var lastContourData: ContourData? = null
+    private var lastFrameWidth = 0
+    private var lastFrameHeight = 0
+    private var lastRotation = 0
     private val MAX_HISTORY = 8
     private var frameCounter = 0
     private val STABILITY_CHECK_INTERVAL = 2
@@ -72,6 +75,24 @@ class CameraViewModel(
     private var lastWarpedBitmap: Bitmap? = null
 
     private var lastPickedUri: Uri? = null
+
+    init {
+        viewModelScope.launch {
+            _detectedQuads
+                .debounce(CONTOUR_UPDATE_THROTTLE_MS.milliseconds)
+                .collect { quads ->
+                    if (quads.isEmpty()) return@collect
+                    lastContourData?.release()
+                    lastContourData = ContourData(
+                        contours = quads,
+                        frameWidth = lastFrameWidth,
+                        frameHeight = lastFrameHeight,
+                        rotation = lastRotation
+                    )
+                    _contourData.value = lastContourData
+                }
+        }
+    }
 
     private fun setState(transform: CameraState.() -> CameraState) {
         _state.value = _state.value.transform()
@@ -90,6 +111,9 @@ class CameraViewModel(
     fun processFrame(imageProxy: ImageProxy) {
         val width = imageProxy.width
         val height = imageProxy.height
+        lastFrameWidth = width
+        lastFrameHeight = height
+        lastRotation = imageProxy.imageInfo.rotationDegrees
         lastFrameSize = Size(width.toDouble(), height.toDouble())
 
         val mat = imageProxy.toMatRGBA()
@@ -101,39 +125,41 @@ class CameraViewModel(
             return
         }
 
-        currentDetectionJob = detectionScope.launch {
+        currentDetectionJob = viewModelScope.launch {
             try {
-                val result = runDetection(mat, rotation, _state.value.pipelineParams)
+                withContext(Dispatchers.Default) {
+                    val result = runDetection(mat, rotation, _state.value.pipelineParams)
 
-                _detectedQuads.value = result
+                    _detectedQuads.value = result
 
-                if (result.isNotEmpty()) {
-                    if (isStable()) {
-                        val fusedQuad = getFusedQuad()
-                        if (fusedQuad != null) {
-                            result.forEach { updateHistory(it) }
-                            val quadHash = quadHash(fusedQuad)
+                    if (result.isNotEmpty()) {
+                        if (isStable()) {
+                            val fusedQuad = getFusedQuad()
+                            if (fusedQuad != null) {
+                                result.forEach { updateHistory(it) }
+                                val quadHash = quadHash(fusedQuad)
 
-                            Log.d(
-                                "CameraViewModel",
-                                "\nFused Quad: ${fusedQuad.toArray().joinToString(", ")}"
-                            )
-                            val warped = if (quadHash != lastWarpedQuadHash) {
-                                warpDocumentHighQuality(mat, fusedQuad, rotation).also {
-                                    lastWarpedBitmap?.recycle()
-                                    lastWarpedBitmap = it
-                                    lastWarpedQuadHash = quadHash
+                                Log.d(
+                                    "CameraViewModel",
+                                    "\nFused Quad: ${fusedQuad.toArray().joinToString(", ")}"
+                                )
+                                val warped = if (quadHash != lastWarpedQuadHash) {
+                                    warpDocumentHighQuality(mat, fusedQuad, rotation).also {
+                                        lastWarpedBitmap?.recycle()
+                                        lastWarpedBitmap = it
+                                        lastWarpedQuadHash = quadHash
+                                    }
+                                } else {
+                                    lastWarpedBitmap
                                 }
-                            } else {
-                                lastWarpedBitmap
+                                setState {
+                                    copy(resultBitmap = warped?.copy(Bitmap.Config.ARGB_8888, false))
+                                }
+                                fusedQuad.release()
                             }
-                            setState {
-                                copy(resultBitmap = warped?.copy(Bitmap.Config.ARGB_8888, false))
-                            }
-                            fusedQuad.release()
+                        } else {
+                            result.forEach { updateHistory(it) }
                         }
-                    } else {
-                        result.forEach { updateHistory(it) }
                     }
                 }
             } finally {
@@ -280,6 +306,7 @@ class CameraViewModel(
                         decoder.isMutableRequired = true
                     }
                 } else {
+                    @Suppress("DEPRECATION")
                     MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
                 }
 
@@ -326,12 +353,17 @@ class CameraViewModel(
     }
 
     override fun onCleared() {
-        detectionScope.cancel()
         cameraExecutor.shutdown()
         cameraExecutor.awaitTermination(5, TimeUnit.SECONDS)
         clearBitmaps()
         clearQuadHistory()
+        lastContourData?.release()
+        lastContourData = null
         lastWarpedQuadHash = 0
+    }
+
+    private companion object {
+        const val CONTOUR_UPDATE_THROTTLE_MS = 30L
     }
 
     private fun clearBitmaps() {

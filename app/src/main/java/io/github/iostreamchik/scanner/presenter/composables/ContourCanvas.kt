@@ -2,7 +2,6 @@ package io.github.iostreamchik.scanner.presenter.composables
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -14,11 +13,11 @@ import kotlin.math.max
 
 @Composable
 fun ContourCanvas(
-    contourState: State<ContourData?>,
+    contourData: ContourData?,
     modifier: Modifier = Modifier
 ) {
-    val rotatedContours = remember(contourState.value) {
-        contourState.value?.let { data ->
+    val rotatedContours = remember(contourData) {
+        contourData?.let { data ->
             val originalW = data.frameWidth.toFloat()
             val originalH = data.frameHeight.toFloat()
 

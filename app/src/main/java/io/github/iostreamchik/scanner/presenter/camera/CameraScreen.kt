@@ -18,8 +18,8 @@ import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.Image
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -53,37 +53,51 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.createBitmap
+import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.asFlow
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import io.github.iostreamchik.scanner.presenter.composables.BitmapCard
-import io.github.iostreamchik.scanner.presenter.composables.ContourCanvas
-import io.github.iostreamchik.scanner.presenter.composables.rememberDeviceCornerRadiusDp
+import io.github.iostreamchik.scanner.R
 import io.github.iostreamchik.scanner.data.detector.AsyncDetectorSource
 import io.github.iostreamchik.scanner.data.detector.MockDocumentDetector
 import io.github.iostreamchik.scanner.data.repository.DocumentDetectorRepositoryImpl
+import io.github.iostreamchik.scanner.presenter.composables.BitmapCard
+import io.github.iostreamchik.scanner.presenter.composables.ContourCanvas
+import io.github.iostreamchik.scanner.presenter.composables.rememberDeviceCornerRadiusDp
 import io.github.iostreamchik.scanner.presenter.theme.CameraBackground
-import androidx.core.net.toUri
+
+private val NON_CLASSICAL_DETECTOR_NAMES = setOf(
+    AsyncDetectorSource.HEATMAP_CORNER.detectionParamsName,
+    AsyncDetectorSource.CORNER_KEYPOINT.detectionParamsName,
+    AsyncDetectorSource.SEGMENTATION.detectionParamsName
+)
+
+private val PARAM_PANEL_TEXT_STYLE = TextStyle(
+    platformStyle = PlatformTextStyle(includeFontPadding = false),
+    color = Color.White.copy(alpha = 0.8f),
+    fontSize = 12.sp
+)
 
 @Composable
 fun CameraScreen(
@@ -95,14 +109,12 @@ fun CameraScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
 
-    val contourState =
-        remember { mutableStateOf<ContourData?>(null) }
-
-    val detectedQuads by viewModel.detectedQuads.collectAsStateWithLifecycle()
+    val contourState by viewModel.contourData.collectAsStateWithLifecycle()
 
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     val detectionParams by viewModel.detectionParams.collectAsStateWithLifecycle()
     val cornerRadius = rememberDeviceCornerRadiusDp()
+    val isPreview = LocalInspectionMode.current
 
     val boundCamera = remember { mutableStateOf<Camera?>(null) }
     val cameraProviderRef = remember { mutableStateOf<ProcessCameraProvider?>(null) }
@@ -153,26 +165,6 @@ fun CameraScreen(
         }
     }
 
-    val lastContourUpdateTime = remember { mutableLongStateOf(0L) }
-    val CONTOUR_UPDATE_THROTTLE_MS = 30L
-    val lastFrameWidth = remember { mutableIntStateOf(0) }
-    val lastFrameHeight = remember { mutableIntStateOf(0) }
-    val lastRotation = remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(detectedQuads) {
-        val now = System.currentTimeMillis()
-        if (now - lastContourUpdateTime.longValue >= CONTOUR_UPDATE_THROTTLE_MS) {
-            contourState.value?.release()
-            contourState.value = ContourData(
-                contours = detectedQuads,
-                frameWidth = lastFrameWidth.value,
-                frameHeight = lastFrameHeight.value,
-                rotation = lastRotation.value
-            )
-            lastContourUpdateTime.longValue = now
-        }
-    }
-
     Box(modifier = modifier.background(CameraBackground)) {
 
         Column {
@@ -183,7 +175,7 @@ fun CameraScreen(
                     .fillMaxHeight(0.7f)
                     .clip(RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp))
             ) {
-                if (!permissionGranted && !LocalInspectionMode.current) {
+                if (!permissionGranted && !isPreview) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -193,15 +185,15 @@ fun CameraScreen(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = stringResource(io.github.iostreamchik.scanner.R.string.camera_permission_title),
+                            text = stringResource(R.string.camera_permission_title),
                             style = MaterialTheme.typography.headlineSmall,
                             color = Color.White
                         )
                         Text(
                             text = if (showRationale) {
-                                stringResource(io.github.iostreamchik.scanner.R.string.camera_permission_rationale)
+                                stringResource(R.string.camera_permission_rationale)
                             } else {
-                                stringResource(io.github.iostreamchik.scanner.R.string.camera_permission_denied)
+                                stringResource(R.string.camera_permission_denied)
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.White.copy(alpha = 0.7f),
@@ -227,9 +219,9 @@ fun CameraScreen(
                         ) {
                             Text(
                                 text = if (showRationale)
-                                    stringResource(io.github.iostreamchik.scanner.R.string.camera_permission_grant)
+                                    stringResource(R.string.camera_permission_grant)
                                 else
-                                    stringResource(io.github.iostreamchik.scanner.R.string.camera_permission_open_settings),
+                                    stringResource(R.string.camera_permission_open_settings),
                                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onPrimary
@@ -237,14 +229,13 @@ fun CameraScreen(
                         }
                     }
                 } else {
-                    val isPreview = LocalInspectionMode.current
-                    if (isPreview.not()) {
+                    if (!isPreview) {
                         AndroidView(
                             modifier = Modifier.fillMaxSize(),
                             factory = { previewView },
                         )
 
-                        LaunchedEffect(previewView) {
+                        LaunchedEffect(Unit) {
                             val cameraProvider = ProcessCameraProvider
                                 .getInstance(context)
                                 .get()
@@ -272,9 +263,6 @@ fun CameraScreen(
                                 .build()
 
                             imageAnalyzer.setAnalyzer(viewModel.cameraExecutor) { imageProxy ->
-                                lastFrameWidth.value = imageProxy.width
-                                lastFrameHeight.value = imageProxy.height
-                                lastRotation.value = imageProxy.imageInfo.rotationDegrees
                                 viewModel.processFrame(imageProxy)
                             }
 
@@ -289,9 +277,8 @@ fun CameraScreen(
                                 )
                             } catch (e: Exception) {
                                 Log.e("CameraX", "Use case binding failed", e)
-                                contourState.value?.release()
                                 viewModel.process(CameraIntent.SetError(
-                                    io.github.iostreamchik.scanner.R.string.error_camera_init_failed
+                                    R.string.error_camera_init_failed
                                 ))
                             }
                         }
@@ -319,7 +306,7 @@ fun CameraScreen(
                     }
 
                     ContourCanvas(
-                        contourState = contourState,
+                        contourData = contourState,
                         modifier = Modifier.fillMaxSize()
                     )
 
@@ -341,16 +328,12 @@ fun CameraScreen(
                         ) {
                             Icon(
                                 imageVector = if (uiState.torchOn) Icons.Default.FlashlightOff else Icons.Default.FlashlightOn,
-                                contentDescription = stringResource(io.github.iostreamchik.scanner.R.string.content_description_toggle_torch),
+                                contentDescription = stringResource(R.string.content_description_toggle_torch),
                             )
                         }
                     }
 
-                    val useClassicalParams = detectionParams.detectorName !in setOf(
-                        AsyncDetectorSource.HEATMAP_CORNER.detectionParamsName,
-                        AsyncDetectorSource.CORNER_KEYPOINT.detectionParamsName,
-                        AsyncDetectorSource.SEGMENTATION.detectionParamsName
-                    )
+                    val useClassicalParams = detectionParams.detectorName !in NON_CLASSICAL_DETECTOR_NAMES
 
                     Column(
                         modifier = Modifier
@@ -365,64 +348,48 @@ fun CameraScreen(
                         Text(
                             modifier = Modifier.padding(start = 8.dp),
                             text = detectionParams.detectorName,
-                            style = TextStyle(
-                                platformStyle = PlatformTextStyle(includeFontPadding = false),
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 12.sp
-                            ),
+                            style = PARAM_PANEL_TEXT_STYLE,
                         )
                         Text(
                             modifier = Modifier.padding(start = 8.dp),
                             text = if (useClassicalParams)
                                 stringResource(
-                                    io.github.iostreamchik.scanner.R.string.param_clahe,
+                                    R.string.param_clahe,
                                     detectionParams.claheClipLimit
                                 )
                             else
-                                stringResource(io.github.iostreamchik.scanner.R.string.param_clahe,
-                                    stringResource(io.github.iostreamchik.scanner.R.string.param_na)
+                                stringResource(R.string.param_clahe,
+                                    stringResource(R.string.param_na)
                                 ),
-                            style = TextStyle(
-                                platformStyle = PlatformTextStyle(includeFontPadding = false),
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 12.sp
-                            ),
+                            style = PARAM_PANEL_TEXT_STYLE,
                         )
                         Text(
                             modifier = Modifier.padding(start = 8.dp),
                             text = if (useClassicalParams)
                                 stringResource(
-                                    io.github.iostreamchik.scanner.R.string.param_canny,
+                                    R.string.param_canny,
                                     detectionParams.cannyLow,
                                     detectionParams.cannyHigh
                                 )
                             else
-                                stringResource(io.github.iostreamchik.scanner.R.string.param_canny,
-                                    stringResource(io.github.iostreamchik.scanner.R.string.param_na),
-                                    stringResource(io.github.iostreamchik.scanner.R.string.param_na)
+                                stringResource(R.string.param_canny,
+                                    stringResource(R.string.param_na),
+                                    stringResource(R.string.param_na)
                                 ),
-                            style = TextStyle(
-                                platformStyle = PlatformTextStyle(includeFontPadding = false),
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 12.sp
-                            ),
+                            style = PARAM_PANEL_TEXT_STYLE,
                         )
                         Text(
                             modifier = Modifier.padding(start = 8.dp),
                             text = if (useClassicalParams)
                                 stringResource(
-                                    io.github.iostreamchik.scanner.R.string.param_brightness,
+                                    R.string.param_brightness,
                                     detectionParams.brightness
                                 )
                             else
-                                stringResource(io.github.iostreamchik.scanner.R.string.param_brightness,
-                                    stringResource(io.github.iostreamchik.scanner.R.string.param_na)
+                                stringResource(R.string.param_brightness,
+                                    stringResource(R.string.param_na)
                                 ),
-                            style = TextStyle(
-                                platformStyle = PlatformTextStyle(includeFontPadding = false),
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 12.sp
-                            ),
+                            style = PARAM_PANEL_TEXT_STYLE,
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
@@ -437,7 +404,6 @@ fun CameraScreen(
                     .navigationBarsPadding(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val isPreview = LocalInspectionMode.current
                 Surface(
                     modifier = Modifier
                         .weight(1f)
@@ -503,7 +469,6 @@ fun CameraScreen(
         ) {
             FloatingActionButton(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
                     .offset(y = 8.dp)
                     .clip(RoundedCornerShape(24.dp))
                     .background(CameraBackground)
@@ -514,21 +479,23 @@ fun CameraScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.Image,
-                    contentDescription = stringResource(io.github.iostreamchik.scanner.R.string.content_description_scan_from_file)
+                    contentDescription = stringResource(R.string.content_description_scan_from_file)
                 )
             }
         }
 
         DisposableEffect(Unit) {
             onDispose {
-                contourState.value?.release()
                 cameraProviderRef.value?.unbindAll()
             }
         }
 
         LaunchedEffect(boundCamera.value) {
-            boundCamera.value?.cameraInfo?.torchState?.observe(lifecycleOwner) { torchState ->
-                viewModel.process(CameraIntent.SetTorch(torchState == TorchState.ON))
+            val torchState = boundCamera.value?.cameraInfo?.torchState ?: return@LaunchedEffect
+            lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                torchState.asFlow().collect {
+                    viewModel.process(CameraIntent.SetTorch(it == TorchState.ON))
+                }
             }
         }
 
