@@ -186,39 +186,45 @@ class CombinedDocumentDetector(
             Log.d(TAG, "  Primary detectors failed, running parallel ONNX fallbacks...")
             val fallbackStart = System.currentTimeMillis()
 
-            val heatmapDeferred = async(Dispatchers.Default) {
-                runSingleDetector(heatmapCornerDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
-            }
-            val cornerDeferred = async(Dispatchers.Default) {
-                runSingleDetector(cornerKeypointDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
-            }
-            val segDeferred = async(Dispatchers.Default) {
-                runSingleDetector(onnxDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
-            }
-
-            val results = arrayOf(
-                AsyncDetectorSource.HEATMAP_CORNER to heatmapDeferred,
-                AsyncDetectorSource.CORNER_KEYPOINT to cornerDeferred,
-                AsyncDetectorSource.SEGMENTATION to segDeferred,
+            val fallbackDeferrals = listOf(
+                AsyncDetectorSource.HEATMAP_CORNER to async(Dispatchers.Default) {
+                    runSingleDetector(heatmapCornerDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
+                },
+                AsyncDetectorSource.CORNER_KEYPOINT to async(Dispatchers.Default) {
+                    runSingleDetector(cornerKeypointDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
+                },
             )
 
-            val winner = results.firstNotNullOfOrNull { (source, deferred) ->
+            var winner: Pair<AsyncDetectorSource, MatOfPoint>? = null
+
+            for ((source, deferred) in fallbackDeferrals) {
                 val quad = deferred.await()
                 if (quad != null) {
                     val deviation = computeMaxAngleDeviation(quad)
                     angleDeviations[source] = deviation
                     Log.d(TAG, "  $source: quad=${quad.total()} pts, deviation=${"%.2f".format(deviation)}°")
-                    source to quad
-                } else {
-                    angleDeviations[source] = Double.MAX_VALUE
-                    null
+                    winner = source to quad
+                    break
                 }
+                angleDeviations[source] = Double.MAX_VALUE
             }
 
-            // Cancel losing detectors
-            if (winner != null) {
-                results.filter { it.first != winner.first }
-                    .forEach { it.second.cancel() }
+            fallbackDeferrals.filter { (_, deferred) -> deferred.isActive }
+                .forEach { (_, deferred) -> deferred.cancel() }
+
+            if (winner == null) {
+                Log.d(TAG, "  Heatmap and CornerKeypoint failed, running Segmentation...")
+                val segQuad = async(Dispatchers.Default) {
+                    runSingleDetector(onnxDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
+                }.await()
+                if (segQuad != null) {
+                    val deviation = computeMaxAngleDeviation(segQuad)
+                    angleDeviations[AsyncDetectorSource.SEGMENTATION] = deviation
+                    Log.d(TAG, "  SEGMENTATION: quad=${segQuad.total()} pts, deviation=${"%.2f".format(deviation)}°")
+                    winner = AsyncDetectorSource.SEGMENTATION to segQuad
+                } else {
+                    angleDeviations[AsyncDetectorSource.SEGMENTATION] = Double.MAX_VALUE
+                }
             }
 
             if (winner != null) {
