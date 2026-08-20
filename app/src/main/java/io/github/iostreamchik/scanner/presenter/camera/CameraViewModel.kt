@@ -310,7 +310,7 @@ class CameraViewModel(
                     MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
                 }
 
-                setState { copy(originalBitmap = sourceBitmap.copy(Bitmap.Config.ARGB_8888, false)) }
+                setState { copy(originalBitmap = sourceBitmap.copy(Bitmap.Config.ARGB_8888, false), documentDetected = false) }
 
                 val mat = Mat()
                 Utils.bitmapToMat(sourceBitmap, mat)
@@ -328,7 +328,7 @@ class CameraViewModel(
                     val warped = warpDocumentHighQuality(mat, bestQuad, rotation)
                     setState {
                         copy(resultBitmap = (warped ?: mat.enhanceDocument().toBitmap())
-                            .copy(Bitmap.Config.ARGB_8888, false))
+                            .copy(Bitmap.Config.ARGB_8888, false), documentDetected = true)
                     }
 
                 } else {
@@ -371,7 +371,8 @@ class CameraViewModel(
             copy(
                 intermediateBitmaps = IntermediateBitmaps(),
                 originalBitmap = null,
-                resultBitmap = null
+                resultBitmap = null,
+                documentDetected = false
             )
         }
         lastWarpedBitmap?.recycle()

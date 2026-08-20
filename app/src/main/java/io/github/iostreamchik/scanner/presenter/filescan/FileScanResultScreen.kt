@@ -39,9 +39,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
@@ -55,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -80,8 +83,15 @@ fun FileScanResultScreen(
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     val detectionParamsState = viewModel.detectionParams.collectAsStateWithLifecycle()
 
+    val effectiveDetectorName = when {
+        uiState.originalBitmap == null -> stringResource(io.github.iostreamchik.scanner.R.string.none)
+        !uiState.documentDetected -> stringResource(io.github.iostreamchik.scanner.R.string.none)
+        else -> detectionParamsState.value.detectorName
+    }
+
     var selectedItem by remember { mutableStateOf<Pair<String, Bitmap>?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
 
     val pickMediaLauncher = rememberLauncherForActivityResult(
         contract = PickVisualMedia()
@@ -148,10 +158,11 @@ fun FileScanResultScreen(
                         Text(
                             text = stringResource(
                                 io.github.iostreamchik.scanner.R.string.file_scan_detector,
-                                detectionParamsState.value.detectorName
+                                effectiveDetectorName
                             ),
                             fontSize = 12.sp,
                             lineHeight = 12.sp,
+                            fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -163,7 +174,8 @@ fun FileScanResultScreen(
                             contentDescription = stringResource(io.github.iostreamchik.scanner.R.string.content_description_back)
                         )
                     }
-                }
+                },
+                scrollBehavior = scrollBehavior
             )
         },
         floatingActionButton = {
@@ -252,6 +264,7 @@ fun FileScanResultScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .nestedScroll(scrollBehavior.nestedScrollConnection)
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {

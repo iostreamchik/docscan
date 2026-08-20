@@ -30,6 +30,7 @@
     <string name="file_scan_choose_file">Choose File</string>
     <string name="file_scan_original">Original</string>
     <string name="file_scan_detected">Detected</string>
+    <string name="none">None</string>
 
     <!-- Intermediate step labels -->
     <string name="step_blur">Blur</string>

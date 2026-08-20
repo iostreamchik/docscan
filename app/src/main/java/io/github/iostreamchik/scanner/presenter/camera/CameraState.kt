@@ -16,5 +16,6 @@ data class CameraState(
     @StringRes val errorId: Int? = null,
     val isProcessing: Boolean = false,
     val pipelineParams: PipelineParams = PipelineParams(),
+    val documentDetected: Boolean = false,
 )
 
