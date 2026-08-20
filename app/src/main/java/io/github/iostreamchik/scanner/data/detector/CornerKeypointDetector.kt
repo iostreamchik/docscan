@@ -90,7 +90,8 @@ class CornerKeypointDetector(
         cachedRawMat = null
         cachedRawMat = rawMat.clone()
 
-        val sess = sessionManager.getSession() ?: return matBundle.getMorph()
+        val session = sessionManager.getSession() ?: return matBundle.getMorph()
+        val inputName = session.inputNames.firstOrNull() ?: return matBundle.getMorph()
 
         val resized = Mat()
         Imgproc.resize(rawMat, resized, Size(INPUT_SIZE.toDouble(), INPUT_SIZE.toDouble()))
@@ -106,7 +107,7 @@ class CornerKeypointDetector(
 
         val output: OrtSession.Result
         try {
-            output = sess.run(mapOf(sessionManager.inputName!! to inputTensor))
+            output = session.run(mapOf(inputName to inputTensor))
         } catch (e: Exception) {
             Log.e(TAG, "Inference failed", e)
             inputTensor.close()

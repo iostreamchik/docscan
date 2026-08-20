@@ -15,6 +15,11 @@ interface IMatBundle {
     fun getMorphAdd(): Mat
     fun getHierarchy(): Mat
 
+    // Heatmap visualization
+    fun getHeatmapSum(): Mat
+    fun getHeatmapNorm(): Mat
+    fun getHeatmapColored(): Mat
+
     // Directional line suppression (bright environment)
     fun getGrayGaussian(): Mat
     fun getHorizontalClose(): Mat
@@ -54,6 +59,10 @@ class MatBundle : IMatBundle {
     private var _morphAdd: Mat = Mat()
     private var _hierarchy: Mat = Mat()
 
+    private var _heatmapSum: Mat = Mat()
+    private var _heatmapNorm: Mat = Mat()
+    private var _heatmapColored: Mat = Mat()
+
     // Directional line suppression (bright environment)
     private var _grayGaussian: Mat = Mat()
     private var _horizontalClose: Mat = Mat()
@@ -90,6 +99,10 @@ class MatBundle : IMatBundle {
     override fun getMorphAdd(): Mat = _morphAdd
     override fun getHierarchy(): Mat = _hierarchy
 
+    override fun getHeatmapSum(): Mat = _heatmapSum
+    override fun getHeatmapNorm(): Mat = _heatmapNorm
+    override fun getHeatmapColored(): Mat = _heatmapColored
+
     override fun getMean(): MatOfDouble = _mean
     override fun getStd(): MatOfDouble = _std
     override fun getKernel(): Mat = _kernel
@@ -121,6 +134,10 @@ class MatBundle : IMatBundle {
         _edges.release()
         _morphAdd.release()
         _hierarchy.release()
+
+        _heatmapSum.release()
+        _heatmapNorm.release()
+        _heatmapColored.release()
 
         _grayGaussian.release()
         _horizontalClose.release()

@@ -22,6 +22,10 @@ class MockMatBundle : IMatBundle {
     override fun getMorphAdd(): Mat = emptyMat
     override fun getHierarchy(): Mat = emptyMat
 
+    override fun getHeatmapSum(): Mat = emptyMat
+    override fun getHeatmapNorm(): Mat = emptyMat
+    override fun getHeatmapColored(): Mat = emptyMat
+
     override fun getMean(): MatOfDouble = MatOfDouble()
     override fun getStd(): MatOfDouble = MatOfDouble()
     override fun getKernel(): Mat = emptyMat

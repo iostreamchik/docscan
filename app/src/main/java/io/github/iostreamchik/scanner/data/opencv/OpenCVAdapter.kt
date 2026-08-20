@@ -1,5 +1,6 @@
 package io.github.iostreamchik.scanner.data.opencv
 
+import io.github.iostreamchik.scanner.data.utils.isRectangle
 import io.github.iostreamchik.scanner.entity.PipelineParams
 import org.opencv.core.Core
 import org.opencv.core.Mat
@@ -74,10 +75,6 @@ object OpenCVAdapter {
             Imgproc.CHAIN_APPROX_SIMPLE
         )
         return contours
-    }
-
-    fun isRectangle(approx: MatOfPoint2f, toleranceDegrees: Double = 15.0): Boolean {
-        return io.github.iostreamchik.scanner.data.utils.isRectangle(approx, toleranceDegrees)
     }
 
     fun preprocessClassical(

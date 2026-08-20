@@ -75,6 +75,7 @@ class SegmentationDetector(
             .copy(Bitmap.Config.ARGB_8888, false)
 
         val sess = sessionManager.getSession() ?: return matBundle.getMorph()
+        val inputName = sess.inputNames.firstOrNull() ?: return matBundle.getMorph()
 
         val scale = INPUT_SIZE.toDouble() / max(rawMat.cols(), rawMat.rows())
         val resizedW = (rawMat.cols() * scale).toInt()
@@ -112,7 +113,7 @@ class SegmentationDetector(
 
         val output: OrtSession.Result
         try {
-            output = sess.run(mapOf(sessionManager.inputName!! to inputTensor))
+            output = sess.run(mapOf(inputName to inputTensor))
         } catch (e: Exception) {
             Log.e(TAG, "Inference failed", e)
             inputTensor.close()

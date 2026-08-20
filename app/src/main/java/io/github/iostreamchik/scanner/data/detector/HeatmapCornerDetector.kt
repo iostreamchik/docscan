@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.util.Log
 import io.github.iostreamchik.scanner.data.utils.computeMaxAngleDeviation
 import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
@@ -18,6 +19,7 @@ import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.PipelineParams
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
@@ -62,6 +64,27 @@ class HeatmapCornerDetector(
     private var originalWidth = 0
     private var originalHeight = 0
 
+    private fun circlePaint(color: Int) = Paint().apply {
+        this.color = color
+        style = Paint.Style.FILL
+    }
+
+    private fun linePaint(color: Int) = Paint().apply {
+        this.color = color
+        style = Paint.Style.STROKE
+        strokeWidth = CORNER_LINE_WIDTH
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    private fun fillPaint(color: Int) = Paint().apply {
+        this.color = color
+        style = Paint.Style.FILL
+    }
+
+    private val OverlayPaint = Paint().apply {
+        alpha = 128
+    }
+
     private val channelData = FloatArray(INPUT_SIZE * INPUT_SIZE)
     private val hierarchy = Mat()
 
@@ -84,6 +107,7 @@ class HeatmapCornerDetector(
         originalHeight = rawMat.rows()
 
         val sess = sessionManager.getSession() ?: return matBundle.getMorph()
+        val inputName = sess.inputNames.firstOrNull() ?: return matBundle.getMorph()
 
         val resized = matBundle.getBlurred()
         Imgproc.resize(rawMat, resized, Size(INPUT_SIZE.toDouble(), INPUT_SIZE.toDouble()))
@@ -97,7 +121,7 @@ class HeatmapCornerDetector(
 
         val output: OrtSession.Result
         try {
-            output = sess.run(mapOf(sessionManager.inputName!! to inputTensor))
+            output = sess.run(mapOf(inputName to inputTensor))
         } catch (e: Exception) {
             Log.e(TAG, "Inference failed", e)
             inputTensor.close()
@@ -134,9 +158,14 @@ class HeatmapCornerDetector(
             cornerError = if (cachedCorners == null) "only ${validCorners.size}/4 corners" else ""
         )
 
-        if (cachedCorners != null) {
-            val cornerBitmap = buildCornerVisualization(cachedCorners!!)
-            cachedCornerBitmap = cornerBitmap
+        cachedCornerBitmap?.recycle()
+        cachedCornerBitmap = if (cachedCorners != null) {
+            buildCornerVisualization(
+                buildHeatmapVisualization(outputData, heatmapH, heatmapW),
+                cachedCorners!!
+            )
+        } else {
+            buildHeatmapVisualization(outputData, heatmapH, heatmapW)
         }
 
         return matBundle.getMorph()
@@ -254,40 +283,73 @@ class HeatmapCornerDetector(
         }
     }
 
-    private fun buildCornerVisualization(corners: List<Point>): Bitmap {
+    private fun buildHeatmapVisualization(
+        flatData: FloatArray,
+        heatmapH: Int,
+        heatmapW: Int
+    ): Bitmap {
+        val sum = matBundle.getHeatmapSum()
+        sum.create(heatmapH, heatmapW, CvType.CV_32FC1)
+
+        val channelSize = heatmapH * heatmapW
+        val rowBuffer = FloatArray(heatmapW)
+        for (y in 0 until heatmapH) {
+            val rowOffset = y * heatmapW
+            for (x in 0 until heatmapW) {
+                var s = 0f
+                for (channel in 0 until HEATMAP_CHANNELS) {
+                    s += flatData[channel * channelSize + rowOffset + x]
+                }
+                rowBuffer[x] = s
+            }
+            sum.put(y, 0, rowBuffer)
+        }
+
+        val stats = Core.minMaxLoc(sum)
+        val range = stats.maxVal - stats.minVal
+        val scale = if (range > 1e-9) 255.0 / range else 0.0
+
+        val norm = matBundle.getHeatmapNorm()
+        norm.create(heatmapH, heatmapW, CvType.CV_8UC1)
+        sum.convertTo(norm, CvType.CV_8UC1, scale)
+
+        val colored = matBundle.getHeatmapColored()
+        colored.create(heatmapH, heatmapW, CvType.CV_8UC3)
+        Imgproc.applyColorMap(norm, colored, Imgproc.COLORMAP_JET)
+
+        val resized = Mat()
+        Imgproc.resize(colored, resized, Size(originalWidth.toDouble(), originalHeight.toDouble()))
+        val heatmapBitmap = resized.toBitmap()
+        resized.release()
+
         val baseBitmap = cachedRawMat?.toBitmap()
             ?: createBitmap(originalWidth, originalHeight)
-
         val width = baseBitmap.width
         val height = baseBitmap.height
+        val bitmap = createBitmap(width, height)
+        Canvas(bitmap).drawBitmap(baseBitmap, 0f, 0f, null)
+        if (baseBitmap != bitmap) baseBitmap.recycle()
+        Canvas(bitmap).drawBitmap(heatmapBitmap, 0f, 0f, OverlayPaint)
+        heatmapBitmap.recycle()
 
-        val bitmap = if (baseBitmap.config == Bitmap.Config.ARGB_8888) {
-            baseBitmap
-        } else {
-            val converted = createBitmap(width, height)
-            Canvas(converted).drawBitmap(baseBitmap, 0f, 0f, null)
-            if (baseBitmap != converted) baseBitmap.recycle()
-            converted
-        }
+        return bitmap
+    }
+
+    private fun buildCornerVisualization(base: Bitmap, corners: List<Point>): Bitmap {
+        val width = base.width
+        val height = base.height
+        val bitmap = createBitmap(width, height)
+        Canvas(bitmap).drawBitmap(base, 0f, 0f, null)
+        if (base != bitmap) base.recycle()
 
         val canvas = Canvas(bitmap)
 
         val colors = intArrayOf(
-            Color.RED,
-            Color.GREEN,
+            Color.YELLOW,
             Color.BLUE,
-            Color.YELLOW
+            Color.GREEN,
+            Color.RED
         )
-
-        val dotPaint = Paint().apply {
-            style = Paint.Style.FILL
-            strokeWidth = 3f
-        }
-        val linePaint = Paint().apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 3f
-            color = Color.WHITE
-        }
 
         val px = FloatArray(4)
         val py = FloatArray(4)
@@ -297,19 +359,47 @@ class HeatmapCornerDetector(
         }
 
         for (i in 0 until 4) {
-            dotPaint.color = colors[i]
-            canvas.drawCircle(px[i], py[i], 8f, dotPaint)
-        }
-
-        for (i in 0..3) {
-            canvas.drawLine(
-                px[i], py[i],
-                px[(i + 1) % 4], py[(i + 1) % 4],
-                linePaint
+            val color = colors[i]
+            val headX = px[i]
+            val headY = py[i]
+            Canvas(bitmap).drawCircle(headX, headY, CORNER_HEAD_RADIUS, circlePaint(color))
+            val tailIndex = (i + 3) % 4
+            drawArrow(
+                canvas,
+                headX,
+                headY,
+                px[tailIndex],
+                py[tailIndex],
+                color
             )
         }
 
         return bitmap
+    }
+
+    private fun drawArrow(
+        canvas: Canvas,
+        fromX: Float,
+        fromY: Float,
+        toX: Float,
+        toY: Float,
+        color: Int
+    ) {
+        canvas.drawLine(fromX, fromY, toX, toY, linePaint(color))
+
+        val angle = Math.atan2(toY.toDouble() - fromY.toDouble(), toX.toDouble() - fromX.toDouble())
+        val path = Path()
+        path.moveTo(toX, toY)
+        path.lineTo(
+            (toX + CORNER_HEAD_LENGTH * Math.cos(angle - CORNER_HEAD_ANGLE)).toFloat(),
+            (toY + CORNER_HEAD_LENGTH * Math.sin(angle - CORNER_HEAD_ANGLE)).toFloat()
+        )
+        path.lineTo(
+            (toX + CORNER_HEAD_LENGTH * Math.cos(angle + CORNER_HEAD_ANGLE)).toFloat(),
+            (toY + CORNER_HEAD_LENGTH * Math.sin(angle + CORNER_HEAD_ANGLE)).toFloat()
+        )
+        path.close()
+        canvas.drawPath(path, fillPaint(color))
     }
 
     override fun release() {
@@ -328,5 +418,10 @@ class HeatmapCornerDetector(
         const val HEATMAP_CHANNELS = 4
 
         private const val TAG = "HeatmapCornerDetector"
+
+        private const val CORNER_LINE_WIDTH = 3f
+        private const val CORNER_HEAD_RADIUS = 6f
+        private const val CORNER_HEAD_LENGTH = 16f
+        private const val CORNER_HEAD_ANGLE = Math.PI / 7f
     }
 }

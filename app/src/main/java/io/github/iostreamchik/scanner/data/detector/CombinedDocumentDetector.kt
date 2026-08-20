@@ -183,40 +183,55 @@ class CombinedDocumentDetector(
                 return@coroutineScope null
             }
 
-            Log.d(TAG, "  Primary detectors failed, running parallel ONNX fallbacks...")
-            val fallbackStart = System.currentTimeMillis()
+            try {
+                runOnnxFallbacks(rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
+            } finally {
+                rawMat.release()
+            }
+        }
 
-            val fallbackDeferrals = listOf(
-                AsyncDetectorSource.HEATMAP_CORNER to async(Dispatchers.Default) {
-                    runSingleDetector(heatmapCornerDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
-                },
-                AsyncDetectorSource.CORNER_KEYPOINT to async(Dispatchers.Default) {
-                    runSingleDetector(cornerKeypointDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
-                },
-            )
+        return result
+    }
+
+    private suspend fun runOnnxFallbacks(
+        rawMat: Mat,
+        params: PipelineParams,
+        originalWidth: Int,
+        originalHeight: Int,
+        rotation: Int,
+        scaledWidth: Int,
+        scaledHeight: Int,
+    ): MatOfPoint? {
+        Log.d(TAG, "  Primary detectors failed, running sequential ONNX fallbacks...")
+            val fallbackStart = System.currentTimeMillis()
 
             var winner: Pair<AsyncDetectorSource, MatOfPoint>? = null
 
-            for ((source, deferred) in fallbackDeferrals) {
-                val quad = deferred.await()
-                if (quad != null) {
-                    val deviation = computeMaxAngleDeviation(quad)
-                    angleDeviations[source] = deviation
-                    Log.d(TAG, "  $source: quad=${quad.total()} pts, deviation=${"%.2f".format(deviation)}°")
-                    winner = source to quad
-                    break
-                }
-                angleDeviations[source] = Double.MAX_VALUE
+            val heatmapQuad = runSingleDetector(heatmapCornerDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
+            if (heatmapQuad != null) {
+                val deviation = computeMaxAngleDeviation(heatmapQuad)
+                angleDeviations[AsyncDetectorSource.HEATMAP_CORNER] = deviation
+                Log.d(TAG, "  HEATMAP_CORNER: quad=${heatmapQuad.total()} pts, deviation=${"%.2f".format(deviation)}°")
+                winner = AsyncDetectorSource.HEATMAP_CORNER to heatmapQuad
+            } else {
+                angleDeviations[AsyncDetectorSource.HEATMAP_CORNER] = Double.MAX_VALUE
             }
 
-            fallbackDeferrals.filter { (_, deferred) -> deferred.isActive }
-                .forEach { (_, deferred) -> deferred.cancel() }
+            if (winner == null) {
+                val keypointQuad = runSingleDetector(cornerKeypointDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
+                if (keypointQuad != null) {
+                    val deviation = computeMaxAngleDeviation(keypointQuad)
+                    angleDeviations[AsyncDetectorSource.CORNER_KEYPOINT] = deviation
+                    Log.d(TAG, "  CORNER_KEYPOINT: quad=${keypointQuad.total()} pts, deviation=${"%.2f".format(deviation)}°")
+                    winner = AsyncDetectorSource.CORNER_KEYPOINT to keypointQuad
+                } else {
+                    angleDeviations[AsyncDetectorSource.CORNER_KEYPOINT] = Double.MAX_VALUE
+                }
+            }
 
             if (winner == null) {
                 Log.d(TAG, "  Heatmap and CornerKeypoint failed, running Segmentation...")
-                val segQuad = async(Dispatchers.Default) {
-                    runSingleDetector(onnxDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
-                }.await()
+                val segQuad = runSingleDetector(onnxDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
                 if (segQuad != null) {
                     val deviation = computeMaxAngleDeviation(segQuad)
                     angleDeviations[AsyncDetectorSource.SEGMENTATION] = deviation
@@ -246,15 +261,12 @@ class CombinedDocumentDetector(
                     else -> {}
                 }
                 Log.d(TAG, "  RESULT: $winnerSource fallback detected in ${System.currentTimeMillis() - fallbackStart}ms")
-                return@coroutineScope winnerQuad
+                return winnerQuad
             }
 
             Log.d(TAG, "  ONNX fallbacks completed in ${System.currentTimeMillis() - fallbackStart}ms")
             Log.w(TAG, "  RESULT: NO DETECTION (all detectors returned null)")
-            null
-        }
-
-        return result
+            return null
     }
 
     override fun captureIntermediateSnapshots(

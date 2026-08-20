@@ -17,9 +17,6 @@ class OnnxSessionManager(
     private var nchwBuffer: FloatArray? = null
     private var interleavedBuffer: FloatArray? = null
 
-    val inputName: String?
-        get() = session?.inputNames?.first()
-
     fun init(tag: String) {
         if (session != null) return
 
