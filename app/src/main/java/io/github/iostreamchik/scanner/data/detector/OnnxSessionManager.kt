@@ -19,10 +19,12 @@ class OnnxSessionManager(
 
     fun init(tag: String) {
         if (session != null) return
+        val availableProcessors = Runtime.getRuntime().availableProcessors()
+        val intraOpThreads = maxOf(1, minOf(availableProcessors / 2, 4))
 
         val sessionOptions = OrtSession.SessionOptions().apply {
             addXnnpack(emptyMap())
-            setIntraOpNumThreads(2)
+            setIntraOpNumThreads(intraOpThreads)
             setMemoryPatternOptimization(true)
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
             setExecutionMode(OrtSession.SessionOptions.ExecutionMode.PARALLEL)
