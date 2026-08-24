@@ -36,7 +36,10 @@ val appModule = module {
         HeatmapCornerDetector(get(), get(), get())
     }
     single<IDocumentDetector>(named("cornerKeypoint")) {
-        CornerKeypointDetector(get(), get(), get())
+        CornerKeypointDetector(get(), get(), get()).apply {
+            applySigmoid = true
+            minScore = 0.3f
+        }
     }
     single<IDocumentDetector>(named("segmentation")) {
         SegmentationDetector(get(), get(), get())

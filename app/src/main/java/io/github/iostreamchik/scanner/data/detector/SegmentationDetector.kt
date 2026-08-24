@@ -187,7 +187,7 @@ class SegmentationDetector(
             Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
         )
 
-        val fullMask = if (Core.countNonZero(otsuMask) > INPUT_SIZE * INPUT_SIZE * 0.0005) {
+        val fullMask = if (Core.countNonZero(otsuMask) > INPUT_SIZE * INPUT_SIZE * 0.003) {
             val m = Mat.zeros(INPUT_SIZE, INPUT_SIZE, CvType.CV_8UC1)
             otsuMask.copyTo(m.submat(0, resizedH, 0, resizedW))
             otsuMask.release()
@@ -224,11 +224,13 @@ class SegmentationDetector(
             }
         }
 
-        val docLinear = sqrt(docArea.toDouble()).coerceIn(10.0, 200.0)
-        val kernelCloseK = ((docLinear / 6.0).toInt().coerceIn(5, 21)).takeIf { it % 2 == 1 }
-            ?: ((docLinear / 6.0).toInt().coerceIn(5, 21) - 1)
-        val kernelOpenK = ((docLinear / 12.0).toInt().coerceIn(3, 9)).takeIf { it % 2 == 1 }
-            ?: ((docLinear / 12.0).toInt().coerceIn(3, 9) - 1)
+        val areaScale = (scaledWidth * scaledHeight).toDouble() / (INPUT_SIZE * INPUT_SIZE)
+        val docAreaScaled = (docArea * areaScale).toInt()
+        val docLinear = sqrt(docAreaScaled.toDouble()).coerceIn(50.0, 800.0)
+        val kernelCloseK = ((docLinear / 6.0).toInt().coerceIn(5, 41)).takeIf { it % 2 == 1 }
+            ?: ((docLinear / 6.0).toInt().coerceIn(5, 41) - 1)
+        val kernelOpenK = ((docLinear / 12.0).toInt().coerceIn(3, 21)).takeIf { it % 2 == 1 }
+            ?: ((docLinear / 12.0).toInt().coerceIn(3, 21) - 1)
 
         val kernelClose = Mat(kernelCloseK, kernelCloseK, CvType.CV_8UC1, Scalar.all(1.0))
         val kernelOpen = Mat(kernelOpenK, kernelOpenK, CvType.CV_8UC1, Scalar.all(1.0))
@@ -403,7 +405,7 @@ class SegmentationDetector(
             val rect = Geometry.boundingRect(approx)
             val rectArea = rect.width * rect.height
             val solidity = area / rectArea.toDouble()
-            if (solidity < 0.3) continue
+            if (solidity < 0.55) continue
 
             val scaleX = originalWidth.toDouble() / scaledWidth
             val scaleY = originalHeight.toDouble() / scaledHeight
