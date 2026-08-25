@@ -26,11 +26,10 @@ class DocumentDetectorRepositoryImpl(
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        rotation: Int,
         params: PipelineParams
     ): MatOfPoint? = detector.detectQuad(
         morphImage, scaledWidth, scaledHeight,
-        originalWidth, originalHeight, rotation, params
+        originalWidth, originalHeight, params
     )
 
     override fun validateQuadSize(
@@ -45,8 +44,8 @@ class DocumentDetectorRepositoryImpl(
     override val detectorName: String
         get() = detector.detectorName
 
-    override fun captureIntermediateSnapshots(rotation: Int): IntermediateBitmaps {
-        val snapshots = detector.captureIntermediateSnapshots(rotation)
+    override fun captureIntermediateSnapshots(): IntermediateBitmaps {
+        val snapshots = detector.captureIntermediateSnapshots()
         return IntermediateBitmaps(
             blur = snapshots.blur,
             clahe = snapshots.clahe,
@@ -57,8 +56,8 @@ class DocumentDetectorRepositoryImpl(
         )
     }
 
-    override fun capturePostDetectionSnapshots(rotation: Int): IntermediateBitmaps {
-        val snapshots = detector.capturePostDetectionSnapshots(rotation)
+    override fun capturePostDetectionSnapshots(): IntermediateBitmaps {
+        val snapshots = detector.capturePostDetectionSnapshots()
         return IntermediateBitmaps(
             blur = snapshots.blur,
             clahe = snapshots.clahe,

@@ -26,8 +26,8 @@ Five detectors implement `IDocumentDetector`, orchestrated by `CombinedDocumentD
 
 | Detector | Caching Fields | Problem |
 |---|---|---|
-| HeatmapCornerDetector | `cachedCorners`, `cachedRawMat`, `cachedCornerBitmap`, `cachedRotation` | Raw mat + bitmap caching scattered; bitmap built in preprocess, reused later |
-| CornerKeypointDetector | `cachedCoords`, `cachedScore`, `cachedCornerBitmap`, `cachedRawMat`, `cachedRotation` | Same pattern; raw mat also used for edge refinement |
+| HeatmapCornerDetector | `cachedCorners`, `cachedRawMat`, `cachedCornerBitmap` | Raw mat + bitmap caching scattered; bitmap built in preprocess, reused later |
+| CornerKeypointDetector | `cachedCoords`, `cachedScore`, `cachedCornerBitmap`, `cachedRawMat` | Same pattern; raw mat also used for edge refinement |
 | SegmentationDetector | `cachedMask`, `cachedRawBitmap` | Raw bitmap stored (should derive from raw mat); mask is a Mat that could go in bundle |
 
 ### Unified MatBundle Fields (ADD)

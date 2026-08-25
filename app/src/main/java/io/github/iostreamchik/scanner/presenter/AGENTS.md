@@ -15,7 +15,7 @@ presenter/
 │   ├── CameraIntent.kt              — Sealed class of user/system intents
 │   ├── CameraState.kt               — @Stable UI state data class
 │   ├── CameraViewModel.kt           — Frame processing, quad fusion/stability, warping, file scan
-│   └── ContourData.kt               — @Stable contour rendering data (contours + frame dims + rotation)
+│   └── ContourData.kt               — @Stable contour rendering data (contours + frame dims)
 ├── filescan/
 │   └── FileScanResultScreen.kt      — Photo picker, intermediate bitmaps grid, modal bottom sheet,
 │   │                                 detector chip, processing state

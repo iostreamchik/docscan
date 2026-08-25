@@ -35,7 +35,6 @@ interface IDocumentDetector {
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        rotation: Int = 0,
         params: PipelineParams = PipelineParams()
     ): MatOfPoint?
 
@@ -72,24 +71,18 @@ interface IDocumentDetector {
      * after [preprocess] has completed. Each detector populates only the stages it produces.
      * Called before the pooled Mats are released so the intermediate results are still valid.
      *
-     * @param rotation device rotation degrees for correcting bitmap orientation
      * @return snapshots of intermediate processing stages
      */
-    fun captureIntermediateSnapshots(
-        rotation: Int
-    ): IntermediateBitmaps = IntermediateBitmaps()
+    fun captureIntermediateSnapshots(): IntermediateBitmaps = IntermediateBitmaps()
 
     /**
      * Captures snapshots that are only available after [detectQuad] has run.
      * Used by detectors like ONNX where the mask is produced inside detectQuad
      * (e.g., when ONNX runs as a fallback after classical detection fails).
      *
-     * @param rotation device rotation degrees for correcting bitmap orientation
      * @return snapshots of post-detection stages, or empty if none
      */
-    fun capturePostDetectionSnapshots(
-        rotation: Int
-    ): IntermediateBitmaps = IntermediateBitmaps()
+    fun capturePostDetectionSnapshots(): IntermediateBitmaps = IntermediateBitmaps()
 
     /**
      * Releases all native resources held by this detector (pooled Mats, ONNX sessions, etc.).

@@ -54,7 +54,6 @@ class DocumentDetectorMinimal(
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        rotation: Int,
         params: PipelineParams
     ): MatOfPoint? {
         return OpenCVAdapter.findBestQuad(
@@ -72,8 +71,8 @@ class DocumentDetectorMinimal(
         )
     }
 
-    override fun captureIntermediateSnapshots(rotation: Int): IntermediateBitmaps =
-        matBundle.captureClassicalSnapshots(rotation)
+    override fun captureIntermediateSnapshots(): IntermediateBitmaps =
+        matBundle.captureClassicalSnapshots()
 
     override fun release() {
         matBundle.releaseAll()

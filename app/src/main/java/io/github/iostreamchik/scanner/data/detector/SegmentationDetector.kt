@@ -13,7 +13,6 @@ import io.github.iostreamchik.scanner.entity.PipelineParams
 import io.github.iostreamchik.scanner.data.utils.validateQuadRectangularity
 import io.github.iostreamchik.scanner.data.utils.isRectangle
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
-import io.github.iostreamchik.scanner.data.utils.fixRotation
 import io.github.iostreamchik.scanner.data.utils.scoreContourWithParams
 import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
 import io.github.iostreamchik.scanner.data.utils.toBitmap
@@ -292,7 +291,6 @@ class SegmentationDetector(
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        rotation: Int,
         params: PipelineParams
     ): MatOfPoint? {
         val workingMask = matBundle.getSegmentationMask()
@@ -418,28 +416,24 @@ class SegmentationDetector(
         return result
     }
 
-    override fun captureIntermediateSnapshots(
-        rotation: Int
-    ): IntermediateBitmaps {
+    override fun captureIntermediateSnapshots(): IntermediateBitmaps {
         val maskMat = matBundle.getSegmentationMask()
         val rawMat = matBundle.getRawMat()
         return if (!maskMat.empty() && !rawMat.empty()) {
             IntermediateBitmaps(
-                mask = buildMaskOverlay(rawMat, maskMat, rotation)
+                mask = buildMaskOverlay(rawMat, maskMat)
             )
         } else {
             IntermediateBitmaps()
         }
     }
 
-    override fun capturePostDetectionSnapshots(
-        rotation: Int
-    ): IntermediateBitmaps {
+    override fun capturePostDetectionSnapshots(): IntermediateBitmaps {
         val maskMat = matBundle.getSegmentationMask()
         val rawMat = matBundle.getRawMat()
         return if (!maskMat.empty() && !rawMat.empty()) {
             IntermediateBitmaps(
-                mask = buildMaskOverlay(rawMat, maskMat, rotation)
+                mask = buildMaskOverlay(rawMat, maskMat)
             )
         } else {
             IntermediateBitmaps()
@@ -448,19 +442,15 @@ class SegmentationDetector(
 
     private fun buildMaskOverlay(
         rawMat: Mat,
-        maskMat: Mat,
-        rotation: Int
+        maskMat: Mat
     ): Bitmap {
-        val rotatedRawMat = rawMat.fixRotation(rotation)
-        val rotatedRaw = rotatedRawMat.toBitmap()
-        rotatedRawMat.release()
+        val rotatedRaw = rawMat.toBitmap()
         val width = rotatedRaw.width
         val height = rotatedRaw.height
 
-        val rotatedMask = maskMat.fixRotation(rotation)
         val resizedMask = Mat()
         Imgproc.resize(
-            rotatedMask, resizedMask,
+            maskMat, resizedMask,
             Size(width.toDouble(), height.toDouble()),
             0.0, 0.0, Imgproc.INTER_NEAREST
         )
@@ -485,7 +475,6 @@ class SegmentationDetector(
         overlay.setPixels(pixels, 0, width, 0, 0, width, height)
 
         resizedMask.release()
-        rotatedMask.release()
 
         return overlay
     }

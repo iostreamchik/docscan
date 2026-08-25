@@ -16,38 +16,20 @@ fun ContourCanvas(
     contourData: ContourData?,
     modifier: Modifier = Modifier
 ) {
-    val rotatedContours = remember(contourData) {
-        contourData?.let { data ->
-            val originalW = data.frameWidth.toFloat()
-            val originalH = data.frameHeight.toFloat()
-
-            val rotatedW = if (data.rotation == 90 || data.rotation == 270) originalH else originalW
-            val rotatedH = if (data.rotation == 90 || data.rotation == 270) originalW else originalH
-
-            val contours = data.contours.map { contour ->
-                val points = contour.toArray()
-                points.map { pt ->
-                    when (data.rotation) {
-                        90 -> Offset(originalH - pt.y.toFloat(), pt.x.toFloat())
-                        180 -> Offset(originalW - pt.x.toFloat(), originalH - pt.y.toFloat())
-                        270 -> Offset(pt.y.toFloat(), originalW - pt.x.toFloat())
-                        else -> Offset(pt.x.toFloat(), pt.y.toFloat())
-                    }
-                }
-            }
-
-            Triple(contours, rotatedW, rotatedH)
+    val contours = remember(contourData) {
+        contourData?.contours?.map { contour ->
+            contour.toArray().map { pt -> Offset(pt.x.toFloat(), pt.y.toFloat()) }
         }
     }
 
     Canvas(modifier = modifier) {
-        val contours = rotatedContours?.first ?: return@Canvas
-        val rotatedW = rotatedContours?.second ?: return@Canvas
-        val rotatedH = rotatedContours?.third ?: return@Canvas
+        val contours = contours ?: return@Canvas
+        val frameW = contourData?.frameWidth?.toFloat() ?: return@Canvas
+        val frameH = contourData?.frameHeight?.toFloat() ?: return@Canvas
 
-        val scale = max(size.width / rotatedW, size.height / rotatedH)
-        val dx = (size.width - (rotatedW * scale)) / 2f
-        val dy = (size.height - (rotatedH * scale)) / 2f
+        val scale = max(size.width / frameW, size.height / frameH)
+        val dx = (size.width - (frameW * scale)) / 2f
+        val dy = (size.height - (frameH * scale)) / 2f
 
         contours.forEach { points ->
             val scaledPoints = points.map { Offset(it.x * scale + dx, it.y * scale + dy) }

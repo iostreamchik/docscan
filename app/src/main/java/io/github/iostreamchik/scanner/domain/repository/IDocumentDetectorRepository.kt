@@ -22,7 +22,6 @@ interface IDocumentDetectorRepository {
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        rotation: Int = 0,
         params: PipelineParams = PipelineParams()
     ): MatOfPoint?
 
@@ -36,9 +35,9 @@ interface IDocumentDetectorRepository {
 
     val detectorName: String
 
-    fun captureIntermediateSnapshots(rotation: Int): IntermediateBitmaps
+    fun captureIntermediateSnapshots(): IntermediateBitmaps
 
-    fun capturePostDetectionSnapshots(rotation: Int): IntermediateBitmaps
+    fun capturePostDetectionSnapshots(): IntermediateBitmaps
 
     fun release()
 }

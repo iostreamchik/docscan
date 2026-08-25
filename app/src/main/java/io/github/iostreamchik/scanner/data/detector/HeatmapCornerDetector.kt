@@ -11,7 +11,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.util.Log
 import io.github.iostreamchik.scanner.data.utils.computeMaxAngleDeviation
-import io.github.iostreamchik.scanner.data.utils.fixBitmapRotation
 import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
 import io.github.iostreamchik.scanner.data.utils.toBitmap
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
@@ -218,7 +217,6 @@ class HeatmapCornerDetector(
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        rotation: Int,
         params: PipelineParams
     ): MatOfPoint? {
         val corners = cachedCorners ?: return null
@@ -258,18 +256,15 @@ class HeatmapCornerDetector(
         return true
     }
 
-    override fun captureIntermediateSnapshots(
-        rotation: Int
-    ): IntermediateBitmaps {
+    override fun captureIntermediateSnapshots(): IntermediateBitmaps {
         val raw = matBundle.getRawMat()
         val colored = matBundle.getHeatmapColored()
         if (raw.empty() || colored.empty()) return IntermediateBitmaps()
 
         val baseBitmap = buildHeatmapVisualization(colored)
         val cornerBitmap = cachedCorners?.let { buildCornerVisualization(baseBitmap, it) } ?: baseBitmap
-        val rotatedBitmap = cornerBitmap.fixBitmapRotation(rotation)
         return IntermediateBitmaps(
-            corners = rotatedBitmap.copy(Bitmap.Config.ARGB_8888, false)
+            corners = cornerBitmap.copy(Bitmap.Config.ARGB_8888, false)
         )
     }
 

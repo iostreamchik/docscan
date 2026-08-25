@@ -163,24 +163,6 @@ fun Mat.fixRotation(rotationDegrees: Int): Mat {
     }
 }
 
-fun Bitmap.fixBitmapRotation(rotationDegrees: Int): Bitmap {
-    val matrix = android.graphics.Matrix()
-    when (rotationDegrees) {
-        90 -> {
-            matrix.postRotate(90f, width.toFloat() / 2, height.toFloat() / 2)
-        }
-        180 -> {
-            matrix.postRotate(180f, width.toFloat() / 2, height.toFloat() / 2)
-        }
-        270 -> {
-            matrix.postRotate(270f, width.toFloat() / 2, height.toFloat() / 2)
-        }
-        0 -> return this
-    }
-    return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
-        .copy(Bitmap.Config.ARGB_8888, false)
-}
-
 fun Mat.toBitmap(): Bitmap {
     if (empty()) {
         return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
@@ -315,10 +297,10 @@ fun MatOfPoint.toSortedQuad(): List<Point> {
 /**
  * Warps a document from a source Mat using the detected quad corners.
  *
- * Applies perspective transform, rotation fix, and sharpening.
+ * Applies perspective transform and sharpening.
  * Returns null on error.
  */
-fun warpDocumentHighQuality(src: Mat, quad: MatOfPoint, rotationDegrees: Int): Bitmap? {
+fun warpDocumentHighQuality(src: Mat, quad: MatOfPoint): Bitmap? {
     return try {
         val sorted = sortQuadPoints(quad.toArray().toList())
         val (tl, tr, br, bl) = sorted // Destructuring
@@ -342,13 +324,11 @@ fun warpDocumentHighQuality(src: Mat, quad: MatOfPoint, rotationDegrees: Int): B
         val warped = Mat()
         Imgproc.warpPerspective(src, warped, transform, Size(outputWidth, outputHeight))
 
-        val rotated = warped.fixRotation(rotationDegrees)
-        val sharpened = rotated.sharpen()
+        val sharpened = warped.sharpen()
         val bitmap = sharpened.toBitmap()
 
         // Release intermediates in reverse order
         sharpened.release()
-        rotated.release()
         warped.release()
         transform.release()
         srcPoints.release()

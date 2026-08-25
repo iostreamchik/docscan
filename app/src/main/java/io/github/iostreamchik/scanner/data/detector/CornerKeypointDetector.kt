@@ -10,7 +10,6 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
 import io.github.iostreamchik.scanner.data.utils.computeMaxAngleDeviation
-import io.github.iostreamchik.scanner.data.utils.fixBitmapRotation
 import io.github.iostreamchik.scanner.data.utils.toBitmap
 import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
@@ -148,7 +147,6 @@ class CornerKeypointDetector(
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        rotation: Int,
         params: PipelineParams
     ): MatOfPoint? {
         val coords = cachedCoords ?: return null
@@ -186,16 +184,13 @@ class CornerKeypointDetector(
         return MatOfPoint(*finalCorners.toTypedArray())
     }
 
-    override fun captureIntermediateSnapshots(
-        rotation: Int
-    ): IntermediateBitmaps {
+    override fun captureIntermediateSnapshots(): IntermediateBitmaps {
         val coords = cachedCoords ?: return IntermediateBitmaps()
         if (matBundle.getRawMat().empty()) return IntermediateBitmaps()
 
         val cornerBitmap = buildCornerVisualization(cachedScaledWidth, cachedScaledHeight, coords)
-        val rotatedBitmap = cornerBitmap.fixBitmapRotation(rotation)
         return IntermediateBitmaps(
-            corners = rotatedBitmap.copy(Bitmap.Config.ARGB_8888, false)
+            corners = cornerBitmap.copy(Bitmap.Config.ARGB_8888, false)
         )
     }
 

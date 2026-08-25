@@ -29,12 +29,12 @@ domain/
 | Member | Signature | Purpose |
 |---|---|---|
 | `preprocess()` | `(rawMat, scaledWidth, scaledHeight, params) -> Mat` | Run image preprocessing pipeline, return processed Mat |
-| `detectQuad()` | `(morphImage, scaledWidth, scaledHeight, originalWidth, originalHeight, rotation = 0, params = PipelineParams()) -> MatOfPoint?` | Extract document quad from preprocessed image |
+| `detectQuad()` | `(morphImage, scaledWidth, scaledHeight, originalWidth, originalHeight, params = PipelineParams()) -> MatOfPoint?` | Extract document quad from preprocessed image |
 | `validateQuadSize()` | `(quad, originalWidth, originalHeight) -> Boolean` | Guard against false positives where quad fills the entire frame |
 | `detectionParams` | `StateFlow<DetectionParameters>?` | Live detection metrics (nullable — null when no detector is active) |
 | `detectorName` | `String` | Human-readable name of the active detector |
-| `captureIntermediateSnapshots()` | `(rotation) -> IntermediateBitmaps` | Capture pipeline stage bitmaps after preprocess |
-| `capturePostDetectionSnapshots()` | `(rotation) -> IntermediateBitmaps` | Capture bitmaps only available after detectQuad (e.g., ONNX mask) |
+| `captureIntermediateSnapshots()` | `() -> IntermediateBitmaps` | Capture pipeline stage bitmaps after preprocess |
+| `capturePostDetectionSnapshots()` | `() -> IntermediateBitmaps` | Capture bitmaps only available after detectQuad (e.g., ONNX mask) |
 | `release()` | `() -> Unit` | Release native resources (pooled Mats, ONNX sessions) |
 
 ## Shared Entities (`entity/`)

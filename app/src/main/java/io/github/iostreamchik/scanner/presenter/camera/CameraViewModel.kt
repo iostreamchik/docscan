@@ -66,7 +66,6 @@ class CameraViewModel(
     private var lastContourData: ContourData? = null
     private var lastFrameWidth = 0
     private var lastFrameHeight = 0
-    private var lastRotation = 0
     private val MAX_HISTORY = 8
     private var frameCounter = 0
     private val STABILITY_CHECK_INTERVAL = 2
@@ -86,8 +85,7 @@ class CameraViewModel(
                     lastContourData = ContourData(
                         contours = quads,
                         frameWidth = lastFrameWidth,
-                        frameHeight = lastFrameHeight,
-                        rotation = lastRotation
+                        frameHeight = lastFrameHeight
                     )
                     _contourData.value = lastContourData
                 }
@@ -109,16 +107,16 @@ class CameraViewModel(
     }
 
     fun processFrame(imageProxy: ImageProxy) {
-        val width = imageProxy.width
-        val height = imageProxy.height
-        lastFrameWidth = width
-        lastFrameHeight = height
-        lastRotation = imageProxy.imageInfo.rotationDegrees
-        lastFrameSize = Size(width.toDouble(), height.toDouble())
-
-        val mat = imageProxy.toMatRGBA()
+        val rawMat = imageProxy.toMatRGBA()
         val rotation = imageProxy.imageInfo.rotationDegrees
         imageProxy.close()
+
+        val mat = rawMat.fixRotation(rotation)
+        if (mat !== rawMat) rawMat.release()
+
+        lastFrameWidth = mat.cols()
+        lastFrameHeight = mat.rows()
+        lastFrameSize = Size(mat.cols().toDouble(), mat.rows().toDouble())
 
         if (currentDetectionJob?.isActive == true) {
             mat.release()
@@ -128,7 +126,7 @@ class CameraViewModel(
         currentDetectionJob = viewModelScope.launch {
             try {
                 withContext(Dispatchers.Default) {
-                    val result = runDetection(mat, rotation, _state.value.pipelineParams)
+                    val result = runDetection(mat, _state.value.pipelineParams)
 
                     _detectedQuads.value = result
 
@@ -144,7 +142,7 @@ class CameraViewModel(
                                     "\nFused Quad: ${fusedQuad.toArray().joinToString(", ")}"
                                 )
                                 val warped = if (quadHash != lastWarpedQuadHash) {
-                                    warpDocumentHighQuality(mat, fusedQuad, rotation).also {
+                                    warpDocumentHighQuality(mat, fusedQuad).also {
                                         lastWarpedBitmap?.recycle()
                                         lastWarpedBitmap = it
                                         lastWarpedQuadHash = quadHash
@@ -219,7 +217,6 @@ class CameraViewModel(
 
     private suspend fun runDetection(
         mat: Mat,
-        rotation: Int,
         params: PipelineParams
     ): List<MatOfPoint> {
         val originalWidth = mat.cols()
@@ -231,7 +228,7 @@ class CameraViewModel(
 
         Log.d("CameraViewModel", "=== runDetection START: ${originalWidth}x${originalHeight} -> scaled=${scaledWidth}x${scaledHeight} ===")
 
-        val originalFrame = mat.fixRotation(rotation).toBitmap()
+        val originalFrame = mat.toBitmap()
             .copy(Bitmap.Config.ARGB_8888, false)
         setState { copy(originalBitmap = originalFrame) }
 
@@ -245,12 +242,11 @@ class CameraViewModel(
                 scaledHeight = scaledHeight,
                 originalWidth = originalWidth,
                 originalHeight = originalHeight,
-                rotation = rotation,
                 params = params
             )
 
-            val snapshots = repository.captureIntermediateSnapshots(rotation)
-            val postSnapshots = repository.capturePostDetectionSnapshots(rotation)
+            val snapshots = repository.captureIntermediateSnapshots()
+            val postSnapshots = repository.capturePostDetectionSnapshots()
             setState {
                 copy(
                     intermediateBitmaps = snapshots.copy(
@@ -315,17 +311,15 @@ class CameraViewModel(
                 val mat = Mat()
                 Utils.bitmapToMat(sourceBitmap, mat)
 
-                val rotation = 0
-
                 val matForDetection = mat.clone()
                 val result = withContext(Dispatchers.Default) {
-                    runDetection(matForDetection, rotation, _state.value.pipelineParams)
+                    runDetection(matForDetection, _state.value.pipelineParams)
                 }
 
                 if (result.isNotEmpty()) {
                     val bestQuad = result.first()
 
-                    val warped = warpDocumentHighQuality(mat, bestQuad, rotation)
+                    val warped = warpDocumentHighQuality(mat, bestQuad)
                     setState {
                         copy(resultBitmap = (warped ?: mat.enhanceDocument().toBitmap())
                             .copy(Bitmap.Config.ARGB_8888, false), documentDetected = true)

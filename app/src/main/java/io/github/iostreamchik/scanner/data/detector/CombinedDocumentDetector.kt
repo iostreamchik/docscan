@@ -93,10 +93,9 @@ class CombinedDocumentDetector(
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        rotation: Int,
         params: PipelineParams
     ): MatOfPoint? {
-        Log.d(TAG, "detectQuad START: scaled=${scaledWidth}x${scaledHeight}, original=${originalWidth}x${originalHeight}, rotation=$rotation")
+        Log.d(TAG, "detectQuad START: scaled=${scaledWidth}x${scaledHeight}, original=${originalWidth}x${originalHeight}")
 
         angleDeviations.clear()
 
@@ -113,13 +112,13 @@ class CombinedDocumentDetector(
                 AsyncDetectorSource.MINIMAL to async(Dispatchers.Default) {
                     minimalDetector.detectQuad(
                         minimalMorph, scaledWidth, scaledHeight,
-                        originalWidth, originalHeight, rotation, params
+                        originalWidth, originalHeight, params
                     )
                 },
                 AsyncDetectorSource.DIRECTIONAL_SUPPRESSION to async(Dispatchers.Default) {
                     opencv5Detector.detectQuad(
                         directionalMorph, scaledWidth, scaledHeight,
-                        originalWidth, originalHeight, rotation, params
+                        originalWidth, originalHeight, params
                     )
                 }
             )
@@ -184,7 +183,7 @@ class CombinedDocumentDetector(
             }
 
             try {
-                runOnnxFallbacks(rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
+                runOnnxFallbacks(rawMat, params, originalWidth, originalHeight, scaledWidth, scaledHeight)
             } finally {
                 rawMat.release()
             }
@@ -198,7 +197,6 @@ class CombinedDocumentDetector(
         params: PipelineParams,
         originalWidth: Int,
         originalHeight: Int,
-        rotation: Int,
         scaledWidth: Int,
         scaledHeight: Int,
     ): MatOfPoint? {
@@ -207,7 +205,7 @@ class CombinedDocumentDetector(
 
             var winner: Pair<AsyncDetectorSource, MatOfPoint>? = null
 
-            val heatmapQuad = runSingleDetector(heatmapCornerDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
+            val heatmapQuad = runSingleDetector(heatmapCornerDetector, rawMat, params, originalWidth, originalHeight, scaledWidth, scaledHeight)
             if (heatmapQuad != null) {
                 val deviation = computeMaxAngleDeviation(heatmapQuad)
                 angleDeviations[AsyncDetectorSource.HEATMAP_CORNER] = deviation
@@ -218,7 +216,7 @@ class CombinedDocumentDetector(
             }
 
             if (winner == null) {
-                val keypointQuad = runSingleDetector(cornerKeypointDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
+                val keypointQuad = runSingleDetector(cornerKeypointDetector, rawMat, params, originalWidth, originalHeight, scaledWidth, scaledHeight)
                 if (keypointQuad != null) {
                     val deviation = computeMaxAngleDeviation(keypointQuad)
                     angleDeviations[AsyncDetectorSource.CORNER_KEYPOINT] = deviation
@@ -231,7 +229,7 @@ class CombinedDocumentDetector(
 
             if (winner == null) {
                 Log.d(TAG, "  Heatmap and CornerKeypoint failed, running Segmentation...")
-                val segQuad = runSingleDetector(onnxDetector, rawMat, params, originalWidth, originalHeight, rotation, scaledWidth, scaledHeight)
+                val segQuad = runSingleDetector(onnxDetector, rawMat, params, originalWidth, originalHeight, scaledWidth, scaledHeight)
                 if (segQuad != null) {
                     val deviation = computeMaxAngleDeviation(segQuad)
                     angleDeviations[AsyncDetectorSource.SEGMENTATION] = deviation
@@ -269,23 +267,19 @@ class CombinedDocumentDetector(
             return null
     }
 
-    override fun captureIntermediateSnapshots(
-        rotation: Int
-    ): IntermediateBitmaps {
+    override fun captureIntermediateSnapshots(): IntermediateBitmaps {
         return when (lastUsedDetector) {
-            AsyncDetectorSource.SEGMENTATION -> onnxDetector.captureIntermediateSnapshots(rotation)
-            AsyncDetectorSource.HEATMAP_CORNER -> heatmapCornerDetector.captureIntermediateSnapshots(rotation)
-            AsyncDetectorSource.CORNER_KEYPOINT -> cornerKeypointDetector.captureIntermediateSnapshots(rotation)
-            AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector.captureIntermediateSnapshots(rotation)
-            else -> minimalDetector.captureIntermediateSnapshots(rotation)
+            AsyncDetectorSource.SEGMENTATION -> onnxDetector.captureIntermediateSnapshots()
+            AsyncDetectorSource.HEATMAP_CORNER -> heatmapCornerDetector.captureIntermediateSnapshots()
+            AsyncDetectorSource.CORNER_KEYPOINT -> cornerKeypointDetector.captureIntermediateSnapshots()
+            AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector.captureIntermediateSnapshots()
+            else -> minimalDetector.captureIntermediateSnapshots()
         }
     }
 
-    override fun capturePostDetectionSnapshots(
-        rotation: Int
-    ): IntermediateBitmaps {
+    override fun capturePostDetectionSnapshots(): IntermediateBitmaps {
         return if (lastUsedDetector == AsyncDetectorSource.SEGMENTATION) {
-            onnxDetector.capturePostDetectionSnapshots(rotation)
+            onnxDetector.capturePostDetectionSnapshots()
         } else {
             IntermediateBitmaps()
         }
@@ -297,7 +291,6 @@ class CombinedDocumentDetector(
         params: PipelineParams,
         originalWidth: Int,
         originalHeight: Int,
-        rotation: Int,
         scaledWidth: Int,
         scaledHeight: Int,
     ): MatOfPoint? {
@@ -305,7 +298,7 @@ class CombinedDocumentDetector(
         try {
             val quad = detector.detectQuad(
                 morph, scaledWidth, scaledHeight,
-                originalWidth, originalHeight, rotation, params
+                originalWidth, originalHeight, params
             )
             if (quad != null && detector.validateQuadSize(quad, originalWidth, originalHeight)) {
                 return quad

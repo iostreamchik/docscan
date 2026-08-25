@@ -50,12 +50,12 @@ All detectors implement `IDocumentDetector`:
 Core methods with default implementations where applicable:
 
 - `preprocess(rawMat, scaledWidth, scaledHeight, params)` — full preprocessing pipeline. Classical detectors return the Canny edges Mat; ONNX detectors run inference and return either a pooled morph Mat (heatmap, corner keypoint) or a resized segmentation mask (segmentation)
-- `detectQuad(morphImage, …, rotation = 0, params = PipelineParams())` — extract best quad in original coords
+- `detectQuad(morphImage, …, params = PipelineParams())` — extract best quad in original coords
 - `validateQuadSize(quad, originalWidth, originalHeight)` — default method; rejects quads filling >95% of frame via bounding rect
 - `detectionParams` — optional `StateFlow<DetectionParameters>` (default returns null)
 - `detectorName` — human-readable name (default returns `javaClass.simpleName`)
-- `captureIntermediateSnapshots(rotation)` — snapshots from preprocess stage (default returns empty `IntermediateBitmaps`)
-- `capturePostDetectionSnapshots(rotation)` — snapshots available only after detectQuad (default returns empty `IntermediateBitmaps`)
+- `captureIntermediateSnapshots()` — snapshots from preprocess stage (default returns empty `IntermediateBitmaps`)
+- `capturePostDetectionSnapshots()` — snapshots available only after detectQuad (default returns empty `IntermediateBitmaps`)
 - `release()` — release all native resources
 
 ### Shared Classical Pipeline
@@ -163,7 +163,7 @@ Public API:
   - Preprocess: aspect-ratio resize → pad to 384² (gray 128) → `NORM_MINMAX` [0,1] → mean/std (when custom) → inference → sigmoid(fg−bg) → zero padded regions → GaussianBlur 5×5 → Otsu on content region (falls back to fixed `maskThreshold` when the Otsu mask has < 0.05% foreground) → `connectedComponentsWithStats` → adaptive kernels from `docLinear = sqrt(largest area).coerceIn(10, 200)` (close = docLinear/6, 5–21 odd; open = docLinear/12, 3–9 odd) → close, open, close → largest blob (≥ 0.05%) → crop to content → resize to scaled dims (`INTER_NEAREST`)
   - `detectQuad`: rejects masks with < 3% foreground; contours from `matBundle.getSegmentationMask()` (area ≥ `minAreaFraction`×frame, ≥ 10 points) → convex hull → `approxPolyDP` (0.02×perimeter) → `isRectangle`; primary candidates require solidity ≥ 0.3; fallback uses diagonal-extreme corners (solidity ≥ 0.5, `validateQuadRectangularity` 15°, aspect ratio ≥ 0.35); winner = max `scoreContourWithParams`
   - Raw frame stored in `matBundle.getRawMat()`; segmentation mask stored in `matBundle.getSegmentationMask()` (copied out of the pooled morph, which `CombinedDocumentDetector` releases after `detectQuad`)
-  - `captureIntermediateSnapshots` and `capturePostDetectionSnapshots` both return mask overlay (darkens non-document regions to 30%, rotation-corrected), built on demand from the bundle Mats
+  - `captureIntermediateSnapshots` and `capturePostDetectionSnapshots` both return mask overlay (darkens non-document regions to 30%), built on demand from the bundle Mats
 
 ## OpenCV Infrastructure
 
@@ -239,7 +239,7 @@ Extension functions on `Mat`, `MatOfPoint`, and `ImageProxy`:
 | `Mat.sharpen()` | Gaussian unsharp mask (σ=2, weight 1.3) |
 | `MatOfPoint.toSortedQuad()` | Sort 4 points clockwise from top-left (returns empty list if not exactly 4) |
 | `calculateWarpedDimensions(tl, tr, br, bl)` | Compute output width/height from max edge distances |
-| `warpDocumentHighQuality(src, quad, rotation)` | Perspective transform → rotation fix → sharpening → Bitmap |
+| `warpDocumentHighQuality(src, quad)` | Perspective transform → sharpening → Bitmap |
 
 ### QuadGeometry.kt
 
