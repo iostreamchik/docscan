@@ -5,7 +5,6 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.util.Log
 import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
@@ -27,6 +26,7 @@ import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.geometry.Geometry
 import org.opencv.imgproc.Imgproc
+import org.opencv.android.Utils
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -291,7 +291,8 @@ class SegmentationDetector(
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        params: PipelineParams
+        params: PipelineParams,
+        rawMat: Mat?
     ): MatOfPoint? {
         val workingMask = matBundle.getSegmentationMask()
         if (workingMask.empty()) return null
@@ -444,9 +445,9 @@ class SegmentationDetector(
         rawMat: Mat,
         maskMat: Mat
     ): Bitmap {
-        val rotatedRaw = rawMat.toBitmap()
-        val width = rotatedRaw.width
-        val height = rotatedRaw.height
+        val rawBmp = rawMat.toBitmap()
+        val width = rawBmp.width
+        val height = rawBmp.height
 
         val resizedMask = Mat()
         Imgproc.resize(
@@ -455,28 +456,60 @@ class SegmentationDetector(
             0.0, 0.0, Imgproc.INTER_NEAREST
         )
 
-        val overlay = rotatedRaw.copy(Bitmap.Config.ARGB_8888, true)
-        val pixels = IntArray(width * height)
-        overlay.getPixels(pixels, 0, width, 0, 0, width, height)
-
-        val maskData = ByteArray(width * height)
-        resizedMask.get(0, 0, maskData)
-
-        for (i in pixels.indices) {
-            val maskAlpha = maskData[i].toInt() and 0xFF
-            if (maskAlpha < 128) {
-                val r = Color.red(pixels[i])
-                val g = Color.green(pixels[i])
-                val b = Color.blue(pixels[i])
-                pixels[i] = Color.argb(255, (r * 0.3f).toInt(), (g * 0.3f).toInt(), (b * 0.3f).toInt())
-            }
-        }
-
-        overlay.setPixels(pixels, 0, width, 0, 0, width, height)
-
+        val mask32 = Mat()
+        resizedMask.convertTo(mask32, CvType.CV_8UC1)
         resizedMask.release()
 
-        return overlay
+        val inverted32 = Mat()
+        Core.bitwise_not(mask32, inverted32)
+
+        val mask3 = Mat()
+        Core.merge(listOf(mask32, mask32, mask32), mask3)
+        mask32.release()
+
+        val inverted3 = Mat()
+        Core.merge(listOf(inverted32, inverted32, inverted32), inverted3)
+        inverted32.release()
+
+        val rawBgra = Mat()
+        Utils.bitmapToMat(rawBmp, rawBgra)
+        rawBmp.recycle()
+
+        val raw3 = Mat()
+        Imgproc.cvtColor(rawBgra, raw3, Imgproc.COLOR_BGRA2BGR)
+        rawBgra.release()
+
+        val green = Mat.ones(raw3.size(), CvType.CV_8UC3)
+        green.setTo(Scalar(0.0, 255.0, 0.0))
+
+        val document = Mat()
+        Core.bitwise_and(raw3, mask3, document)
+
+        val blended = Mat()
+        Core.addWeighted(raw3, 0.8, green, 0.2, 0.0, blended)
+
+        val background = Mat()
+        Core.bitwise_and(blended, inverted3, background)
+
+        val result = Mat()
+        Core.bitwise_or(document, background, result)
+
+        val outputBmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val rgbaMat = Mat()
+        Imgproc.cvtColor(result, rgbaMat, Imgproc.COLOR_BGR2RGBA)
+        Utils.matToBitmap(rgbaMat, outputBmp)
+        rgbaMat.release()
+
+        raw3.release()
+        mask3.release()
+        inverted3.release()
+        green.release()
+        blended.release()
+        document.release()
+        background.release()
+        result.release()
+
+        return outputBmp
     }
 
     override fun release() {

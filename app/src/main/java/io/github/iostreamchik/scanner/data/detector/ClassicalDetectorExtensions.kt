@@ -1,6 +1,5 @@
 package io.github.iostreamchik.scanner.data.detector
 
-import android.graphics.Bitmap
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
 import io.github.iostreamchik.scanner.data.utils.toBitmap
 import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
@@ -12,7 +11,6 @@ import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 fun IMatBundle.captureClassicalSnapshots(): IntermediateBitmaps {
     val toBitmap = { mat: org.opencv.core.Mat ->
         mat.toBitmap()
-            .copy(Bitmap.Config.ARGB_8888, false)
     }
     return IntermediateBitmaps(
         blur = toBitmap(this.getBlurred()),

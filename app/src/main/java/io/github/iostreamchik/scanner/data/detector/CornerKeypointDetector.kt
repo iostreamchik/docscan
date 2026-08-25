@@ -147,7 +147,8 @@ class CornerKeypointDetector(
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        params: PipelineParams
+        params: PipelineParams,
+        rawMat: Mat?
     ): MatOfPoint? {
         val coords = cachedCoords ?: return null
 

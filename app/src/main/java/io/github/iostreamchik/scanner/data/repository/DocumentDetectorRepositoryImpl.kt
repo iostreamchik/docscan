@@ -26,10 +26,11 @@ class DocumentDetectorRepositoryImpl(
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        params: PipelineParams
+        params: PipelineParams,
+        rawMat: Mat?
     ): MatOfPoint? = detector.detectQuad(
         morphImage, scaledWidth, scaledHeight,
-        originalWidth, originalHeight, params
+        originalWidth, originalHeight, params, rawMat
     )
 
     override fun validateQuadSize(

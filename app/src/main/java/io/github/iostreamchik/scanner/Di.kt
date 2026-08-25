@@ -56,7 +56,7 @@ val appModule = module {
     }
 
     single<IDocumentDetectorRepository> {
-        DocumentDetectorRepositoryImpl(get<IDocumentDetector>(named("combined")))
+        DocumentDetectorRepositoryImpl(get<IDocumentDetector>(named("segmentation")))
     }
 
     viewModel {

@@ -35,7 +35,8 @@ interface IDocumentDetector {
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        params: PipelineParams = PipelineParams()
+        params: PipelineParams = PipelineParams(),
+        rawMat: Mat? = null
     ): MatOfPoint?
 
     /**

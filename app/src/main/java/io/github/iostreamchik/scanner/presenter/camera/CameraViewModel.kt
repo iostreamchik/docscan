@@ -242,7 +242,8 @@ class CameraViewModel(
                 scaledHeight = scaledHeight,
                 originalWidth = originalWidth,
                 originalHeight = originalHeight,
-                params = params
+                params = params,
+                rawMat = mat
             )
 
             val snapshots = repository.captureIntermediateSnapshots()

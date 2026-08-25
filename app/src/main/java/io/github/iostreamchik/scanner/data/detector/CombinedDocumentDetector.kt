@@ -36,7 +36,6 @@ class CombinedDocumentDetector(
     }
 
     private val cachedMorphImages = mutableMapOf<AsyncDetectorSource, Mat?>()
-    private var cachedRawMat: Mat? = null
     private var cachedScaledWidth = 0
     private var cachedScaledHeight = 0
     private var lastUsedDetector = AsyncDetectorSource.NONE
@@ -56,13 +55,11 @@ class CombinedDocumentDetector(
     ): Mat {
         cachedMorphImages.values.forEach { it?.release() }
         cachedMorphImages.clear()
-        cachedRawMat?.release()
         lastUsedDetector = AsyncDetectorSource.NONE
         angleDeviations.clear()
 
         cachedScaledWidth = scaledWidth
         cachedScaledHeight = scaledHeight
-        cachedRawMat = rawMat.clone()
 
         val morphResult = coroutineScope {
             val deferredResults = mapOf(
@@ -93,7 +90,8 @@ class CombinedDocumentDetector(
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        params: PipelineParams
+        params: PipelineParams,
+        rawMat: Mat?
     ): MatOfPoint? {
         Log.d(TAG, "detectQuad START: scaled=${scaledWidth}x${scaledHeight}, original=${originalWidth}x${originalHeight}")
 
@@ -177,15 +175,15 @@ class CombinedDocumentDetector(
                 return@coroutineScope winnerScored.quad
             }
 
-            val rawMat = cachedRawMat?.clone() ?: run {
-                Log.w(TAG, "  ONNX fallback: cachedRawMat is null, skipping")
+            val sourceRawMat = rawMat ?: run {
+                Log.w(TAG, "  ONNX fallback: rawMat is null, skipping")
                 return@coroutineScope null
             }
 
             try {
-                runOnnxFallbacks(rawMat, params, originalWidth, originalHeight, scaledWidth, scaledHeight)
+                runOnnxFallbacks(sourceRawMat.clone(), params, originalWidth, originalHeight, scaledWidth, scaledHeight)
             } finally {
-                rawMat.release()
+                sourceRawMat.release()
             }
         }
 
@@ -298,7 +296,7 @@ class CombinedDocumentDetector(
         try {
             val quad = detector.detectQuad(
                 morph, scaledWidth, scaledHeight,
-                originalWidth, originalHeight, params
+                originalWidth, originalHeight, params, rawMat
             )
             if (quad != null && detector.validateQuadSize(quad, originalWidth, originalHeight)) {
                 return quad
@@ -321,8 +319,6 @@ class CombinedDocumentDetector(
     override fun release() {
         cachedMorphImages.values.forEach { it?.release() }
         cachedMorphImages.clear()
-        cachedRawMat?.release()
-        cachedRawMat = null
         cachedScaledWidth = 0
         cachedScaledHeight = 0
         minimalDetector.release()

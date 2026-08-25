@@ -217,7 +217,8 @@ class HeatmapCornerDetector(
         scaledHeight: Int,
         originalWidth: Int,
         originalHeight: Int,
-        params: PipelineParams
+        params: PipelineParams,
+        rawMat: Mat?
     ): MatOfPoint? {
         val corners = cachedCorners ?: return null
 
