@@ -425,6 +425,7 @@ fun CameraScreen(
                     } else {
                         BitmapCard(
                             bitmap = uiState.intermediateBitmaps.mask
+                                ?: uiState.intermediateBitmaps.corners
                                 ?: uiState.intermediateBitmaps.edges,
                             modifier = Modifier.fillMaxSize()
                         )

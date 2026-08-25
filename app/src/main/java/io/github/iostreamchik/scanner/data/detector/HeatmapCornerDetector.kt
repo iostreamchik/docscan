@@ -11,6 +11,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.util.Log
 import io.github.iostreamchik.scanner.data.utils.computeMaxAngleDeviation
+import io.github.iostreamchik.scanner.data.utils.fixBitmapRotation
 import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
 import io.github.iostreamchik.scanner.data.utils.toBitmap
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
@@ -58,8 +59,6 @@ class HeatmapCornerDetector(
     override val detectionParams = _detectionParams.asStateFlow()
 
     private var cachedCorners: List<Point>? = null
-    private var cachedRawMat: Mat? = null
-    private var cachedCornerBitmap: Bitmap? = null
 
     private var originalWidth = 0
     private var originalHeight = 0
@@ -97,12 +96,9 @@ class HeatmapCornerDetector(
         sessionManager.init(TAG)
 
         cachedCorners = null
-        cachedCornerBitmap?.recycle()
-        cachedCornerBitmap = null
-        cachedRawMat?.release()
-        cachedRawMat = null
 
-        cachedRawMat = rawMat.clone()
+        val raw = matBundle.getRawMat()
+        rawMat.copyTo(raw)
         originalWidth = rawMat.cols()
         originalHeight = rawMat.rows()
 
@@ -158,15 +154,7 @@ class HeatmapCornerDetector(
             cornerError = if (cachedCorners == null) "only ${validCorners.size}/4 corners" else ""
         )
 
-        cachedCornerBitmap?.recycle()
-        cachedCornerBitmap = if (cachedCorners != null) {
-            buildCornerVisualization(
-                buildHeatmapVisualization(outputData, heatmapH, heatmapW),
-                cachedCorners!!
-            )
-        } else {
-            buildHeatmapVisualization(outputData, heatmapH, heatmapW)
-        }
+        storeHeatmapData(outputData, heatmapH, heatmapW)
 
         return matBundle.getMorph()
     }
@@ -273,21 +261,23 @@ class HeatmapCornerDetector(
     override fun captureIntermediateSnapshots(
         rotation: Int
     ): IntermediateBitmaps {
-        val cornerBitmap = cachedCornerBitmap
-        return if (cornerBitmap != null) {
-            IntermediateBitmaps(
-                corners = cornerBitmap.copy(Bitmap.Config.ARGB_8888, false)
-            )
-        } else {
-            IntermediateBitmaps()
-        }
+        val raw = matBundle.getRawMat()
+        val colored = matBundle.getHeatmapColored()
+        if (raw.empty() || colored.empty()) return IntermediateBitmaps()
+
+        val baseBitmap = buildHeatmapVisualization(colored)
+        val cornerBitmap = cachedCorners?.let { buildCornerVisualization(baseBitmap, it) } ?: baseBitmap
+        val rotatedBitmap = cornerBitmap.fixBitmapRotation(rotation)
+        return IntermediateBitmaps(
+            corners = rotatedBitmap.copy(Bitmap.Config.ARGB_8888, false)
+        )
     }
 
-    private fun buildHeatmapVisualization(
+    private fun storeHeatmapData(
         flatData: FloatArray,
         heatmapH: Int,
         heatmapW: Int
-    ): Bitmap {
+    ) {
         val sum = matBundle.getHeatmapSum()
         sum.create(heatmapH, heatmapW, CvType.CV_32FC1)
 
@@ -316,19 +306,20 @@ class HeatmapCornerDetector(
         val colored = matBundle.getHeatmapColored()
         colored.create(heatmapH, heatmapW, CvType.CV_8UC3)
         Imgproc.applyColorMap(norm, colored, Imgproc.COLORMAP_JET)
+    }
 
+    private fun buildHeatmapVisualization(colored: Mat): Bitmap {
         val resized = Mat()
         Imgproc.resize(colored, resized, Size(originalWidth.toDouble(), originalHeight.toDouble()))
         val heatmapBitmap = resized.toBitmap()
         resized.release()
 
-        val baseBitmap = cachedRawMat?.toBitmap()
-            ?: createBitmap(originalWidth, originalHeight)
+        val baseBitmap = matBundle.getRawMat().toBitmap()
         val width = baseBitmap.width
         val height = baseBitmap.height
         val bitmap = createBitmap(width, height)
         Canvas(bitmap).drawBitmap(baseBitmap, 0f, 0f, null)
-        if (baseBitmap != bitmap) baseBitmap.recycle()
+        baseBitmap.recycle()
         Canvas(bitmap).drawBitmap(heatmapBitmap, 0f, 0f, OverlayPaint)
         heatmapBitmap.recycle()
 
@@ -406,10 +397,6 @@ class HeatmapCornerDetector(
         sessionManager.close(TAG)
         hierarchy.release()
         cachedCorners = null
-        cachedCornerBitmap?.recycle()
-        cachedCornerBitmap = null
-        cachedRawMat?.release()
-        cachedRawMat = null
         matBundle.releaseAll()
     }
 

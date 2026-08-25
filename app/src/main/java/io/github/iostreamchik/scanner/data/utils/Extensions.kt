@@ -150,6 +150,7 @@ fun ImageProxy.toMatRGBA(): Mat {
 
 fun Mat.fixRotation(rotationDegrees: Int): Mat {
     return when (rotationDegrees) {
+        0 -> this
         90 -> this.rotate90Clockwise()
         270 -> this.rotate90CounterClockwise()
         180 -> {
@@ -160,6 +161,24 @@ fun Mat.fixRotation(rotationDegrees: Int): Mat {
 
         else -> this.clone()
     }
+}
+
+fun Bitmap.fixBitmapRotation(rotationDegrees: Int): Bitmap {
+    val matrix = android.graphics.Matrix()
+    when (rotationDegrees) {
+        90 -> {
+            matrix.postRotate(90f, width.toFloat() / 2, height.toFloat() / 2)
+        }
+        180 -> {
+            matrix.postRotate(180f, width.toFloat() / 2, height.toFloat() / 2)
+        }
+        270 -> {
+            matrix.postRotate(270f, width.toFloat() / 2, height.toFloat() / 2)
+        }
+        0 -> return this
+    }
+    return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
+        .copy(Bitmap.Config.ARGB_8888, false)
 }
 
 fun Mat.toBitmap(): Bitmap {

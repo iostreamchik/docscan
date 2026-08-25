@@ -10,6 +10,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
 import io.github.iostreamchik.scanner.data.utils.computeMaxAngleDeviation
+import io.github.iostreamchik.scanner.data.utils.fixBitmapRotation
 import io.github.iostreamchik.scanner.data.utils.toBitmap
 import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
@@ -30,7 +31,6 @@ import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
-import androidx.core.graphics.createBitmap
 
 class CornerKeypointDetector(
     private val context: Context,
@@ -71,8 +71,8 @@ class CornerKeypointDetector(
     private var cachedCoords: FloatArray? = null
     private var cachedScore: Float = 0f
     private var cachedInputSize = INPUT_SIZE
-    private var cachedCornerBitmap: Bitmap? = null
-    private var cachedRawMat: Mat? = null
+    private var cachedScaledWidth = 0
+    private var cachedScaledHeight = 0
 
     override suspend fun preprocess(
         rawMat: Mat,
@@ -84,11 +84,11 @@ class CornerKeypointDetector(
 
         cachedCoords = null
         cachedScore = 0f
-        cachedCornerBitmap?.recycle()
-        cachedCornerBitmap = null
-        cachedRawMat?.release()
-        cachedRawMat = null
-        cachedRawMat = rawMat.clone()
+        cachedScaledWidth = scaledWidth
+        cachedScaledHeight = scaledHeight
+
+        val raw = matBundle.getRawMat()
+        rawMat.copyTo(raw)
 
         val session = sessionManager.getSession() ?: return matBundle.getMorph()
         val inputName = session.inputNames.firstOrNull() ?: return matBundle.getMorph()
@@ -139,9 +139,6 @@ class CornerKeypointDetector(
             cornerError = ""
         )
 
-        val cornerBitmap = buildCornerVisualization(scaledWidth, scaledHeight, coords)
-        cachedCornerBitmap = cornerBitmap
-
         return matBundle.getMorph()
     }
 
@@ -176,7 +173,7 @@ class CornerKeypointDetector(
         val sorted = sortQuadPoints(corners)
         if (sorted.size != 4) return null
 
-        val refined = refineCornersWithEdges(sorted, cachedRawMat)
+        val refined = refineCornersWithEdges(sorted, matBundle.getRawMat())
         val finalCorners = if (refined != null && validateCornerGeometry(refined)) refined else sorted
 
         if (!validateCornerGeometry(finalCorners)) {
@@ -192,14 +189,14 @@ class CornerKeypointDetector(
     override fun captureIntermediateSnapshots(
         rotation: Int
     ): IntermediateBitmaps {
-        val cornerBitmap = cachedCornerBitmap
-        return if (cornerBitmap != null) {
-            IntermediateBitmaps(
-                corners = cornerBitmap.copy(Bitmap.Config.ARGB_8888, false)
-            )
-        } else {
-            IntermediateBitmaps()
-        }
+        val coords = cachedCoords ?: return IntermediateBitmaps()
+        if (matBundle.getRawMat().empty()) return IntermediateBitmaps()
+
+        val cornerBitmap = buildCornerVisualization(cachedScaledWidth, cachedScaledHeight, coords)
+        val rotatedBitmap = cornerBitmap.fixBitmapRotation(rotation)
+        return IntermediateBitmaps(
+            corners = rotatedBitmap.copy(Bitmap.Config.ARGB_8888, false)
+        )
     }
 
     private fun refineCornersWithEdges(
@@ -386,19 +383,9 @@ class CornerKeypointDetector(
         height: Int,
         coords: FloatArray
     ): Bitmap {
-        val baseBitmap = cachedRawMat?.toBitmap(width, height)
-            ?: createBitmap(width, height)
+        val baseBitmap = matBundle.getRawMat().toBitmap(width, height)
 
-        val bitmap = if (baseBitmap.config == Bitmap.Config.ARGB_8888) {
-            baseBitmap
-        } else {
-            val converted = createBitmap(width, height)
-            Canvas(converted).drawBitmap(baseBitmap, 0f, 0f, null)
-            if (baseBitmap != converted) baseBitmap.recycle()
-            converted
-        }
-
-        val canvas = Canvas(bitmap)
+        val canvas = Canvas(baseBitmap)
 
         val scaleX = width.toDouble() / cachedInputSize
         val scaleY = height.toDouble() / cachedInputSize
@@ -440,17 +427,15 @@ class CornerKeypointDetector(
             )
         }
 
-        return bitmap
+        return baseBitmap
     }
 
     override fun release() {
         sessionManager.close(TAG)
         cachedCoords = null
         cachedScore = 0f
-        cachedCornerBitmap?.recycle()
-        cachedCornerBitmap = null
-        cachedRawMat?.release()
-        cachedRawMat = null
+        cachedScaledWidth = 0
+        cachedScaledHeight = 0
         matBundle.releaseAll()
     }
 

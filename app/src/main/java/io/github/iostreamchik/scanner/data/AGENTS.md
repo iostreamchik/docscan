@@ -143,8 +143,8 @@ Public API:
 
 - **HeatmapCornerDetector**: `INPUT_SIZE` = 256px, model `onnx/lcnet100_h_e_bifpn_256_fp32.onnx`, output 4 per-corner heatmaps
   - Configurable: `heatmapThreshold` (0.05–0.7, default 0.3), `minCornerArea` (default 0.0001), `maxAngleDeviation` (5–60°, default 45°)
-  - Inference runs inside `preprocess`: 256×256 → RGB /255 → run → per channel: scale to 8-bit → threshold → `findContours` (reused hierarchy Mat) → largest contour (area ≥ `minCornerArea`×heatmap area, min 4px) → centroid via `Geometry.moments` → scale to original coords
-  - Caches the 4 corners (or null) + corner visualization bitmap (colored dots + white connecting lines over the raw image) + raw Mat clone
+  - Inference runs inside `preprocess`: 256×256 → RGB /255 → run → per channel: scale to 8-bit → threshold → `findContours` (reused hierarchy Mat) → largest contour (area ≥ `minCornerArea`×heatmap area, min 4px) → centroid via `Geometry.moments` → scale to original coords; stores raw frame in `matBundle.getRawMat()` and heatmap sum/norm/colored in bundle Mats
+  - Caches only the 4 corners (or null); corner visualization (colored dots + white connecting lines over the raw image) is built on demand in `captureIntermediateSnapshots` from `matBundle.getRawMat()` + `matBundle.getHeatmapColored()` + cached corners
   - `detectQuad`: cached corners → `sortQuadPoints` → `computeMaxAngleDeviation` ≤ `maxAngleDeviation` + aspect ratio ≥ 0.15
   - `detectionParams`: `heatmapThreshold`, `cornerError` ("only N/4 corners" / "geometry failed")
   - `captureIntermediateSnapshots` returns `corners` bitmap
@@ -152,18 +152,18 @@ Public API:
 - **CornerKeypointDetector**: `INPUT_SIZE` = 256px, model `onnx/lcnet050_p_multi_decoder_l3_d64_256_fp32.onnx`, output 8 normalized coords + 1 score
   - Configurable: `minScore` (0.05–0.95, default 0.3), `maxAngleDeviation` (5–60°, default 45°), `applySigmoid` (default false)
   - Refinement: `cornerRefinementRadius` (5–100, default 30), `cornerRefinementGradientThreshold` (3–60, default 15)
-  - Inference runs inside `preprocess`; `detectQuad` scales coords to original size, `sortQuadPoints`, then refines on the cached raw Mat via Sobel gradient magnitude: bisector search (2 iterations, converges at avg shift < 1.5px, applied when t > 2) + edge snapping (perpendicular search along neighbor edges, applied when 1.0 < dist < radius); falls back to unrefined corners if refinement fails geometry validation
+  - Inference runs inside `preprocess`; raw frame is stored in `matBundle.getRawMat()`; `detectQuad` scales coords to original size, `sortQuadPoints`, then refines on the bundle raw Mat via Sobel gradient magnitude: bisector search (2 iterations, converges at avg shift < 1.5px, applied when t > 2) + edge snapping (perpendicular search along neighbor edges, applied when 1.0 < dist < radius); falls back to unrefined corners if refinement fails geometry validation
   - Geometry validation: `computeMaxAngleDeviation` ≤ `maxAngleDeviation` + aspect ratio ≥ 0.15
   - `detectionParams`: `cornerScore`, `cornerError` ("score X < min Y" / "geometry failed")
-  - `captureIntermediateSnapshots` returns `corners` bitmap
+  - `captureIntermediateSnapshots` returns `corners` bitmap, built on demand from `matBundle.getRawMat()` + cached coords
 
 - **SegmentationDetector**: `INPUT_SIZE` = 384px, model `onnx/deeplabv3_mbv3_docseg.onnx`, output 2 channels (bg/fg, NCHW/NHWC auto-detected)
   - Configurable: `maskThreshold` (0.1–0.7, default 0.5), `useCustomNormalization` (default true)
   - Custom normalization: mean `(0.4611, 0.4359, 0.3905)`, std `(0.2193, 0.2150, 0.2109)`
   - Preprocess: aspect-ratio resize → pad to 384² (gray 128) → `NORM_MINMAX` [0,1] → mean/std (when custom) → inference → sigmoid(fg−bg) → zero padded regions → GaussianBlur 5×5 → Otsu on content region (falls back to fixed `maskThreshold` when the Otsu mask has < 0.05% foreground) → `connectedComponentsWithStats` → adaptive kernels from `docLinear = sqrt(largest area).coerceIn(10, 200)` (close = docLinear/6, 5–21 odd; open = docLinear/12, 3–9 odd) → close, open, close → largest blob (≥ 0.05%) → crop to content → resize to scaled dims (`INTER_NEAREST`)
-  - `detectQuad`: rejects masks with < 3% foreground; contours (area ≥ `minAreaFraction`×frame, ≥ 10 points) → convex hull → `approxPolyDP` (0.02×perimeter) → `isRectangle`; primary candidates require solidity ≥ 0.3; fallback uses diagonal-extreme corners (solidity ≥ 0.5, `validateQuadRectangularity` 15°, aspect ratio ≥ 0.35); winner = max `scoreContourWithParams`
-  - Caches segmentation mask in `cachedMask` (cloned out of the pooled morph) and raw bitmap in `cachedRawBitmap`
-  - `captureIntermediateSnapshots` and `capturePostDetectionSnapshots` both return mask overlay (darkens non-document regions to 30%, rotation-corrected)
+  - `detectQuad`: rejects masks with < 3% foreground; contours from `matBundle.getSegmentationMask()` (area ≥ `minAreaFraction`×frame, ≥ 10 points) → convex hull → `approxPolyDP` (0.02×perimeter) → `isRectangle`; primary candidates require solidity ≥ 0.3; fallback uses diagonal-extreme corners (solidity ≥ 0.5, `validateQuadRectangularity` 15°, aspect ratio ≥ 0.35); winner = max `scoreContourWithParams`
+  - Raw frame stored in `matBundle.getRawMat()`; segmentation mask stored in `matBundle.getSegmentationMask()` (copied out of the pooled morph, which `CombinedDocumentDetector` releases after `detectQuad`)
+  - `captureIntermediateSnapshots` and `capturePostDetectionSnapshots` both return mask overlay (darkens non-document regions to 30%, rotation-corrected), built on demand from the bundle Mats
 
 ## OpenCV Infrastructure
 
@@ -183,6 +183,8 @@ Pooled slots:
 | Adaptive threshold | `getAdaptiveBinary()` |
 | Otsu pipeline | `getOtsuBlur()`, `getOtsuThreshold()` |
 | Sobel gradient | `getSobelX()`, `getSobelY()`, `getGradMag()` |
+| ONNX raw frame | `getRawMat()` (unpooled — created per frame with actual dimensions, released in `releaseAll()`) |
+| Segmentation | `getSegmentationMask()` (pooled — resized to scaled dimensions, reused across frames) |
 
 Each getter returns a reusable Mat — callers write into it every frame. `releaseAll()` releases every slot (call once on cleanup).
 
@@ -272,8 +274,7 @@ Geometric operations on quads:
 - **Mat pooling**: All Mats go through `IMatBundle`. Never allocate Mats in hot paths. Call `releaseAll()` on cleanup.
 - **Bitmap safety**: Clone bitmaps before emitting — Compose gets independent copies. Never recycle bitmaps in `onCleared`.
 - **Lazy preview safety**: `MockMatBundle` uses lazy `Mat()` to avoid `UnsatisfiedLinkError` when OpenCV native libs aren't loaded.
-- **ONNX mask caching**: `SegmentationDetector.cachedMask` is a clone of the pooled morph — `matBundle.getMorph()` is a shared slot reused every frame.
-- **ONNX raw caching**: `CornerKeypointDetector.cachedRawMat` stores the original Mat for gradient-based corner refinement; `HeatmapCornerDetector.cachedRawMat` backs the corner visualization.
+- **ONNX memory via bundle**: ONNX detectors store all Mats in their `IMatBundle` — raw frame in `getRawMat()` (unpooled, per-frame), segmentation mask in `getSegmentationMask()` (pooled, scaled dims), heatmap data in `getHeatmapSum/Norm/Colored()`. `getRawMat()` is a copy because `CombinedDocumentDetector` releases the raw Mat it passes to fallbacks. Cleanup is a single `matBundle.releaseAll()` per detector; only small data (corners, coords, score) remains on the detector instance.
 - **Shared classical pipeline**: `OpenCVAdapter.preprocessClassical()` and `findBestQuad()` eliminate duplication between Minimal and DirectionalSuppression detectors.
 - **Parallel ONNX fallback**: All three ONNX detectors run concurrently; the first valid result in fixed priority order (heatmap → corner keypoint → segmentation) wins and losing coroutines are cancelled.
 - **OpenCV 5 APIs**: Uses `org.opencv.geometry.Geometry` for `contourArea()`, `arcLength()`, `approxPolyDP()`, `convexHull()`, `boundingRect()`, `moments()`, `getPerspectiveTransform()`.

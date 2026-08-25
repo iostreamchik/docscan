@@ -19,7 +19,6 @@ import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
 import io.github.iostreamchik.scanner.data.utils.toBitmap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import org.opencv.android.Utils
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
@@ -57,9 +56,6 @@ class SegmentationDetector(
     )
     override val detectionParams = _detectionParams.asStateFlow()
 
-    internal var cachedMask: Mat? = null
-    private var cachedRawBitmap: Bitmap? = null
-
     override suspend fun preprocess(
         rawMat: Mat,
         scaledWidth: Int,
@@ -68,11 +64,8 @@ class SegmentationDetector(
     ): Mat {
         sessionManager.init(TAG)
 
-        cachedMask?.release()
-        cachedMask = null
-        cachedRawBitmap?.recycle()
-        cachedRawBitmap = rawMat.toBitmap()
-            .copy(Bitmap.Config.ARGB_8888, false)
+        val raw = matBundle.getRawMat()
+        rawMat.copyTo(raw)
 
         val sess = sessionManager.getSession() ?: return matBundle.getMorph()
         val inputName = sess.inputNames.firstOrNull() ?: return matBundle.getMorph()
@@ -265,7 +258,7 @@ class SegmentationDetector(
         )
         croppedMask.release()
 
-        cachedMask = morph.clone()
+        morph.copyTo(matBundle.getSegmentationMask())
 
         _detectionParams.value = _detectionParams.value.copy(
             brightness = "N/A",
@@ -302,8 +295,8 @@ class SegmentationDetector(
         rotation: Int,
         params: PipelineParams
     ): MatOfPoint? {
-        val useCached = cachedMask != null && !cachedMask!!.empty()
-        val workingMask = if (useCached) cachedMask!! else morphImage
+        val workingMask = matBundle.getSegmentationMask()
+        if (workingMask.empty()) return null
 
         if (computeMaskConfidence(workingMask) < 0.03) return null
 
@@ -428,10 +421,11 @@ class SegmentationDetector(
     override fun captureIntermediateSnapshots(
         rotation: Int
     ): IntermediateBitmaps {
-        val maskMat = cachedMask
-        return if (maskMat != null && !maskMat.empty() && cachedRawBitmap != null) {
+        val maskMat = matBundle.getSegmentationMask()
+        val rawMat = matBundle.getRawMat()
+        return if (!maskMat.empty() && !rawMat.empty()) {
             IntermediateBitmaps(
-                mask = buildMaskOverlay(cachedRawBitmap!!, maskMat, rotation)
+                mask = buildMaskOverlay(rawMat, maskMat, rotation)
             )
         } else {
             IntermediateBitmaps()
@@ -441,10 +435,11 @@ class SegmentationDetector(
     override fun capturePostDetectionSnapshots(
         rotation: Int
     ): IntermediateBitmaps {
-        val maskMat = cachedMask
-        return if (maskMat != null && !maskMat.empty() && cachedRawBitmap != null) {
+        val maskMat = matBundle.getSegmentationMask()
+        val rawMat = matBundle.getRawMat()
+        return if (!maskMat.empty() && !rawMat.empty()) {
             IntermediateBitmaps(
-                mask = buildMaskOverlay(cachedRawBitmap!!, maskMat, rotation)
+                mask = buildMaskOverlay(rawMat, maskMat, rotation)
             )
         } else {
             IntermediateBitmaps()
@@ -452,14 +447,11 @@ class SegmentationDetector(
     }
 
     private fun buildMaskOverlay(
-        rawBitmap: Bitmap,
+        rawMat: Mat,
         maskMat: Mat,
         rotation: Int
     ): Bitmap {
-        val rawMat = Mat()
-        Utils.bitmapToMat(rawBitmap, rawMat)
         val rotatedRawMat = rawMat.fixRotation(rotation)
-        rawMat.release()
         val rotatedRaw = rotatedRawMat.toBitmap()
         rotatedRawMat.release()
         val width = rotatedRaw.width
@@ -500,10 +492,6 @@ class SegmentationDetector(
 
     override fun release() {
         sessionManager.close(TAG)
-        cachedMask?.release()
-        cachedMask = null
-        cachedRawBitmap?.recycle()
-        cachedRawBitmap = null
         matBundle.releaseAll()
     }
 

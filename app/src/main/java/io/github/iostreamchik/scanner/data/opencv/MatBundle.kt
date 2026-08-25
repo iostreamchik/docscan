@@ -46,6 +46,12 @@ interface IMatBundle {
     fun getSobelY(): Mat
     fun getGradMag(): Mat
 
+    // ONNX raw frame (unpooled — created per frame, released in releaseAll)
+    fun getRawMat(): Mat
+
+    // Segmentation mask (pooled — resized to scaled dimensions, reused across frames)
+    fun getSegmentationMask(): Mat
+
     fun releaseAll()
 }
 
@@ -90,6 +96,9 @@ class MatBundle : IMatBundle {
     private var _sobelY: Mat = Mat()
     private var _gradMag: Mat = Mat()
 
+    private var _rawMat: Mat = Mat()
+    private var _segmentationMask: Mat = Mat()
+
     override fun getGray(): Mat = _gray
     override fun getBlurred(): Mat = _blurred
     override fun getEnhanced(): Mat = _enhanced
@@ -120,6 +129,9 @@ class MatBundle : IMatBundle {
     override fun getSobelX(): Mat = _sobelX
     override fun getSobelY(): Mat = _sobelY
     override fun getGradMag(): Mat = _gradMag
+
+    override fun getRawMat(): Mat = _rawMat
+    override fun getSegmentationMask(): Mat = _segmentationMask
 
     override fun getGrayGaussian(): Mat = _grayGaussian
     override fun getHorizontalClose(): Mat = _horizontalClose
@@ -161,5 +173,8 @@ class MatBundle : IMatBundle {
         _sobelX.release()
         _sobelY.release()
         _gradMag.release()
+
+        _rawMat.release()
+        _segmentationMask.release()
     }
 }

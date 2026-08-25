@@ -45,6 +45,9 @@ class MockMatBundle : IMatBundle {
     override fun getSobelY(): Mat = emptyMat
     override fun getGradMag(): Mat = emptyMat
 
+    override fun getRawMat(): Mat = emptyMat
+    override fun getSegmentationMask(): Mat = emptyMat
+
     override fun getGrayGaussian(): Mat = emptyMat
     override fun getHorizontalClose(): Mat = emptyMat
     override fun getVerticalClose(): Mat = emptyMat
