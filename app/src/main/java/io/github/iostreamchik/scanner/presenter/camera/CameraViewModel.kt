@@ -80,13 +80,16 @@ class CameraViewModel(
             _detectedQuads
                 .debounce(CONTOUR_UPDATE_THROTTLE_MS.milliseconds)
                 .collect { quads ->
-                    if (quads.isEmpty()) return@collect
                     lastContourData?.release()
-                    lastContourData = ContourData(
-                        contours = quads,
-                        frameWidth = lastFrameWidth,
-                        frameHeight = lastFrameHeight
-                    )
+                    lastContourData = if (quads.isEmpty()) {
+                        null
+                    } else {
+                        ContourData(
+                            contours = quads,
+                            frameWidth = lastFrameWidth,
+                            frameHeight = lastFrameHeight
+                        )
+                    }
                     _contourData.value = lastContourData
                 }
         }

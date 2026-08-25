@@ -213,17 +213,19 @@ class CombinedDocumentDetector(
                 angleDeviations[AsyncDetectorSource.HEATMAP_CORNER] = Double.MAX_VALUE
             }
 
-            if (winner == null) {
-                val keypointQuad = runSingleDetector(cornerKeypointDetector, rawMat, params, originalWidth, originalHeight, scaledWidth, scaledHeight)
-                if (keypointQuad != null) {
-                    val deviation = computeMaxAngleDeviation(keypointQuad)
-                    angleDeviations[AsyncDetectorSource.CORNER_KEYPOINT] = deviation
-                    Log.d(TAG, "  CORNER_KEYPOINT: quad=${keypointQuad.total()} pts, deviation=${"%.2f".format(deviation)}°")
-                    winner = AsyncDetectorSource.CORNER_KEYPOINT to keypointQuad
-                } else {
-                    angleDeviations[AsyncDetectorSource.CORNER_KEYPOINT] = Double.MAX_VALUE
+            val skipKeypointDetector = true
+            if (skipKeypointDetector.not())
+                if (winner == null) {
+                    val keypointQuad = runSingleDetector(cornerKeypointDetector, rawMat, params, originalWidth, originalHeight, scaledWidth, scaledHeight)
+                    if (keypointQuad != null) {
+                        val deviation = computeMaxAngleDeviation(keypointQuad)
+                        angleDeviations[AsyncDetectorSource.CORNER_KEYPOINT] = deviation
+                        Log.d(TAG, "  CORNER_KEYPOINT: quad=${keypointQuad.total()} pts, deviation=${"%.2f".format(deviation)}°")
+                        winner = AsyncDetectorSource.CORNER_KEYPOINT to keypointQuad
+                    } else {
+                        angleDeviations[AsyncDetectorSource.CORNER_KEYPOINT] = Double.MAX_VALUE
+                    }
                 }
-            }
 
             if (winner == null) {
                 Log.d(TAG, "  Heatmap and CornerKeypoint failed, running Segmentation...")
