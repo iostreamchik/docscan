@@ -124,12 +124,12 @@ Code must be self-documenting. Never add inline comments, block comments, or doc
 
 ### Quad Stability & Fusion
 
-`CameraViewModel` maintains an 8-frame quad history:
-- **Stability check** every 2 frames: average corner movement < 2% of frame diagonal.
+`CameraViewModel` maintains a 4-frame quad history:
+- **Stability check** every frame: average corner movement < 2% of frame diagonal.
 - **Fusion**: Average corner positions across all history entries when stable.
 - **Hash dedup**: Skip warping when quad hash hasn't changed (saves expensive perspective transform). Recycles previous warped bitmap on hash hit.
 - History stores pure Kotlin `List<Point>` snapshots (sorted via `sortQuadPoints()` at insertion) — never native Mats, since the UI releases the same quad instances it receives via `detectedQuads`.
-- Detection work runs in `detectionScope` (`SupervisorJob + Dispatchers.Default`) with cancellation of in-flight jobs on new frames.
+- Detection work runs in `viewModelScope.launch { withContext(Dispatchers.Default) { ... }}` with `currentDetectionJob` tracking for cancellation of in-flight jobs on new frames.
 
 ### Detection Params Panel
 

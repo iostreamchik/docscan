@@ -176,6 +176,7 @@ Pooled slots:
 | Category | Slots |
 |---|---|
 | Core pipeline | `getGray()`, `getBlurred()`, `getEnhanced()`, `getMorph()`, `getTemp()`, `getEdges()`, `getMorphAdd()`, `getHierarchy()` |
+| Heatmap visualization | `getHeatmapSum()`, `getHeatmapNorm()`, `getHeatmapColored()` |
 | Directional suppression | `getGrayGaussian()`, `getHorizontalClose()`, `getVerticalClose()` |
 | Statistics | `getMean()` (MatOfDouble), `getStd()` (MatOfDouble) |
 | Kernels | `getKernel()`, `getKernel2()`, `getHorizontalKernel()`, `getVerticalKernel()` |
