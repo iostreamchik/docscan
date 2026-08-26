@@ -1,14 +1,21 @@
 package io.github.iostreamchik.scanner.data.utils
 
+import android.graphics.Bitmap
 import android.util.Log
+import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
+import org.opencv.core.Size
+import org.opencv.geometry.Geometry
+import org.opencv.imgproc.Imgproc
 import java.lang.Math.PI
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.atan2
+import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
@@ -154,5 +161,81 @@ private fun computeAngle(p1: Point, p2: Point, center: Point): Double {
     val cosTheta = (dot / normProd).coerceIn(-1.0, 1.0)
 
     return acos(cosTheta) * 180.0 / PI
+}
+
+/**
+ * Computes output dimensions for warping a detected quad.
+ *
+ * Uses the nearer horizontal edge as the output width (least foreshortened)
+ * and recovers the document height by correcting the farther side edge
+ * with the near/far edge ratio.
+ */
+fun calculateWarpedDimensions(
+    tl: Point, tr: Point, br: Point, bl: Point
+): Pair<Int, Int> {
+    val bottomEdge = hypot(br.x - bl.x, br.y - bl.y)
+    val topEdge = hypot(tr.x - tl.x, tr.y - tl.y)
+    val nearWidth = max(bottomEdge, topEdge)
+    val farWidth = min(bottomEdge, topEdge)
+    val perspectiveRatio = if (farWidth > 1.0) nearWidth / farWidth else 1.0
+
+    val leftEdge = hypot(tl.x - bl.x, tl.y - bl.y)
+    val rightEdge = hypot(tr.x - br.x, tr.y - br.y)
+    val nearSide = max(leftEdge, rightEdge)
+    val farSide = min(leftEdge, rightEdge)
+    val outputHeight = max(nearSide, farSide * perspectiveRatio)
+
+    return Pair(nearWidth.toInt().coerceAtLeast(1), outputHeight.toInt().coerceAtLeast(1))
+}
+
+/**
+ * Warps a document from a source Mat using the detected quad corners.
+ *
+ * Applies perspective transform and sharpening.
+ * Returns null on error.
+ */
+fun warpDocumentHighQuality(src: Mat, quad: MatOfPoint): Bitmap? {
+    return try {
+        if (src.empty()) {
+            Log.w("Extensions", "warpDocumentHighQuality: src Mat is empty (cols=${src.cols()}, rows=${src.rows()}, channels=${src.channels()})")
+            return null
+        }
+        val sorted = sortQuadPoints(quad.toArray().toList())
+        val (tl, tr, br, bl) = sorted // Destructuring
+
+        // Calculate output dimensions from the document's actual edge lengths.
+        // This avoids creating a full-image-sized output with huge black borders
+        // when the document only fills part of the frame.
+        val dimensions = calculateWarpedDimensions(tl, tr, br, bl)
+        val outputWidth = dimensions.first.toDouble()
+        val outputHeight = dimensions.second.toDouble()
+
+        val srcPoints = MatOfPoint2f(tl, tr, br, bl)
+        val dstPoints = MatOfPoint2f(
+            Point(0.0, 0.0),
+            Point(outputWidth, 0.0),
+            Point(outputWidth, outputHeight),
+            Point(0.0, outputHeight)
+        )
+
+        val transform = Geometry.getPerspectiveTransform(srcPoints, dstPoints)
+        val warped = Mat()
+        Imgproc.warpPerspective(src, warped, transform, Size(outputWidth, outputHeight))
+
+        val sharpened = warped.sharpen()
+        val bitmap = sharpened.toBitmap()
+
+        // Release intermediates in reverse order
+        sharpened.release()
+        warped.release()
+        transform.release()
+        srcPoints.release()
+        dstPoints.release()
+
+        bitmap
+    } catch (e: Exception) {
+        Log.e("Extensions", "Warp error: ${e.message}")
+        null
+    }
 }
 
