@@ -180,11 +180,7 @@ class CombinedDocumentDetector(
                 return@coroutineScope null
             }
 
-            try {
-                runOnnxFallbacks(sourceRawMat.clone(), params, originalWidth, originalHeight, scaledWidth, scaledHeight)
-            } finally {
-                sourceRawMat.release()
-            }
+            runOnnxFallbacks(sourceRawMat, params, originalWidth, originalHeight, scaledWidth, scaledHeight)
         }
 
         return result

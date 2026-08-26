@@ -302,6 +302,10 @@ fun MatOfPoint.toSortedQuad(): List<Point> {
  */
 fun warpDocumentHighQuality(src: Mat, quad: MatOfPoint): Bitmap? {
     return try {
+        if (src.empty()) {
+            Log.w("Extensions", "warpDocumentHighQuality: src Mat is empty (cols=${src.cols()}, rows=${src.rows()}, channels=${src.channels()})")
+            return null
+        }
         val sorted = sortQuadPoints(quad.toArray().toList())
         val (tl, tr, br, bl) = sorted // Destructuring
 

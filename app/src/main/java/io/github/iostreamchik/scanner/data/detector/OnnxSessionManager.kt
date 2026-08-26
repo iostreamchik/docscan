@@ -14,8 +14,10 @@ class OnnxSessionManager(
     private val modelPath: String,
 ) {
     private var session: OrtSession? = null
+    private var permutationIndex: IntArray? = null
+    private var matBuffer: FloatArray? = null
     private var nchwBuffer: FloatArray? = null
-    private var interleavedBuffer: FloatArray? = null
+
 
     fun init(tag: String) {
         if (session != null) return
@@ -51,15 +53,29 @@ class OnnxSessionManager(
         require(rgbMat.rows() == inputSize && rgbMat.cols() == inputSize)
 
         val channelSize = inputSize * inputSize
-        val nchw = nchwBuffer ?: FloatArray(channelSize * channels).also { nchwBuffer = it }
-        val interleaved = interleavedBuffer ?: FloatArray(channelSize * channels).also { interleavedBuffer = it }
+        val totalElements = channelSize * channels
 
-        rgbMat.get(0, 0, interleaved)
-        for (i in 0 until channelSize) {
-            val src = i * channels
-            for (c in 0 until channels) {
-                nchw[c * channelSize + i] = interleaved[src + c]
+        // Precompute permutation index for NHWC→NCHW deinterleave
+        val perm = permutationIndex?.takeIf { it.size == totalElements }
+            ?: IntArray(totalElements).also { idx ->
+                for (i in 0 until channelSize) {
+                    for (c in 0 until channels) {
+                        idx[c * channelSize + i] = i * channels + c
+                    }
+                }
+                permutationIndex = idx
             }
+
+        // Read interleaved (NHWC) from OpenCV Mat into reusable buffer
+        val matBuf = matBuffer?.takeIf { it.size == totalElements }
+            ?: FloatArray(totalElements).also { matBuffer = it }
+        rgbMat.get(0, 0, matBuf)
+
+        // Apply permutation in a single pass
+        val nchw = nchwBuffer?.takeIf { it.size == totalElements }
+            ?: FloatArray(totalElements).also { nchwBuffer = it }
+        for (i in 0 until totalElements) {
+            nchw[i] = matBuf[perm[i]]
         }
 
         val inputShape = longArrayOf(1L, channels.toLong(), inputSize.toLong(), inputSize.toLong())
@@ -73,6 +89,8 @@ class OnnxSessionManager(
             Log.e(tag, "Failed to close ONNX session", e)
         } finally {
             session = null
+            matBuffer = null
+            permutationIndex = null
         }
     }
 }
