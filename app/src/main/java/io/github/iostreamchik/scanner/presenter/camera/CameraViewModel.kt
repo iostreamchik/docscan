@@ -66,9 +66,11 @@ class CameraViewModel(
     private var lastContourData: ContourData? = null
     private var lastFrameWidth = 0
     private var lastFrameHeight = 0
-    private val MAX_HISTORY = 8
+    private var cameraStartTime = 0L
+    private val CAMERA_WARMUP_MS = 500L
+    private val MAX_HISTORY = 4
     private var frameCounter = 0
-    private val STABILITY_CHECK_INTERVAL = 2
+    private val STABILITY_CHECK_INTERVAL = 1
 
     private var lastWarpedQuadHash: Long = 0
     private var lastWarpedBitmap: Bitmap? = null
@@ -110,6 +112,12 @@ class CameraViewModel(
     }
 
     fun processFrame(imageProxy: ImageProxy) {
+        if (cameraStartTime == 0L) cameraStartTime = System.currentTimeMillis()
+        if (System.currentTimeMillis() - cameraStartTime < CAMERA_WARMUP_MS) {
+            imageProxy.close()
+            return
+        }
+
         val rawMat = imageProxy.toMatRGBA()
         val rotation = imageProxy.imageInfo.rotationDegrees
         imageProxy.close()
@@ -198,7 +206,7 @@ class CameraViewModel(
             validPairs++
         }
 
-        return validPairs > 0 && (totalMovement / validPairs) < 0.02
+        return validPairs > 0 && (totalMovement / validPairs) < 0.05
     }
 
     private fun getFusedQuad(): MatOfPoint? {
