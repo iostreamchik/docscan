@@ -22,6 +22,7 @@ import io.github.iostreamchik.scanner.domain.repository.IDocumentDetectorReposit
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.PipelineParams
+import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,8 +37,6 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Point
 import org.opencv.core.Size
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -57,9 +56,10 @@ class CameraViewModel(
 
     val detectionParams: StateFlow<DetectionParameters> = repository.detectionParams ?: MutableStateFlow(DetectionParameters()).asStateFlow()
 
+    val cameraExecutor = Executors.newSingleThreadExecutor()
+
     private var currentDetectionJob: Job? = null
 
-    val cameraExecutor = Executors.newSingleThreadExecutor()
 
     private val quadHistory = ArrayDeque<List<Point>>()
     private var lastFrameSize: Size? = null
@@ -360,7 +360,6 @@ class CameraViewModel(
 
     override fun onCleared() {
         cameraExecutor.shutdown()
-        cameraExecutor.awaitTermination(5, TimeUnit.SECONDS)
         clearBitmaps()
         clearQuadHistory()
         lastContourData?.release()

@@ -66,7 +66,7 @@ val appModule = module {
 
 fun initKoin(context: android.content.Context) {
     startKoin {
-        androidLogger(Level.INFO)
+        androidLogger(if (BuildConfig.DEBUG) Level.INFO else Level.ERROR)
         androidContext(context)
         modules(appModule)
     }

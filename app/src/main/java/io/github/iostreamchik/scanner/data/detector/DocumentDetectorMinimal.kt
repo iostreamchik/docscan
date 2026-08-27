@@ -63,7 +63,7 @@ class DocumentDetectorMinimal(
             originalWidth, originalHeight,
             params.minAreaFraction.toDouble(),
             params.approxPolyDPTolerance.toDouble(),
-            rectangleTolerance = 20.0,
+            rectangleTolerance = 15.0,
             selector = { candidates ->
                 candidates.maxByOrNull { contour ->
                     scoreContourWithParams(contour, originalWidth, originalHeight, params)

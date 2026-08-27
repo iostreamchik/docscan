@@ -38,14 +38,14 @@ object OpenCVAdapter {
         smallMat.release()
     }
 
-    fun getAverageBrightness(image: Mat, bundle: IMatBundle): Double {
-        Core.meanStdDev(image, bundle.getMean(), bundle.getStd())
-        return bundle.getMean().toArray()[0]
+    fun getAverageBrightness(image: Mat, matBundle: IMatBundle): Double {
+        Core.meanStdDev(image, matBundle.getMean(), matBundle.getStd())
+        return matBundle.getMean().toArray()[0]
     }
 
-    fun getStdDev(image: Mat, bundle: IMatBundle): Double {
-        Core.meanStdDev(image, bundle.getMean(), bundle.getStd())
-        return bundle.getStd().toArray()[0]
+    fun getStdDev(image: Mat, matBundle: IMatBundle): Double {
+        Core.meanStdDev(image, matBundle.getMean(), matBundle.getStd())
+        return matBundle.getStd().toArray()[0]
     }
 
     fun applyClahe(source: Mat, dest: Mat, clipLimit: Double, tileSize: Double) {
@@ -83,15 +83,15 @@ object OpenCVAdapter {
         scaledHeight: Int,
         params: PipelineParams,
         config: PreprocessingConfig,
-        bundle: IMatBundle,
+        matBundle: IMatBundle,
         onParams: DetectionParamsCallback
     ): Mat {
-        resizeToGray(rawMat, scaledWidth, scaledHeight, bundle.getGray())
+        resizeToGray(rawMat, scaledWidth, scaledHeight, matBundle.getGray())
 
         val blurKsize = params.medianBlurKsize.coerceAtLeast(3)
-        Imgproc.medianBlur(bundle.getGray(), bundle.getBlurred(), blurKsize)
+        Imgproc.medianBlur(matBundle.getGray(), matBundle.getBlurred(), blurKsize)
 
-        val avgBrightness = getAverageBrightness(bundle.getBlurred(), bundle)
+        val avgBrightness = getAverageBrightness(matBundle.getBlurred(), matBundle)
         val brightness = avgBrightness.coerceIn(20.0, 200.0)
         val dimBoost = if (brightness < 80.0) {
             config.dimBoostDivisor / (brightness + 10.0)
@@ -106,25 +106,25 @@ object OpenCVAdapter {
         val claheClipLimit = (0.5 + dimBoost + brightBoost).coerceIn(1.0, 1.5)
 
         val tileSize = params.claheTileSize.coerceAtLeast(8).toDouble()
-        applyClahe(bundle.getBlurred(), bundle.getEnhanced(), claheClipLimit, tileSize)
+        applyClahe(matBundle.getBlurred(), matBundle.getEnhanced(), claheClipLimit, tileSize)
 
-        val enhancedContrast = getStdDev(bundle.getEnhanced(), bundle)
+        val enhancedContrast = getStdDev(matBundle.getEnhanced(), matBundle)
         val skipMorphClose = enhancedContrast < 25.0
 
         if (skipMorphClose) {
-            bundle.getEnhanced().copyTo(bundle.getMorph())
+            matBundle.getEnhanced().copyTo(matBundle.getMorph())
         } else {
             val morphCloseKsize = params.morphCloseSize.coerceAtLeast(3).toDouble()
-            createRectKernel(Size(morphCloseKsize, morphCloseKsize), bundle.getKernel())
-            morphClose(bundle.getEnhanced(), bundle.getMorph(), bundle.getKernel())
+            createRectKernel(Size(morphCloseKsize, morphCloseKsize), matBundle.getKernel())
+            morphClose(matBundle.getEnhanced(), matBundle.getMorph(), matBundle.getKernel())
         }
 
-        val morphSource = if (skipMorphClose) bundle.getEnhanced() else bundle.getMorph()
-        Imgproc.GaussianBlur(morphSource, bundle.getTemp(), Size(3.0, 3.0), 2.0)
+        val morphSource = if (skipMorphClose) matBundle.getEnhanced() else matBundle.getMorph()
+        Imgproc.GaussianBlur(morphSource, matBundle.getTemp(), Size(3.0, 3.0), 2.0)
 
         val otsu = Imgproc.threshold(
-            bundle.getTemp(),
-            bundle.getEdges(),
+            matBundle.getTemp(),
+            matBundle.getEdges(),
             0.0, 255.0,
             Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU
         )
@@ -134,14 +134,14 @@ object OpenCVAdapter {
 
         onParams(brightness, claheClipLimit, cannyHigh, cannyLow)
 
-        Imgproc.Canny(bundle.getTemp(), bundle.getEdges(), cannyLow, cannyHigh)
+        Imgproc.Canny(matBundle.getTemp(), matBundle.getEdges(), cannyLow, cannyHigh)
 
-        return bundle.getEdges()
+        return matBundle.getEdges()
     }
 
     fun findBestQuad(
         morphImage: Mat,
-        bundle: IMatBundle,
+        matBundle: IMatBundle,
         scaledWidth: Int,
         scaledHeight: Int,
         originalWidth: Int,
@@ -151,12 +151,12 @@ object OpenCVAdapter {
         rectangleTolerance: Double = 15.0,
         selector: QuadSelector
     ): MatOfPoint? {
-        val contours = findContours(morphImage, bundle.getHierarchy())
+        val contours = findContours(morphImage, matBundle.getHierarchy())
 
         val frameArea = scaledWidth * scaledHeight
         val minArea = frameArea * minAreaFraction
         val candidates = mutableListOf<MatOfPoint>()
-        val approx = bundle.getApprox()
+        val approx = matBundle.getApprox()
 
         for (contour in contours) {
             val area = abs(Geometry.contourArea(contour))

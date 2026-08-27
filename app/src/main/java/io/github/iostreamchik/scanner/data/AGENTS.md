@@ -30,7 +30,7 @@ data/
 └── utils/
     ├── ContourScoring.kt                            — scoreContourWithParams (configurable weights)
     ├── Extensions.kt                                — ImageProxy→Mat, Mat→Bitmap, fixRotation, warp, enhance, quad helpers
-    └── QuadGeometry.kt                              — sortQuadPoints, quadDistance, quadHash, isRectangle, computeMaxAngleDeviation, validateQuadRectangularity
+    └── QuadGeometry.kt                              — sortQuadPoints, quadDistance, quadHash, isRectangle, computeMaxAngleDeviation, validateQuadRectangularity, calculateWarpedDimensions, warpDocumentHighQuality
 ```
 
 ## Detection Backends
@@ -238,9 +238,6 @@ Extension functions on `Mat`, `MatOfPoint`, and `ImageProxy`:
 | `Mat.rotate90CounterClockwise()` | Transpose + flip X-axis |
 | `Mat.enhanceDocument()` | LAB-based shadow removal (55px Gaussian) + CLAHE (2.0, 8×8) + sharpening (σ=2, weight 1.3) |
 | `Mat.sharpen()` | Gaussian unsharp mask (σ=2, weight 1.3) |
-| `MatOfPoint.toSortedQuad()` | Sort 4 points clockwise from top-left (returns empty list if not exactly 4) |
-| `calculateWarpedDimensions(tl, tr, br, bl)` | Compute output width/height from max edge distances |
-| `warpDocumentHighQuality(src, quad)` | Perspective transform → sharpening → Bitmap |
 
 ### QuadGeometry.kt
 
@@ -254,6 +251,8 @@ Geometric operations on quads:
 | `isRectangle(approx, tolerance)` | All angles within tolerance of 90° (default 15°) |
 | `computeMaxAngleDeviation(corners)` | Max deviation from 90° across all four interior angles |
 | `validateQuadRectangularity(corners, maxDeviationDegrees)` | All angles within threshold of 90° (delegates to `computeMaxAngleDeviation`) |
+| `calculateWarpedDimensions(tl, tr, br, bl)` | Compute output width/height from max edge distances |
+| `warpDocumentHighQuality(src, quad)` | Perspective transform → sharpening → Bitmap |
 | `computeAngle(p1, p2, center)` | Private helper — interior angle at vertex via dot product |
 
 ## Shared Entities (entity/ package)

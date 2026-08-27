@@ -29,7 +29,7 @@ domain/
 | Member | Signature | Purpose |
 |---|---|---|
 | `preprocess()` | `(rawMat, scaledWidth, scaledHeight, params) -> Mat` | Run image preprocessing pipeline, return processed Mat |
-| `detectQuad()` | `(morphImage, scaledWidth, scaledHeight, originalWidth, originalHeight, params = PipelineParams()) -> MatOfPoint?` | Extract document quad from preprocessed image |
+| `detectQuad()` | `(morphImage, scaledWidth, scaledHeight, originalWidth, originalHeight, params = PipelineParams(), rawMat = null) -> MatOfPoint?` | Extract document quad from preprocessed image; `rawMat` is the unscaled input image required by the ONNX fallback detectors (they are skipped when null) |
 | `validateQuadSize()` | `(quad, originalWidth, originalHeight) -> Boolean` | Guard against false positives where quad fills the entire frame |
 | `detectionParams` | `StateFlow<DetectionParameters>?` | Live detection metrics (nullable — null when no detector is active) |
 | `detectorName` | `String` | Human-readable name of the active detector |

@@ -83,6 +83,7 @@ Both screens use `koinViewModel<CameraViewModel>()` without named qualifiers. Se
 | `errorId` | `Int?` | String resource ID for error message |
 | `isProcessing` | `Boolean` | Loading state for file scan |
 | `pipelineParams` | `PipelineParams` | Current detection parameters |
+| `documentDetected` | `Boolean` | Whether a document quad is currently detected |
 
 ## Key Patterns
 
@@ -106,7 +107,7 @@ Code must be self-documenting. Never add inline comments, block comments, or doc
 ### CameraX Integration
 
 - `ImageAnalysis` uses `STRATEGY_KEEP_ONLY_LATEST` to drop stale frames.
-- Processing runs on `cameraExecutor` (dedicated single-thread executor).
+- Frame processing runs on `cameraExecutor` (dedicated single-thread executor, matching the official CameraX samples). `onCleared` calls `shutdown()` only — never `awaitTermination`, which would block the main thread during process kill.
 - Resolution targets 2000×2000 with `FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER` on both Preview and ImageAnalysis.
 - Camera bound inside `LaunchedEffect(previewView)` with `cameraProvider.unbindAll()` before binding.
 - `PROCESS_WIDTH = 448.0` — all frames scaled to 448px max dimension before detection.
@@ -120,14 +121,14 @@ Code must be self-documenting. Never add inline comments, block comments, or doc
 
 ### Contour Rendering Throttle
 
-`CameraScreen` throttles `ContourData` updates to **30ms intervals** (`CONTOUR_UPDATE_THROTTLE_MS`) to prevent excessive Compose recomposition from high-frame-rate camera input.
+`CameraViewModel` debounces `ContourData` updates to **30ms intervals** (`CONTOUR_UPDATE_THROTTLE_MS`) on the `detectedQuads` flow to prevent excessive Compose recomposition from high-frame-rate camera input. Previous `ContourData` (holding native Mats) is released before replacing.
 
 ### Quad Stability & Fusion
 
 `CameraViewModel` maintains a 4-frame quad history:
-- **Stability check** every frame: average corner movement < 2% of frame diagonal.
+- **Stability check** every frame (`STABILITY_CHECK_INTERVAL = 1`): average corner movement < 5% of frame diagonal (`quadDistance` normalized by frame size).
 - **Fusion**: Average corner positions across all history entries when stable.
-- **Hash dedup**: Skip warping when quad hash hasn't changed (saves expensive perspective transform). Recycles previous warped bitmap on hash hit.
+- **Hash dedup**: Skip warping when quad hash hasn't changed (saves expensive perspective transform) and reuse the cached `lastWarpedBitmap`. The previous warped bitmap is recycled only when a new warp is produced (hash changed).
 - History stores pure Kotlin `List<Point>` snapshots (sorted via `sortQuadPoints()` at insertion) — never native Mats, since the UI releases the same quad instances it receives via `detectedQuads`.
 - Detection work runs in `viewModelScope.launch { withContext(Dispatchers.Default) { ... }}` with `currentDetectionJob` tracking for cancellation of in-flight jobs on new frames.
 
