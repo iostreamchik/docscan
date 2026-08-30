@@ -13,6 +13,28 @@ class OnnxSessionManager(
     private val env: OrtEnvironment,
     private val modelPath: String,
 ) {
+    companion object {
+        /**
+         * Computes the NHWC→NCHW deinterleave permutation index.
+         *
+         * For each spatial position `i` and output channel `c`, the index maps
+         * the NHWC buffer position `i * channels + c` to the NCHW buffer
+         * position `c * channelSize + i`.
+         */
+        @JvmStatic
+        internal fun computeNchwPermutation(inputSize: Int, channels: Int): IntArray {
+            val channelSize = inputSize * inputSize
+            val totalElements = channelSize * channels
+            return IntArray(totalElements).also { idx ->
+                for (i in 0 until channelSize) {
+                    for (c in 0 until channels) {
+                        idx[c * channelSize + i] = i * channels + c
+                    }
+                }
+            }
+        }
+    }
+
     private var session: OrtSession? = null
     private var permutationIndex: IntArray? = null
     private var matBuffer: FloatArray? = null
@@ -57,14 +79,7 @@ class OnnxSessionManager(
 
         // Precompute permutation index for NHWC→NCHW deinterleave
         val perm = permutationIndex?.takeIf { it.size == totalElements }
-            ?: IntArray(totalElements).also { idx ->
-                for (i in 0 until channelSize) {
-                    for (c in 0 until channels) {
-                        idx[c * channelSize + i] = i * channels + c
-                    }
-                }
-                permutationIndex = idx
-            }
+            ?: computeNchwPermutation(inputSize, channels).also { permutationIndex = it }
 
         // Read interleaved (NHWC) from OpenCV Mat into reusable buffer
         val matBuf = matBuffer?.takeIf { it.size == totalElements }

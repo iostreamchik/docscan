@@ -1,11 +1,9 @@
 package io.github.iostreamchik.scanner.data.detector
 
 import android.util.Log
-import io.github.iostreamchik.scanner.data.utils.computeMaxAngleDeviation
 import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.PipelineParams
-import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -121,44 +119,31 @@ class CombinedDocumentDetector(
                 }
             )
 
-            val scoredResults = mutableMapOf<AsyncDetectorSource, ScoredResult>()
+            val scoredResults = mutableListOf<DetectionCandidate>()
 
             primaryDeferredResults.forEach { (source, deferred) ->
                 val quad = deferred.await()
-                val deviation = if (quad != null) {
-                    computeMaxAngleDeviation(quad)
-                } else {
-                    Double.MAX_VALUE
+                val points = quad?.toArray()?.toList()
+                val detector = when (source) {
+                    AsyncDetectorSource.MINIMAL -> minimalDetector
+                    AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector
+                    else -> null
                 }
-                angleDeviations[source] = deviation
-                scoredResults[source] = ScoredResult(quad, deviation)
+                val valid = quad != null && (detector?.validateQuadSize(quad, originalWidth, originalHeight) ?: false)
+                val quadSize = quad?.total() ?: 0
+                quad?.release()
+                val candidate = DetectionCandidate(source, if (valid) points else null, valid)
+                angleDeviations[source] = candidate.deviation
+                scoredResults.add(candidate)
 
-                Log.d(TAG, "  $source: quad=${if (quad != null) "${quad.total()} pts" else "null"}, deviation=${formatDeviation(deviation)}")
+                Log.d(TAG, "  $source: quad=${if (quad != null) "$quadSize pts" else "null"}, deviation=${formatDeviation(candidate.deviation)}")
             }
 
-            val validResults = mutableListOf<Pair<AsyncDetectorSource, ScoredResult>>()
-
-            for ((source, scored) in scoredResults) {
-                if (scored.quad != null) {
-                    val detector = when (source) {
-                        AsyncDetectorSource.MINIMAL -> minimalDetector
-                        AsyncDetectorSource.DIRECTIONAL_SUPPRESSION -> opencv5Detector
-                        else -> null
-                    }
-                    if (detector != null && detector.validateQuadSize(scored.quad!!, originalWidth, originalHeight)) {
-                        validResults.add(source to scored)
-                    } else {
-                        scored.quad?.release()
-                    }
-                }
-            }
-
-            val primaryWinner = validResults.minByOrNull { it.second.deviation }
+            val primaryWinner = CombinedDecision.selectPrimaryWinner(scoredResults)
 
             if (primaryWinner != null) {
-                val (winnerSource, winnerScored) = primaryWinner
-                lastUsedDetector = winnerSource
-                when (winnerSource) {
+                lastUsedDetector = primaryWinner.source
+                when (primaryWinner.source) {
                     AsyncDetectorSource.MINIMAL ->
                         _detectionParams.value = minimalDetector.detectionParams?.value
                             ?.copy(detectorName = "Minimal")
@@ -169,10 +154,8 @@ class CombinedDocumentDetector(
                             ?: _detectionParams.value.copy(detectorName = "Directional Suppression")
                     else -> {}
                 }
-                validResults.filter { it.first != winnerSource }
-                    .forEach { it.second.quad?.release() }
-                Log.d(TAG, "  RESULT: $winnerSource won with deviation ${"%.2f".format(winnerScored.deviation)}°")
-                return@coroutineScope winnerScored.quad
+                Log.d(TAG, "  RESULT: ${primaryWinner.source} won with deviation ${"%.2f".format(primaryWinner.deviation)}°")
+                return@coroutineScope MatOfPoint(*primaryWinner.quad!!.toTypedArray())
             }
 
             val sourceRawMat = rawMat ?: run {
@@ -195,72 +178,62 @@ class CombinedDocumentDetector(
         scaledHeight: Int,
     ): MatOfPoint? {
         Log.d(TAG, "  Primary detectors failed, running sequential ONNX fallbacks...")
-            val fallbackStart = System.currentTimeMillis()
+        val fallbackStart = System.currentTimeMillis()
 
-            var winner: Pair<AsyncDetectorSource, MatOfPoint>? = null
+        val candidates = mutableListOf<DetectionCandidate>()
 
-            val heatmapQuad = runSingleDetector(heatmapCornerDetector, rawMat, params, originalWidth, originalHeight, scaledWidth, scaledHeight)
-            if (heatmapQuad != null) {
-                val deviation = computeMaxAngleDeviation(heatmapQuad)
-                angleDeviations[AsyncDetectorSource.HEATMAP_CORNER] = deviation
-                Log.d(TAG, "  HEATMAP_CORNER: quad=${heatmapQuad.total()} pts, deviation=${"%.2f".format(deviation)}°")
-                winner = AsyncDetectorSource.HEATMAP_CORNER to heatmapQuad
-            } else {
-                angleDeviations[AsyncDetectorSource.HEATMAP_CORNER] = Double.MAX_VALUE
+        val heatmapCandidate = runSingleDetector(
+            heatmapCornerDetector, AsyncDetectorSource.HEATMAP_CORNER,
+            rawMat, params, originalWidth, originalHeight, scaledWidth, scaledHeight
+        )
+        candidates.add(heatmapCandidate)
+
+        val skipKeypointDetector = true
+        var keypointCandidate: DetectionCandidate? = null
+        if (heatmapCandidate.quad == null) {
+            if (skipKeypointDetector.not()) {
+                keypointCandidate = runSingleDetector(
+                    cornerKeypointDetector, AsyncDetectorSource.CORNER_KEYPOINT,
+                    rawMat, params, originalWidth, originalHeight, scaledWidth, scaledHeight
+                )
+                candidates.add(keypointCandidate)
             }
-
-            val skipKeypointDetector = true
-            if (skipKeypointDetector.not())
-                if (winner == null) {
-                    val keypointQuad = runSingleDetector(cornerKeypointDetector, rawMat, params, originalWidth, originalHeight, scaledWidth, scaledHeight)
-                    if (keypointQuad != null) {
-                        val deviation = computeMaxAngleDeviation(keypointQuad)
-                        angleDeviations[AsyncDetectorSource.CORNER_KEYPOINT] = deviation
-                        Log.d(TAG, "  CORNER_KEYPOINT: quad=${keypointQuad.total()} pts, deviation=${"%.2f".format(deviation)}°")
-                        winner = AsyncDetectorSource.CORNER_KEYPOINT to keypointQuad
-                    } else {
-                        angleDeviations[AsyncDetectorSource.CORNER_KEYPOINT] = Double.MAX_VALUE
-                    }
-                }
-
-            if (winner == null) {
+            if (keypointCandidate?.quad == null) {
                 Log.d(TAG, "  Heatmap and CornerKeypoint failed, running Segmentation...")
-                val segQuad = runSingleDetector(onnxDetector, rawMat, params, originalWidth, originalHeight, scaledWidth, scaledHeight)
-                if (segQuad != null) {
-                    val deviation = computeMaxAngleDeviation(segQuad)
-                    angleDeviations[AsyncDetectorSource.SEGMENTATION] = deviation
-                    Log.d(TAG, "  SEGMENTATION: quad=${segQuad.total()} pts, deviation=${"%.2f".format(deviation)}°")
-                    winner = AsyncDetectorSource.SEGMENTATION to segQuad
-                } else {
-                    angleDeviations[AsyncDetectorSource.SEGMENTATION] = Double.MAX_VALUE
-                }
+                val segmentationCandidate = runSingleDetector(
+                    onnxDetector, AsyncDetectorSource.SEGMENTATION,
+                    rawMat, params, originalWidth, originalHeight, scaledWidth, scaledHeight
+                )
+                candidates.add(segmentationCandidate)
             }
+        }
 
-            if (winner != null) {
-                val (winnerSource, winnerQuad) = winner
-                lastUsedDetector = winnerSource
-                when (winnerSource) {
-                    AsyncDetectorSource.HEATMAP_CORNER ->
-                        heatmapCornerDetector.detectionParams?.value?.let {
-                            _detectionParams.value = it.copy(detectorName = AsyncDetectorSource.HEATMAP_CORNER.detectionParamsName)
-                        }
-                    AsyncDetectorSource.CORNER_KEYPOINT ->
-                        cornerKeypointDetector.detectionParams?.value?.let {
-                            _detectionParams.value = it.copy(detectorName = AsyncDetectorSource.CORNER_KEYPOINT.detectionParamsName)
-                        }
-                    AsyncDetectorSource.SEGMENTATION ->
-                        onnxDetector.detectionParams?.value?.let {
-                            _detectionParams.value = it.copy(detectorName = AsyncDetectorSource.SEGMENTATION.detectionParamsName)
-                        }
-                    else -> {}
-                }
-                Log.d(TAG, "  RESULT: $winnerSource fallback detected in ${System.currentTimeMillis() - fallbackStart}ms")
-                return winnerQuad
+        val winner = CombinedDecision.selectFallbackWinner(candidates)
+
+        if (winner != null) {
+            lastUsedDetector = winner.source
+            when (winner.source) {
+                AsyncDetectorSource.HEATMAP_CORNER ->
+                    heatmapCornerDetector.detectionParams?.value?.let {
+                        _detectionParams.value = it.copy(detectorName = AsyncDetectorSource.HEATMAP_CORNER.detectionParamsName)
+                    }
+                AsyncDetectorSource.CORNER_KEYPOINT ->
+                    cornerKeypointDetector.detectionParams?.value?.let {
+                        _detectionParams.value = it.copy(detectorName = AsyncDetectorSource.CORNER_KEYPOINT.detectionParamsName)
+                    }
+                AsyncDetectorSource.SEGMENTATION ->
+                    onnxDetector.detectionParams?.value?.let {
+                        _detectionParams.value = it.copy(detectorName = AsyncDetectorSource.SEGMENTATION.detectionParamsName)
+                    }
+                else -> {}
             }
+            Log.d(TAG, "  RESULT: ${winner.source} fallback detected in ${System.currentTimeMillis() - fallbackStart}ms")
+            return MatOfPoint(*winner.quad!!.toTypedArray())
+        }
 
-            Log.d(TAG, "  ONNX fallbacks completed in ${System.currentTimeMillis() - fallbackStart}ms")
-            Log.w(TAG, "  RESULT: NO DETECTION (all detectors returned null)")
-            return null
+        Log.d(TAG, "  ONNX fallbacks completed in ${System.currentTimeMillis() - fallbackStart}ms")
+        Log.w(TAG, "  RESULT: NO DETECTION (all detectors returned null)")
+        return null
     }
 
     override fun captureIntermediateSnapshots(): IntermediateBitmaps {
@@ -283,24 +256,27 @@ class CombinedDocumentDetector(
 
     private suspend fun runSingleDetector(
         detector: IDocumentDetector,
+        source: AsyncDetectorSource,
         rawMat: Mat,
         params: PipelineParams,
         originalWidth: Int,
         originalHeight: Int,
         scaledWidth: Int,
         scaledHeight: Int,
-    ): MatOfPoint? {
+    ): DetectionCandidate {
         val morph = detector.preprocess(rawMat, cachedScaledWidth, cachedScaledHeight, params)
-        try {
+        return try {
             val quad = detector.detectQuad(
                 morph, scaledWidth, scaledHeight,
                 originalWidth, originalHeight, params, rawMat
             )
-            if (quad != null && detector.validateQuadSize(quad, originalWidth, originalHeight)) {
-                return quad
-            }
+            val points = quad?.toArray()?.toList()
+            val valid = quad != null && detector.validateQuadSize(quad, originalWidth, originalHeight)
             quad?.release()
-            return null
+            val candidate = DetectionCandidate(source, if (valid) points else null, valid)
+            angleDeviations[source] = candidate.deviation
+            Log.d(TAG, "  $source: quad=${if (points != null) "${points.size} pts" else "null"}, deviation=${formatDeviation(candidate.deviation)}")
+            candidate
         } finally {
             morph.release()
         }
@@ -308,11 +284,6 @@ class CombinedDocumentDetector(
 
     private fun formatDeviation(deviation: Double): String =
         if (deviation.isFinite()) "${"%.2f".format(deviation)}°" else "N/A"
-
-    private fun computeMaxAngleDeviation(quad: MatOfPoint): Double {
-        val pts = sortQuadPoints(quad.toArray().toList())
-        return computeMaxAngleDeviation(pts)
-    }
 
     override fun release() {
         cachedMorphImages.values.forEach { it?.release() }
@@ -325,9 +296,4 @@ class CombinedDocumentDetector(
         cornerKeypointDetector.release()
         onnxDetector.release()
     }
-
-    private data class ScoredResult(
-        val quad: MatOfPoint?,
-        val deviation: Double
-    )
 }

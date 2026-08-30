@@ -1,57 +1,169 @@
-# DocumentScanner – Quad-Finder Document Detector
+# DocumentScanner
 
-An educational Android document scanner implementing OpenCV contour-based quadrilateral detection. Built as a learning resource for computer vision and image processing techniques.
+An Android document scanner that detects document boundaries in live camera
+previews and photos, then applies a perspective warp to produce a clean,
+rectangular scan. Detection combines classical OpenCV contour analysis with
+on-device ONNX neural models (heatmap corner regression, corner keypoints, and
+semantic segmentation) for robustness across a wide range of lighting and
+scene conditions.
+
+Built as a learning resource for computer vision, image processing, and
+on-device ML on Android.
+
+<p align="center">
+  <img src="scanner.png" alt="DocumentScanner" width="280">
+</p>
 
 ## Features
 
-- **Adaptive preprocessing** – Auto-scales Canny thresholds via Otsu's method;
-  falls back to CLAHE-enhanced path for low-contrast images.
-- **Multi-strategy search** – Tries three independent edge maps and picks the
-  best quad by convexity + aspect-ratio scoring.
-- **Validation** – Rejects non-convex quads (folded pages, shadows) and degenerate angles.
-- **Stability tracking** – Confirms document across multiple frames before triggering capture.
-- **Memory safety** – Explicit Mat.release() via extension helpers.
-- **Configurable** – All tunable parameters in one `DetectorConfig` data class.
+- **Hybrid detection** – Five detectors behind a single orchestrator:
+  two classical OpenCV pipelines plus three ONNX neural backends.
+- **Neural fallbacks** – When classical contours under-perform, the pipeline
+  falls back to LCNet heatmap corner regression, then DeepLabV3 semantic
+  segmentation (an LCNet corner-keypoint detector is also present but disabled
+  by default).
+- **Live camera scanning** – Real-time quad detection with multi-frame
+  stability/fusion before triggering capture.
+- **Photo scanning** – Pick an image and inspect intermediate pipeline stages
+  as a set of diagnostic bitmaps.
+- **Perspective warp** – Homography-based rectification that fills the
+  largest dimension and optionally enhances the output for a classic scan look.
+- **Memory safety** – All OpenCV `Mat`s flow through a pooled `IMatBundle`;
+  no allocations in hot paths, releases in `finally`/`onCleared`.
+- **Clean architecture** – Strict `entity → domain ← data → presenter`
+  layering with Koin dependency injection.
+
+## Detection Pipeline
+
+Five detectors implement `IDocumentDetector`, orchestrated by
+`CombinedDocumentDetector`:
+
+1. **Minimal** and **DirectionalSuppression** run in parallel (classical
+   OpenCV pipelines). The winner is the quad whose corners deviate least from
+   perfect 90° angles.
+2. **HeatmapCornerDetector** (LCNet100 + BiFPN ONNX, 256px) is the first
+   neural fallback.
+3. **CornerKeypointDetector** (LCNet ONNX, 256px) is the second fallback —
+   kept in the codebase as a comparison point but **disabled in release**
+   (`skipKeypointDetector = true`) because its large prediction errors made it
+   unreliable.
+4. **SegmentationDetector** (DeepLabV3 ONNX, 384px) is the final fallback.
+
+Frames are scaled to a 448px max dimension in `CameraViewModel` before being
+passed to the detectors. ONNX models ship in `assets/onnx/`:
+
+| Model | File | Backend | Size |
+|---|---|---|---|
+| LCNet100 + BiFPN | `lcnet100_h_e_bifpn_256_fp32.onnx` | Heatmap corner regression | ~5 MB |
+| LCNet050 | `lcnet050_p_multi_decoder_l3_d64_256_fp32.onnx` | Corner keypoints | ~5 MB |
+| DeepLabV3 (MBv3) | `deeplabv3_mbv3_docseg.onnx` | Semantic segmentation | 42 MB |
+
+The segmentation model is by far the heaviest; it can be omitted from the
+release build if app size must be reduced.
+
+### Why heatmap beats raw keypoints
+
+Both the heatmap and keypoint models work on a 256×256 image, but a small
+prediction error in model space is magnified when upscaled to the original
+frame. A keypoint model predicts an exact corner, so a ~1.4px error at 256px
+becomes ~7px on a 1920×1080 frame. The heatmap model instead predicts a
+*region* where each corner is likely; taking the weighted centroid of that
+blob is far more accurate after upscaling, which is why it is the primary
+neural fallback.
+
+### Multi-frame stability
+
+A single-frame detection can jitter between camera frames. To keep the live
+preview stable, the app keeps a sliding window of the last 4 detected quads
+and averages each corner across the window, producing a smooth quad that
+tracks the document even when individual frames disagree.
 
 ## Architecture
 
-The detector operates in two passes per frame:
+Clean Architecture with four layers. Each layer carries its own `AGENTS.md`
+describing its conventions.
 
-1. **Contour extraction**
-   - Converts to grayscale
-   - Builds three edge maps (Otsu Canny, CLAHE-enhanced, Adaptive threshold)
-   - Finds external contours and filters by area fraction
+```
+entity    — pure Kotlin data classes (PipelineParams, DetectionParameters,
+            IntermediateBitmaps)
+domain    — repository interfaces (IDocumentDetectorRepository)
+data      — detector implementations, OpenCV infra, utils, repository impl
+presenter — ViewModels, Composables, navigation, theme
+```
 
-2. **Quadrilateral selection**
-   - Applies multiple epsilon factors for polygon approximation
-   - Scores candidates by area × convexity × angle regularity
-   - Validates via convexity check + interior angle range (55°–125°)
-   - Orders points into (TL, TR, BR, BL) via sum/diff sorting
+Dependency flow: **Presenter → Domain ← Data**, with every layer allowed to
+depend on **Entity**.
 
-3. **Perspective warp**
-   - Computes homography from source → destination corners
-   - Warrants a rectangle that fills the largest dimension
-   - Optionally binarizes output for classic scan appearance
+```
+io.github.iostreamchik.scanner/
+├── ScannerApp.kt                        — Application (OpenCV init + Koin)
+├── Di.kt                                — Koin module with all bindings
+├── entity/                              — PipelineParams, DetectionParameters,
+│                                          IntermediateBitmaps
+├── domain/repository/                   — IDocumentDetectorRepository
+├── data/
+│   ├── detector/                        — 5 detectors + CombinedDocumentDetector
+│   │                                      + OnnxSessionManager
+│   ├── opencv/                          — MatBundle pooling + OpenCVAdapter
+│   ├── repository/                      — DocumentDetectorRepositoryImpl
+│   └── utils/                           — Extensions, QuadGeometry, ContourScoring
+└── presenter/
+    ├── MainActivity.kt
+    ├── navigation/NavigationGraph.kt    — Camera + FileScan destinations
+    ├── camera/                          — Live camera detection screen
+    ├── filescan/                        — Photo picker + intermediate bitmaps
+    ├── composables/                     — BitmapCard, ContourCanvas, etc.
+    └── theme/                           — Color, Theme, Type
+```
 
-## Tuning Parameters
+## Key Patterns
 
-| Parameter | Default | Effect |
-|-----------|---------|--------|
-| `minAreaFraction` | 0.08 | Documents must be ≥8% of frame |
-| `maxAreaFraction` | 0.97 | Reject full-frame contours (e.g., entire preview) |
-| `candidateCount` | 8 | Number of top contours to evaluate |
-| `epsilonFactors` | [0.01…0.06] | Tolerance for Douglas-Peucker simplification |
-| `minAngleDeg` | 55° | Reject quads with angles <55° |
-| `maxAngleDeg` | 125° | Reject quads with angles >125° |
-| `binarise` | false | If true, output is black-and-white |
-| `workingScale` | 1.0 | Process at this fraction of input size |
-| `stableFramesRequired` | 5 | Frames to confirm before triggering |
-| `similarityThreshold` | 10px | Drift allowed between stable frames |
+- **Unidirectional Data Flow** – Intent → ViewModel → State → Composable;
+  all UI state exposed via `StateFlow` and collected with
+  `collectAsStateWithLifecycle`.
+- **Mat pooling** – OpenCV `Mat`s are always obtained from and returned to
+  `IMatBundle`/`MatBundle`.
+- **Bitmap safety** – Bitmaps are cloned before being emitted to `StateFlow`;
+  they are never recycled in `onCleared`.
+- **DI** – Koin (runtime, no annotation processing) with named bindings for
+  each detector variant and the combined orchestrator.
 
-## Dependencies
+## Tech Stack
 
-- [OpenCV for Android](https://opencv.org/android/)
+| Component | Version |
+|---|---|
+| Min SDK / Target / Compile | 26 / 36 / 37 |
+| Kotlin | 2.4.0 |
+| Android Gradle Plugin | 9.2.1 |
+| OpenCV | 5.0.0.1 |
+| ONNX Runtime | 1.29.0 |
+| CameraX | 1.6.1 |
+| Koin | 4.2.2 |
+| Jetpack Compose | — |
+
+## Model Sources
+
+- [DocsaidLab / DocAligner](https://github.com/DocsaidLab/DocAligner) – LCNet
+  heatmap and corner-keypoint detectors.
+- [mukund-ks / DeepLabV3-Segmentation](https://github.com/mukund-ks/DeepLabV3-Segmentation) –
+  DeepLabV3-MobileNetV3 semantic segmentation.
+
+## Building
+
+```bash
+# Debug APK
+./gradlew assembleDebug
+
+# Release APK
+./gradlew assembleRelease
+
+# Unit tests
+./gradlew testDebugUnitTest
+
+# Instrumented tests (requires a device/emulator)
+./gradlew connectedAndroidTest
+```
 
 ## License
 
-MIT License – feel free to use in commercial or open-source projects.
+[Apache License 2.0](LICENSE) – see the [LICENSE](LICENSE) file.

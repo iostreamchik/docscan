@@ -10,8 +10,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.util.Log
-import io.github.iostreamchik.scanner.data.utils.computeMaxAngleDeviation
 import io.github.iostreamchik.scanner.data.utils.sortQuadPoints
+import io.github.iostreamchik.scanner.data.utils.validateCornerGeometry
 import io.github.iostreamchik.scanner.data.utils.toBitmap
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
 import io.github.iostreamchik.scanner.entity.DetectionParameters
@@ -28,8 +28,6 @@ import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import androidx.core.graphics.createBitmap
 import org.opencv.geometry.Geometry
-import kotlin.math.max
-import kotlin.math.min
 
 class HeatmapCornerDetector(
     private val context: Context,
@@ -232,7 +230,7 @@ class HeatmapCornerDetector(
         val sorted = sortQuadPoints(corners)
         if (sorted.size != 4) return null
 
-        if (!validateCornerGeometry(sorted)) {
+        if (!validateCornerGeometry(sorted, maxAngleDeviation)) {
             _detectionParams.value = _detectionParams.value.copy(
                 cornerError = "geometry failed"
             )
@@ -240,21 +238,6 @@ class HeatmapCornerDetector(
         }
 
         return MatOfPoint(*sorted.toTypedArray())
-    }
-
-    private fun validateCornerGeometry(corners: List<Point>): Boolean {
-        if (corners.size != 4) return false
-
-        if (computeMaxAngleDeviation(corners) > maxAngleDeviation) return false
-
-        val xs = corners.map { it.x }
-        val ys = corners.map { it.y }
-        val width = xs.maxOrNull()!! - xs.minOrNull()!!
-        val height = ys.maxOrNull()!! - ys.minOrNull()!!
-        val aspectRatio = min(width, height) / max(width, height)
-        if (aspectRatio < 0.15) return false
-
-        return true
     }
 
     override fun captureIntermediateSnapshots(): IntermediateBitmaps {

@@ -8,7 +8,8 @@ Holds all detection backends, OpenCV infrastructure, utilities, and the reposito
 data/
 ├── detector/
 │   ├── IDocumentDetector.kt                        — Interface for pluggable detection backends
-│   ├── CombinedDocumentDetector.kt                  — Async orchestrator (parallel classical + parallel ONNX fallbacks)
+│   ├── CombinedDocumentDetector.kt                  — Async orchestrator (parallel classical + sequential ONNX fallbacks)
+│   ├── CombinedDecision.kt                          — Pure winner-selection + fallback-chain logic on List<Point> (DetectionCandidate)
 │   ├── scheme.md                                    — Design doc for the combined orchestration flow
 │   ├── DocumentDetectorMinimal.kt                   — Minimal classical pipeline
 │   ├── DocumentDetectorDirectionalSuppression.kt    — Classical pipeline with directional suppression
@@ -101,16 +102,24 @@ detectQuad()
   Phase 1 — parallel primary
   ├─ async minimalDetector.detectQuad(minimalMorph)
   └─ async opencv5Detector.detectQuad(directionalMorph)
-  → score each by max angle deviation from 90° (computeMaxAngleDeviation),
-    filter with validateQuadSize, winner = lowest deviation
-  Phase 2 — parallel ONNX fallback (only if no valid primary)
-  ├─ async heatmapCornerDetector  (runSingleDetector)
-  ├─ async cornerKeypointDetector (runSingleDetector)
-  └─ async onnxDetector           (runSingleDetector)
-  → winner = first non-null in priority order HEATMAP_CORNER → CORNER_KEYPOINT
-    → SEGMENTATION; losing coroutines are cancelled; each result is
-    validateQuadSize-checked inside runSingleDetector
+  → each MatOfPoint converted to List<Point> + validateQuadSize flag →
+    DetectionCandidate; winner selected by CombinedDecision.selectPrimaryWinner
+  Phase 2 — sequential ONNX fallback (only if no valid primary)
+  ├─ heatmapCornerDetector  (runSingleDetector)
+  ├─ cornerKeypointDetector (runSingleDetector, currently skipped)
+  └─ onnxDetector           (runSingleDetector)
+  → each result a DetectionCandidate (validateQuadSize-checked inside
+    runSingleDetector); winner selected by CombinedDecision.selectFallbackWinner;
+    later stages short-circuit once an earlier stage produced a quad
 ```
+
+Decision logic lives in `CombinedDecision` (pure `List<Point>`, no Mat/coroutines):
+
+- `DetectionCandidate(source, quad: List<Point>?, valid)` — `deviation` = `computeMaxAngleDeviation(sortQuadPoints(quad))`, `MAX_VALUE` when quad is null
+- `selectPrimaryWinner` — valid candidates only, min deviation wins
+- `selectFallbackWinner` — first valid candidate in the given priority order (HEATMAP_CORNER → CORNER_KEYPOINT → SEGMENTATION)
+
+The orchestrator releases every `MatOfPoint` after converting to points and reconstructs a `MatOfPoint` from the winning candidate at the return site.
 
 - `AsyncDetectorSource` values: `NONE`, `MINIMAL`, `DIRECTIONAL_SUPPRESSION`, `HEATMAP_CORNER`, `CORNER_KEYPOINT`, `SEGMENTATION` — each carries a `detectionParamsName` string
 - `detectorName` = `lastUsedDetector.detectionParamsName` (falls back to "Combined" when NONE)
@@ -251,6 +260,9 @@ Geometric operations on quads:
 | `isRectangle(approx, tolerance)` | All angles within tolerance of 90° (default 15°) |
 | `computeMaxAngleDeviation(corners)` | Max deviation from 90° across all four interior angles |
 | `validateQuadRectangularity(corners, maxDeviationDegrees)` | All angles within threshold of 90° (delegates to `computeMaxAngleDeviation`) |
+| `validateCornerGeometry(corners, maxAngleDeviation, minAspectRatio)` | ONNX-detector corner check: angle deviation + bounding-box aspect ratio ≥ 0.15 (shared by Heatmap + CornerKeypoint) |
+| `computeAvgShift(a, b)` | Average per-corner distance between two point lists (refinement convergence) |
+| `quadAspectRatio(points)` | Bounding-box aspect ratio in [0, 1] |
 | `calculateWarpedDimensions(tl, tr, br, bl)` | Compute output width/height from max edge distances |
 | `warpDocumentHighQuality(src, quad)` | Perspective transform → sharpening → Bitmap |
 | `computeAngle(p1, p2, center)` | Private helper — interior angle at vertex via dot product |
@@ -276,6 +288,6 @@ Geometric operations on quads:
 - **Lazy preview safety**: `MockMatBundle` uses lazy `Mat()` to avoid `UnsatisfiedLinkError` when OpenCV native libs aren't loaded.
 - **ONNX memory via bundle**: ONNX detectors store all Mats in their `IMatBundle` — raw frame in `getRawMat()` (unpooled, per-frame), segmentation mask in `getSegmentationMask()` (pooled, scaled dims), heatmap data in `getHeatmapSum/Norm/Colored()`. `getRawMat()` is a copy because `CombinedDocumentDetector` releases the raw Mat it passes to fallbacks. Cleanup is a single `matBundle.releaseAll()` per detector; only small data (corners, coords, score) remains on the detector instance.
 - **Shared classical pipeline**: `OpenCVAdapter.preprocessClassical()` and `findBestQuad()` eliminate duplication between Minimal and DirectionalSuppression detectors.
-- **Parallel ONNX fallback**: All three ONNX detectors run concurrently; the first valid result in fixed priority order (heatmap → corner keypoint → segmentation) wins and losing coroutines are cancelled.
+- **ONNX fallback chain**: Fallback detectors run sequentially in fixed priority order (heatmap → corner keypoint → segmentation), short-circuiting once one produces a quad; winner selection is delegated to `CombinedDecision.selectFallbackWinner`.
 - **OpenCV 5 APIs**: Uses `org.opencv.geometry.Geometry` for `contourArea()`, `arcLength()`, `approxPolyDP()`, `convexHull()`, `boundingRect()`, `moments()`, `getPerspectiveTransform()`.
 - **No inline comments**: Code is self-documenting, clean, and minimal.

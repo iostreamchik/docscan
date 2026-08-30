@@ -9,8 +9,9 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
-import io.github.iostreamchik.scanner.data.utils.computeMaxAngleDeviation
+import io.github.iostreamchik.scanner.data.utils.computeAvgShift
 import io.github.iostreamchik.scanner.data.utils.toBitmap
+import io.github.iostreamchik.scanner.data.utils.validateCornerGeometry
 import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.PipelineParams
@@ -27,7 +28,6 @@ import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import kotlin.math.abs
 import kotlin.math.exp
-import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
 
@@ -173,9 +173,9 @@ class CornerKeypointDetector(
         if (sorted.size != 4) return null
 
         val refined = refineCornersWithEdges(sorted, matBundle.getRawMat())
-        val finalCorners = if (refined != null && validateCornerGeometry(refined)) refined else sorted
+        val finalCorners = if (refined != null && validateCornerGeometry(refined, maxAngleDeviation)) refined else sorted
 
-        if (!validateCornerGeometry(finalCorners)) {
+        if (!validateCornerGeometry(finalCorners, maxAngleDeviation)) {
             _detectionParams.value = _detectionParams.value.copy(
                 cornerError = "geometry failed"
             )
@@ -347,31 +347,6 @@ class CornerKeypointDetector(
         }
 
         return refinedCorners
-    }
-
-    private fun computeAvgShift(a: List<Point>, b: List<Point>): Double {
-        var total = 0.0
-        for (i in a.indices) {
-            val dx = a[i].x - b[i].x
-            val dy = a[i].y - b[i].y
-            total += sqrt(dx * dx + dy * dy)
-        }
-        return total / a.size
-    }
-
-    private fun validateCornerGeometry(corners: List<Point>): Boolean {
-        if (corners.size != 4) return false
-
-        if (computeMaxAngleDeviation(corners) > maxAngleDeviation) return false
-
-        val xs = corners.map { it.x }
-        val ys = corners.map { it.y }
-        val width = xs.maxOrNull()!! - xs.minOrNull()!!
-        val height = ys.maxOrNull()!! - ys.minOrNull()!!
-        val aspectRatio = min(width, height) / max(width, height)
-        if (aspectRatio < 0.15) return false
-
-        return true
     }
 
     private fun buildCornerVisualization(

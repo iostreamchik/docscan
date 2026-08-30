@@ -62,9 +62,10 @@ io.github.iostreamchik.scanner/
 │   └── repository/IDocumentDetectorRepository.kt
 │
 ├── data/                                — Detection backends + OpenCV infra
-│   ├── detector/                        — 10 files: detectors + interface + orchestrator + helpers
+│   ├── detector/                        — 11 files: detectors + interface + orchestrator + helpers
 │   │   ├── IDocumentDetector.kt
 │   │   ├── CombinedDocumentDetector.kt  — Orchestrator (parallel Minimal+Directional, then Heatmap/CornerKeypoint/Segmentation fallbacks)
+│   │   ├── CombinedDecision.kt          — Pure List<Point> winner-selection + fallback-chain logic (DetectionCandidate)
 │   │   ├── DocumentDetectorMinimal.kt
 │   │   ├── DocumentDetectorDirectionalSuppression.kt
 │   │   ├── HeatmapCornerDetector.kt     — LCNet100+BiFPN ONNX (256px, heatmap corner regression)

@@ -9,6 +9,7 @@ import android.util.Log
 import io.github.iostreamchik.scanner.entity.IntermediateBitmaps
 import io.github.iostreamchik.scanner.entity.DetectionParameters
 import io.github.iostreamchik.scanner.entity.PipelineParams
+import io.github.iostreamchik.scanner.data.utils.quadAspectRatio
 import io.github.iostreamchik.scanner.data.utils.validateQuadRectangularity
 import io.github.iostreamchik.scanner.data.utils.isRectangle
 import io.github.iostreamchik.scanner.data.opencv.IMatBundle
@@ -29,7 +30,6 @@ import org.opencv.imgproc.Imgproc
 import org.opencv.android.Utils
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sqrt
 
 class SegmentationDetector(
@@ -277,14 +277,6 @@ class SegmentationDetector(
     private fun isQuadRectangular(pts: Array<Point>): Boolean =
         validateQuadRectangularity(pts.toList(), 15.0)
 
-    private fun getAspectRatio(pts: Array<Point>): Double {
-        val xs = pts.map { it.x }
-        val ys = pts.map { it.y }
-        val width = xs.maxOrNull()!! - xs.minOrNull()!!
-        val height = ys.maxOrNull()!! - ys.minOrNull()!!
-        return min(width, height) / max(width, height)
-    }
-
     override suspend fun detectQuad(
         morphImage: Mat,
         scaledWidth: Int,
@@ -382,7 +374,7 @@ class SegmentationDetector(
                 val rectAreaCheck = rectCheck.width * rectCheck.height
                 val solidityCheck = area / rectAreaCheck.toDouble()
 
-                if (solidityCheck >= 0.5 && isQuadRectangular(fallbackPts) && getAspectRatio(fallbackPts) >= 0.35) {
+                if (solidityCheck >= 0.5 && isQuadRectangular(fallbackPts) && quadAspectRatio(fallbackPts.toList()) >= 0.35) {
                     val scaleX = originalWidth.toDouble() / scaledWidth
                     val scaleY = originalHeight.toDouble() / scaledHeight
                     val scaledFallback = fallbackPts.map { Point(it.x * scaleX, it.y * scaleY) }

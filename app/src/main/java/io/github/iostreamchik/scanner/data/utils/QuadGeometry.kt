@@ -132,6 +132,45 @@ fun validateQuadRectangularity(
 ): Boolean = computeMaxAngleDeviation(corners) < maxDeviationDegrees
 
 /**
+ * Validates ONNX-detector corner geometry:
+ * all interior angles within [maxAngleDeviation] of 90° and the bounding-box
+ * aspect ratio above the sliver threshold.
+ */
+fun validateCornerGeometry(
+    corners: List<Point>,
+    maxAngleDeviation: Double = 45.0,
+    minAspectRatio: Double = 0.15
+): Boolean {
+    if (corners.size != 4) return false
+    if (computeMaxAngleDeviation(corners) > maxAngleDeviation) return false
+    return quadAspectRatio(corners) >= minAspectRatio
+}
+
+/**
+ * Average per-corner distance between two same-length point lists.
+ */
+fun computeAvgShift(a: List<Point>, b: List<Point>): Double {
+    var total = 0.0
+    for (i in a.indices) {
+        val dx = a[i].x - b[i].x
+        val dy = a[i].y - b[i].y
+        total += sqrt(dx * dx + dy * dy)
+    }
+    return total / a.size
+}
+
+/**
+ * Bounding-box aspect ratio of a point set in [0, 1], 1.0 for a square.
+ */
+fun quadAspectRatio(points: List<Point>): Double {
+    val xs = points.map { it.x }
+    val ys = points.map { it.y }
+    val width = xs.maxOrNull()!! - xs.minOrNull()!!
+    val height = ys.maxOrNull()!! - ys.minOrNull()!!
+    return min(width, height) / max(width, height)
+}
+
+/**
  * Computes a simple hash for a quad's point coordinates.
  * Used to detect when the same quad is detected repeatedly.
  */
@@ -145,7 +184,7 @@ fun quadHash(quad: MatOfPoint): Long {
     return hash
 }
 
-private fun computeAngle(p1: Point, p2: Point, center: Point): Double {
+internal fun computeAngle(p1: Point, p2: Point, center: Point): Double {
     val dx1 = p1.x - center.x
     val dy1 = p1.y - center.y
     val dx2 = p2.x - center.x
